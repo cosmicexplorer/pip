@@ -1,0 +1,3 @@
+Cache the result of parse_links() to avoid re-tokenizing a find-links page if the page's contents haven't changed.
+
+This change significantly improves resolve performance when --find-links points to a very large html page.
