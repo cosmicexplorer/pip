@@ -42,7 +42,10 @@ if MYPY_CHECK_RUNNING:
 logger = logging.getLogger(__name__)
 
 
-def lru_cache(
+# TODO: This is a stand-in for @functools.lru_cache() until python 2 support is
+# dropped. mypy does not appear to understand `except ImportError`, so this
+# polyfill is used everywhere.
+def _lru_cache(
         *args,                  # type: Any
         **kwargs                # type: Any
 ):
@@ -327,16 +330,18 @@ class CacheablePageContent(object):
         return hash((self.page.content, self.page.encoding))
 
 
-def with_cached_html_pages(fn):
-    # type: (Any) -> Any
+def with_cached_html_pages(
+    fn,    # type: Callable[[HTMLPage], Iterable[Link]]
+):
+    # type: (...) -> Callable[[HTMLPage], List[Link]]
 
-    @lru_cache(maxsize=None)
+    @_lru_cache(maxsize=None)
     def wrapper(cacheable_page):
-        # type: (CacheablePageContent) -> List[Any]
+        # type: (CacheablePageContent) -> List[Link]
         return list(fn(cacheable_page.page))
 
     def wrapper_wrapper(page):
-        # type: (HTMLPage) -> List[Any]
+        # type: (HTMLPage) -> List[Link]
         return wrapper(CacheablePageContent(page))
 
     return wrapper_wrapper
@@ -407,10 +412,12 @@ def _make_html_page(response):
     return HTMLPage(response.content, encoding=encoding, url=response.url)
 
 
-def with_cached_link_fetch(fn):
-    # type: (Any) -> Any
+def with_cached_link_fetch(
+    fn,  # type: Callable[..., Optional[HTMLPage]]
+):
+    # type: (...) -> Callable[..., Optional[HTMLPage]]
 
-    @lru_cache(maxsize=None)
+    @_lru_cache(maxsize=None)
     def wrapper(link, session=None):
         # type: (Link, Optional[PipSession]) -> Optional[HTMLPage]
         return fn(link, session=session)
