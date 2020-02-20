@@ -322,12 +322,11 @@ class CacheablePageContent(object):
     def __eq__(self, other):
         # type: (object) -> bool
         return (isinstance(other, type(self)) and
-                self.page.content == other.page.content and
-                self.page.encoding == other.page.encoding)
+                self.page.url == other.page.url)
 
     def __hash__(self):
         # type: () -> int
-        return hash((self.page.content, self.page.encoding))
+        return hash(self.page.url)
 
 
 def with_cached_html_pages(
@@ -412,20 +411,6 @@ def _make_html_page(response):
     return HTMLPage(response.content, encoding=encoding, url=response.url)
 
 
-def with_cached_link_fetch(
-    fn,  # type: Callable[..., Optional[HTMLPage]]
-):
-    # type: (...) -> Callable[..., Optional[HTMLPage]]
-
-    @_lru_cache(maxsize=None)
-    def wrapper(link, session=None):
-        # type: (Link, Optional[PipSession]) -> Optional[HTMLPage]
-        return fn(link, session=session)
-
-    return wrapper
-
-
-@with_cached_link_fetch
 def _get_html_page(link, session=None):
     # type: (Link, Optional[PipSession]) -> Optional[HTMLPage]
     if session is None:

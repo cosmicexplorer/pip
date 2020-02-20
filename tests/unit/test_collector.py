@@ -1,5 +1,6 @@
 import logging
 import os.path
+import uuid
 from textwrap import dedent
 
 import mock
@@ -10,7 +11,6 @@ from pip._vendor import html5lib, requests
 from pip._vendor.six.moves.urllib import request as urllib_request
 
 from pip._internal.index.collector import (
-    CacheablePageContent,
     HTMLPage,
     _clean_link,
     _clean_url_path,
@@ -356,7 +356,9 @@ def test_parse_links__yanked_reason(anchor_html, expected):
     page = HTMLPage(
         html_bytes,
         encoding=None,
-        url='https://example.com/simple/',
+        # parse_links() is cached by url, so we inject a random uuid to ensure
+        # the page content isn't cached.
+        url='https://example.com/simple-{}/'.format(uuid.uuid4()),
     )
     links = list(parse_links(page))
     link, = links
@@ -364,7 +366,7 @@ def test_parse_links__yanked_reason(anchor_html, expected):
     assert actual == expected
 
 
-def test_parse_links_caches_same_page():
+def test_parse_links_caches_same_page_by_url():
     html = (
         # Mark this as a unicode string for Python 2 since anchor_html
         # can contain non-ascii.
@@ -378,8 +380,10 @@ def test_parse_links_caches_same_page():
         encoding=None,
         url='https://example.com/simple/',
     )
+    # Make a second page with zero content, to ensure that it's not accessed,
+    # because the page was cached by url.
     page_2 = HTMLPage(
-        html_bytes,
+        b'',
         encoding=None,
         url='https://example.com/simple/',
     )
@@ -462,25 +466,6 @@ def test_get_html_page_invalid_scheme(caplog, url, vcs_scheme):
             "Cannot look at {} URL {}".format(vcs_scheme, url),
         ),
     ]
-
-
-def test_get_html_page_caches_same_link():
-    link = Link('https://example.com/link-1/')
-    session = mock.Mock(PipSession)
-
-    fake_response = make_fake_html_response(link.url)
-    mock_func = mock.patch("pip._internal.index.collector._get_html_response")
-    with mock_func as mock_func:
-        mock_func.return_value = fake_response
-        page_1 = _get_html_page(link, session=session)
-        mock_func.assert_called_once()
-
-    with mock_func as mock_func:
-        page_2 = _get_html_page(link, session=session)
-        # Assert that the result of the cached html page fetch will also then
-        # be cached by parse_links() and @with_cached_html_pages.
-        assert CacheablePageContent(page_1) == CacheablePageContent(page_2)
-        mock_func.assert_not_called()
 
 
 def make_fake_html_response(url):
