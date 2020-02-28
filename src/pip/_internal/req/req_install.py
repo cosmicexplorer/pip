@@ -97,6 +97,31 @@ class InstallRequirement(object):
     installing the said requirement.
     """
 
+    def copy(self):
+        # type: () -> InstallRequirement
+        comes_from = None      # type: Optional[Union[str, InstallRequirement]]
+        if self.comes_from:
+            if isinstance(self.comes_from, str):
+                comes_from = self.comes_from
+            else:
+                comes_from = self.comes_from.copy()
+        return InstallRequirement(
+            req=self.req,
+            comes_from=comes_from,
+            editable=self.editable,
+            link=self.link,
+            markers=self.markers,
+            use_pep517=self.use_pep517,
+            isolated=self.isolated,
+            install_options=list(self.install_options),
+            global_options=list(self.global_options),
+            hash_options=list(self.hash_options),
+            constraint=self.constraint,
+            extras=list(self.extras),
+            force_eager_download=self.force_eager_download,
+            has_backing_dist=self.has_backing_dist,
+        )
+
     def __init__(
         self,
         req,  # type: Optional[Requirement]
@@ -110,7 +135,9 @@ class InstallRequirement(object):
         global_options=None,  # type: Optional[List[str]]
         hash_options=None,  # type: Optional[Dict[str, List[str]]]
         constraint=False,  # type: bool
-        extras=()  # type: Iterable[str]
+        extras=(),  # type: Iterable[str]
+        force_eager_download=False,  # type: bool
+        has_backing_dist=False,      # type: bool
     ):
         # type: (...) -> None
         assert req is None or isinstance(req, Requirement), req
@@ -206,6 +233,9 @@ class InstallRequirement(object):
         # Setting an explicit value before loading pyproject.toml is supported,
         # but after loading this flag should be treated as read only.
         self.use_pep517 = use_pep517
+
+        self.force_eager_download = force_eager_download
+        self.has_backing_dist = has_backing_dist
 
     def __str__(self):
         # type: () -> str

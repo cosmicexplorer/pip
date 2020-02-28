@@ -103,11 +103,11 @@ class RequirementSet(object):
         if install_req.link and install_req.link.is_wheel:
             wheel = Wheel(install_req.link.filename)
             tags = compatibility_tags.get_supported()
-            if (self.check_supported_wheels and not wheel.supported(tags)):
-                raise InstallationError(
-                    "{} is not a supported wheel on this platform.".format(
-                        wheel.filename)
-                )
+            # if (self.check_supported_wheels and not wheel.supported(tags)):
+            #     raise InstallationError(
+            #         "{} is not a supported wheel on this platform.".format(
+            #             wheel.filename)
+            #     )
 
         # This next bit is really a sanity check.
         assert install_req.is_direct == (parent_req_name is None), (

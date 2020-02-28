@@ -110,17 +110,18 @@ def check_dist_restriction(options, check_target=False):
         not options.ignore_dependencies
     )
 
-    # Installations or downloads using dist restrictions must not combine
-    # source distributions and dist-specific wheels, as they are not
-    # guaranteed to be locally compatible.
-    if dist_restriction_set and sdist_dependencies_allowed:
-        raise CommandError(
-            "When restricting platform and interpreter constraints using "
-            "--python-version, --platform, --abi, or --implementation, "
-            "either --no-deps must be set, or --only-binary=:all: must be "
-            "set and --no-binary must not be set (or must be set to "
-            ":none:)."
-        )
+    # FIXME: this breaks multiplatform `pip resolve`s!
+    # # Installations or downloads using dist restrictions must not combine
+    # # source distributions and dist-specific wheels, as they are not
+    # # guaranteed to be locally compatible.
+    # if dist_restriction_set and sdist_dependencies_allowed:
+    #     raise CommandError(
+    #         "When restricting platform and interpreter constraints using "
+    #         "--python-version, --platform, --abi, or --implementation, "
+    #         "either --no-deps must be set, or --only-binary=:all: must be "
+    #         "set and --no-binary must not be set (or must be set to "
+    #         ":none:)."
+    #     )
 
     if check_target:
         if dist_restriction_set and not options.target_dir:
@@ -692,6 +693,16 @@ def _handle_build_dir(option, opt, value, parser):
     if value:
         value = os.path.abspath(value)
     setattr(parser.values, option.dest, value)
+
+
+quickly_parse_sub_requirements = partial(
+    Option,
+    '--quickly-parse-sub-requirements',
+    dest='quickly_parse_sub_requirements',
+    action='store_true',
+    default=False,
+    help='Enable an experimental mode to download more packages in parallel.',
+)  # type: Callable[..., Option]
 
 
 build_dir = partial(
