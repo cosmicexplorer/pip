@@ -8,7 +8,7 @@ import os
 
 from pip._internal.cli import cmdoptions
 from pip._internal.cli.cmdoptions import make_target_python
-from pip._internal.cli.req_command import RequirementCommand, with_cleanup
+from pip._internal.cli.req_command import RequirementCommand, SessionCommandMixin, with_cleanup
 from pip._internal.req.req_tracker import get_requirement_tracker
 from pip._internal.utils.misc import ensure_dir, normalize_path, write_output
 from pip._internal.utils.temp_dir import TempDirectory
@@ -16,7 +16,7 @@ from pip._internal.utils.temp_dir import TempDirectory
 logger = logging.getLogger(__name__)
 
 
-class DownloadCommand(RequirementCommand):
+class DownloadCommand(RequirementCommand, SessionCommandMixin):
     """
     Download packages from:
 
@@ -117,6 +117,7 @@ class DownloadCommand(RequirementCommand):
             finder=finder,
             download_dir=options.download_dir,
             use_user_site=False,
+            quickly_parse_sub_requirements=options.quickly_parse_sub_requirements,
         )
 
         resolver = self.make_resolver(
@@ -124,6 +125,8 @@ class DownloadCommand(RequirementCommand):
             finder=finder,
             options=options,
             py_version_info=options.python_version,
+            quickly_parse_sub_requirements=options.quickly_parse_sub_requirements,
+            session=self._session,
         )
 
         self.trace_basic_info(finder)

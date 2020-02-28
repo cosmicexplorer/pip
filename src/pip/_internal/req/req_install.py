@@ -110,7 +110,9 @@ class InstallRequirement(object):
         global_options=None,  # type: Optional[List[str]]
         hash_options=None,  # type: Optional[Dict[str, List[str]]]
         constraint=False,  # type: bool
-        extras=()  # type: Iterable[str]
+        extras=(),  # type: Iterable[str]
+        force_eager_download=False, # type: bool
+        has_backing_dist=False,     # type: bool
     ):
         # type: (...) -> None
         assert req is None or isinstance(req, Requirement), req
@@ -206,6 +208,9 @@ class InstallRequirement(object):
         # Setting an explicit value before loading pyproject.toml is supported,
         # but after loading this flag should be treated as read only.
         self.use_pep517 = use_pep517
+
+        self.force_eager_download = force_eager_download
+        self.has_backing_dist = has_backing_dist
 
     def __str__(self):
         # type: () -> str
