@@ -30,6 +30,7 @@ class Link(KeyBasedCompareMixin):
         comes_from=None,       # type: Optional[Union[str, HTMLPage]]
         requires_python=None,  # type: Optional[str]
         yanked_reason=None,    # type: Optional[Text]
+        is_index_url=False,    # type: bool
     ):
         # type: (...) -> None
         """
@@ -62,6 +63,8 @@ class Link(KeyBasedCompareMixin):
         self.yanked_reason = yanked_reason
 
         super(Link, self).__init__(key=url, defining_class=Link)
+
+        self.is_index_url = is_index_url
 
     def __str__(self):
         # type: () -> str

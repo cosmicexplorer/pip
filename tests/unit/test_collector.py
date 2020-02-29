@@ -1,5 +1,6 @@
 import logging
 import os.path
+import re
 import uuid
 from textwrap import dedent
 
@@ -387,21 +388,27 @@ def test_parse_links_caches_same_page_by_url():
         encoding=None,
         url='https://example.com/simple/',
     )
+    # Make a third page which represents an index url, which should not be
+    # cached, even for the same url. We modify the page content slightly to
+    # ensure that the result is not cached.
+    page_3 = HTMLPage(
+        re.sub(b'pkg1', b'pkg2', html_bytes),
+        encoding=None,
+        url='https://example.com/simple/',
+        is_index_url=True,
+    )
 
-    mock_parse = mock.patch("pip._internal.index.collector.html5lib.parse")
-    with mock_parse as mock_parse:
-        mock_parse.return_value = html5lib.parse(
-            page_1.content,
-            transport_encoding=page_1.encoding,
-            namespaceHTMLElements=False,
-        )
-        parsed_links_1 = list(parse_links(page_1))
-        mock_parse.assert_called()
+    parsed_links_1 = list(parse_links(page_1))
+    assert len(parsed_links_1) == 1
+    assert 'pkg1' in parsed_links_1[0].url
 
-    with mock_parse as mock_parse:
-        parsed_links_2 = list(parse_links(page_2))
-        assert parsed_links_2 == parsed_links_1
-        mock_parse.assert_not_called()
+    parsed_links_2 = list(parse_links(page_2))
+    assert parsed_links_2 == parsed_links_1
+
+    parsed_links_3 = list(parse_links(page_3))
+    assert len(parsed_links_3) == 1
+    assert parsed_links_3 != parsed_links_1
+    assert 'pkg2' in parsed_links_3[0].url
 
 
 def test_request_http_error(caplog):

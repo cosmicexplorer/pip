@@ -18,7 +18,7 @@ from pip._vendor.six.moves.urllib import request as urllib_request
 
 from pip._internal.models.link import Link
 from pip._internal.utils.filetypes import ARCHIVE_EXTENSIONS
-from pip._internal.utils.misc import redact_auth_from_url
+from pip._internal.utils.misc import pairwise, redact_auth_from_url
 from pip._internal.utils.typing import MYPY_CHECK_RUNNING
 from pip._internal.utils.urls import path_to_url, url_to_path
 from pip._internal.vcs import is_url, vcs
@@ -341,6 +341,9 @@ def with_cached_html_pages(
 
     def wrapper_wrapper(page):
         # type: (HTMLPage) -> List[Link]
+        if page.is_index_url:
+            # Avoid caching when requesting pypi indices.
+            return list(fn(page))
         return wrapper(CacheablePageContent(page))
 
     return wrapper_wrapper
@@ -376,9 +379,10 @@ class HTMLPage(object):
 
     def __init__(
         self,
-        content,   # type: bytes
-        encoding,  # type: Optional[str]
-        url,       # type: str
+        content,                # type: bytes
+        encoding,               # type: Optional[str]
+        url,                    # type: str
+        is_index_url=False,     # type: bool
     ):
         # type: (...) -> None
         """
@@ -388,6 +392,7 @@ class HTMLPage(object):
         self.content = content
         self.encoding = encoding
         self.url = url
+        self.is_index_url = is_index_url
 
     def __str__(self):
         # type: () -> str
@@ -405,10 +410,13 @@ def _handle_get_page_fail(
     meth("Could not fetch URL %s: %s - skipping", link, reason)
 
 
-def _make_html_page(response):
-    # type: (Response) -> HTMLPage
+def _make_html_page(response, is_index_url=False):
+    # type: (Response, bool) -> HTMLPage
     encoding = _get_encoding_from_headers(response.headers)
-    return HTMLPage(response.content, encoding=encoding, url=response.url)
+    return HTMLPage(
+        response.content,
+        encoding=encoding,
+        url=response.url, is_index_url=is_index_url)
 
 
 def _get_html_page(link, session=None):
@@ -461,7 +469,7 @@ def _get_html_page(link, session=None):
     except requests.Timeout:
         _handle_get_page_fail(link, "timed out")
     else:
-        return _make_html_page(resp)
+        return _make_html_page(resp, is_index_url=link.is_index_url)
     return None
 
 
@@ -624,7 +632,7 @@ class LinkCollector(object):
         # We want to filter out anything that does not have a secure origin.
         url_locations = [
             link for link in itertools.chain(
-                (Link(url) for url in index_url_loc),
+                (Link(url, is_index_url=True) for url in index_url_loc),
                 (Link(url) for url in fl_url_loc),
             )
             if self.session.is_secure_origin(link)
