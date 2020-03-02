@@ -72,6 +72,7 @@ class Link(KeyBasedCompareMixin):
         self.cache_link_parsing = cache_link_parsing
 
     def is_wheel_file(self):
+        # type: () -> bool
         return any(
             self.ext == ext
             for ext in ['.whl', '.WHL']

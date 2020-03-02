@@ -398,7 +398,7 @@ class CandidateEvaluator(object):
         allow_all_prereleases=False,  # type: bool
         specifier=None,       # type: Optional[specifiers.BaseSpecifier]
         hashes=None,          # type: Optional[Hashes]
-        quickly_parse_sub_requirements=False, # type: bool
+        quickly_parse_sub_requirements=False,  # type: bool
     ):
         # type: (...) -> CandidateEvaluator
         """Create a CandidateEvaluator object.
@@ -436,7 +436,7 @@ class CandidateEvaluator(object):
         prefer_binary=False,  # type: bool
         allow_all_prereleases=False,  # type: bool
         hashes=None,                  # type: Optional[Hashes]
-        quickly_parse_sub_requirements=False, # type: bool
+        quickly_parse_sub_requirements=False,  # type: bool
     ):
         # type: (...) -> None
         """
@@ -561,15 +561,15 @@ class CandidateEvaluator(object):
         if not candidates:
             return None
 
-        # Prefer wheel files to other candidates if we have --quickly-parse-sub-requirements turned
-        # on.
+        # Prefer wheel files to other candidates if we have
+        # --quickly-parse-sub-requirements turned on.
         if self.quickly_parse_sub_requirements:
-          maybe_zip_candidates = [
-              c for c in candidates
-              if c.link.is_wheel_file()
-          ]
-          if maybe_zip_candidates:
-              candidates = maybe_zip_candidates
+            maybe_zip_candidates = [
+                c for c in candidates
+                if c.link.is_wheel_file()
+            ]
+            if maybe_zip_candidates:
+                candidates = maybe_zip_candidates
 
         best_candidate = max(candidates, key=self._sort_key)
         return best_candidate
@@ -608,7 +608,7 @@ class PackageFinder(object):
         format_control=None,  # type: Optional[FormatControl]
         candidate_prefs=None,         # type: CandidatePreferences
         ignore_requires_python=None,  # type: Optional[bool]
-        quickly_parse_sub_requirements=False, # type: bool
+        quickly_parse_sub_requirements=False,   # type: bool
     ):
         # type: (...) -> None
         """
@@ -649,7 +649,7 @@ class PackageFinder(object):
         link_collector,      # type: LinkCollector
         selection_prefs,     # type: SelectionPreferences
         target_python=None,  # type: Optional[TargetPython]
-        quickly_parse_sub_requirements=False, # type: bool
+        quickly_parse_sub_requirements=False,   # type: bool
     ):
         # type: (...) -> PackageFinder
         """Create a PackageFinder.

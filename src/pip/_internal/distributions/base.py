@@ -35,6 +35,7 @@ class AbstractDistribution(object):
         self.req = req
 
     def has_been_downloaded(self):
+        # type: () -> bool
         return True
 
     @abc.abstractmethod

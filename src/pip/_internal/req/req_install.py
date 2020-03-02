@@ -111,8 +111,8 @@ class InstallRequirement(object):
         hash_options=None,  # type: Optional[Dict[str, List[str]]]
         constraint=False,  # type: bool
         extras=(),  # type: Iterable[str]
-        force_eager_download=False, # type: bool
-        has_backing_dist=False,     # type: bool
+        force_eager_download=False,  # type: bool
+        has_backing_dist=False,      # type: bool
     ):
         # type: (...) -> None
         assert req is None or isinstance(req, Requirement), req

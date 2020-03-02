@@ -25,6 +25,10 @@ from pip._internal.req.constructors import (
     install_req_from_req_string,
 )
 from pip._internal.req.req_file import parse_requirements
+from pip._internal.resolution.legacy.resolver import (
+    PersistentRequirementDependencyCache,
+    Resolver,
+)
 from pip._internal.self_outdated_check import (
     make_link_collector,
     pip_self_version_check,
@@ -203,15 +207,15 @@ class RequirementCommand(IndexGroupCommand):
 
     @staticmethod
     def make_requirement_preparer(
-        temp_build_dir,           # type: TempDirectory
-        options,                  # type: Values
-        req_tracker,              # type: RequirementTracker
-        session,                  # type: PipSession
-        finder,                   # type: PackageFinder
-        use_user_site,            # type: bool
-        download_dir=None,        # type: str
-        wheel_download_dir=None,  # type: str
-        quickly_parse_sub_requirements=False, # type: bool
+        temp_build_dir,                        # type: TempDirectory
+        options,                               # type: Values
+        req_tracker,                           # type: RequirementTracker
+        session,                               # type: PipSession
+        finder,                                # type: PackageFinder
+        use_user_site,                         # type: bool
+        download_dir=None,                     # type: str
+        wheel_download_dir=None,               # type: str
+        quickly_parse_sub_requirements=False,  # type: bool
     ):
         # type: (...) -> RequirementPreparer
         """
@@ -249,7 +253,7 @@ class RequirementCommand(IndexGroupCommand):
         upgrade_strategy="to-satisfy-only",  # type: str
         use_pep517=None,                     # type: Optional[bool]
         py_version_info=None,                # type: Optional[Tuple[int, ...]]
-        quickly_parse_sub_requirements=False,# type: bool
+        quickly_parse_sub_requirements=False,  # type: bool
         session=None                         # type: Optional[PipSession]
     ):
         # type: (...) -> BaseResolver
@@ -261,6 +265,13 @@ class RequirementCommand(IndexGroupCommand):
             isolated=options.isolated_mode,
             use_pep517=use_pep517,
         )
+
+        persistent_cache_file = os.path.join(
+            options.cache_dir,
+            'requirement-link-dependency-cache.json')
+        persistent_dependency_cache = PersistentRequirementDependencyCache(
+            persistent_cache_file)
+
         # The long import name and duplicated invocation is needed to convince
         # Mypy into correctly typechecking. Otherwise it would complain the
         # "Resolver" class being redefined.
@@ -294,6 +305,7 @@ class RequirementCommand(IndexGroupCommand):
             py_version_info=py_version_info,
             quickly_parse_sub_requirements=quickly_parse_sub_requirements,
             session=session,
+            persistent_dependency_cache=persistent_dependency_cache,
         )
 
     def get_requirements(
@@ -407,5 +419,6 @@ class RequirementCommand(IndexGroupCommand):
             link_collector=link_collector,
             selection_prefs=selection_prefs,
             target_python=target_python,
-            quickly_parse_sub_requirements=options.quickly_parse_sub_requirements,
+            quickly_parse_sub_requirements=(
+                options.quickly_parse_sub_requirements),
         )

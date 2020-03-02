@@ -329,7 +329,7 @@ class RequirementPreparer(object):
         finder,  # type: PackageFinder
         require_hashes,  # type: bool
         use_user_site,  # type: bool
-        quickly_parse_sub_requirements, # type: bool
+        quickly_parse_sub_requirements,  # type: bool
     ):
         # type: (...) -> None
         super(RequirementPreparer, self).__init__()
@@ -425,7 +425,8 @@ class RequirementPreparer(object):
             # FIXME: this won't upgrade when there's an existing
             # package unpacked in `req.source_dir`
 
-            if os.path.exists(os.path.join(req.source_dir, 'setup.py')) and not self.quickly_parse_sub_requirements:
+            if (os.path.exists(os.path.join(req.source_dir, 'setup.py')) and
+                    not self.quickly_parse_sub_requirements):
                 raise PreviousBuildDirError(
                     "pip can't proceed with requirements '{}' due to a"
                     " pre-existing build directory ({}). This is "
