@@ -211,14 +211,19 @@ class RequirementConcreteUrl(object):
         # type: () -> str
         return '{}({!r}, {!r})'.format(type(self).__name__, self.req, self.url)
 
+    record_separator = '|'
+
     def into_json(self):
         # type: () -> str
-        return '{},{}'.format(str(self.req), self.url)
+        return self.record_separator.join([
+            str(self.req),
+            self.url
+        ])
 
     @classmethod
     def from_json(cls, comma_delimited):
         # type: (str) -> RequirementConcreteUrl
-        req, _, url = tuple(comma_delimited.partition(','))
+        req, url = tuple(comma_delimited.split(cls.record_separator))
         return cls(Requirement(req), url)
 
 
