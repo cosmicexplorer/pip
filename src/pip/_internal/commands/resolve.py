@@ -5,10 +5,15 @@ from __future__ import absolute_import
 
 import logging
 import os
+import sys
 
 from pip._internal.cli import cmdoptions
 from pip._internal.cli.cmdoptions import make_target_python
-from pip._internal.cli.req_command import RequirementCommand, with_cleanup
+from pip._internal.cli.req_command import (
+    RequirementCommand,
+    SessionCommandMixin,
+    with_cleanup,
+)
 from pip._internal.req.req_tracker import get_requirement_tracker
 from pip._internal.utils.misc import ensure_dir, normalize_path, write_output
 from pip._internal.utils.temp_dir import TempDirectory
@@ -16,17 +21,16 @@ from pip._internal.utils.temp_dir import TempDirectory
 logger = logging.getLogger(__name__)
 
 
-class DownloadCommand(RequirementCommand):
+class ResolveCommand(RequirementCommand, SessionCommandMixin):
     """
-    Download packages from:
+    EXPERIMENTAL
 
-    - PyPI (and other indexes) using requirement specifiers.
-    - VCS project urls.
-    - Local project directories.
-    - Local or remote source archives.
+    Translate the list of input requirements to a list of transitive ==
+    requirements. The effect of resolving the output list of requirements
+    should be the exact same as the input list, given some specific state of
+    --index and --find-links urls at the time this command was run.
 
-    pip also supports downloading from "requirements files", which provide
-    an easy way to specify a whole environment to be downloaded.
+    This supports all of the same inputs as the `download` command.
     """
 
     usage = """
@@ -37,7 +41,7 @@ class DownloadCommand(RequirementCommand):
       %prog [options] <archive url/path> ..."""
 
     def __init__(self, *args, **kw):
-        super(DownloadCommand, self).__init__(*args, **kw)
+        super(ResolveCommand, self).__init__(*args, **kw)
 
         cmd_opts = self.cmd_opts
 
@@ -78,7 +82,7 @@ class DownloadCommand(RequirementCommand):
     @with_cleanup
     def run(self, options, args):
         options.ignore_installed = True
-        # editable doesn't really make sense for `pip download`, but the bowels
+        # editable doesn't really make sense for `pip resolve`, but the bowels
         # of the RequirementSet code require that property.
         options.editables = []
 
@@ -107,7 +111,13 @@ class DownloadCommand(RequirementCommand):
             globally_managed=True,
         )
 
-        reqs = self.get_requirements(args, options, finder, session)
+        reqs = self.get_requirements(
+            args,
+            options,
+            finder,
+            session,
+            None
+        )
 
         preparer = self.make_requirement_preparer(
             temp_build_dir=directory,
@@ -117,6 +127,8 @@ class DownloadCommand(RequirementCommand):
             finder=finder,
             download_dir=options.download_dir,
             use_user_site=False,
+            quickly_parse_sub_requirements=(
+                options.quickly_parse_sub_requirements),
         )
 
         resolver = self.make_resolver(
@@ -124,13 +136,20 @@ class DownloadCommand(RequirementCommand):
             finder=finder,
             options=options,
             py_version_info=options.python_version,
+            quickly_parse_sub_requirements=(
+                options.quickly_parse_sub_requirements),
+            session=self._session,
         )
 
         self.trace_basic_info(finder)
 
-        requirement_set = resolver.resolve(
-            reqs, check_supported_wheels=True
-        )
+        try:
+            requirement_set = resolver.resolve(
+                reqs, check_supported_wheels=True
+            )
+        except Exception as e:
+            logger.exception(e)
+            raise
 
         downloaded = ' '.join([
             req.name for req in requirement_set.requirements.values()
@@ -138,5 +157,9 @@ class DownloadCommand(RequirementCommand):
         ])
         if downloaded:
             write_output('Successfully downloaded %s', downloaded)
+
+        req_strings = '\n'.join(
+            str(req) for req in requirement_set.requirements.values())
+        sys.stdout.write('{}\n'.format(req_strings))
 
         return requirement_set
