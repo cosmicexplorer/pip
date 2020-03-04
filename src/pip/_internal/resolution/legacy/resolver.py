@@ -14,8 +14,8 @@ for sub-dependencies
 # mypy: strict-optional=False
 # mypy: disallow-untyped-defs=False
 
+import json
 import logging
-import pickle
 import re
 import struct
 import sys
@@ -47,26 +47,6 @@ from pip._internal.utils.packaging import (
 from pip._internal.utils.typing import MYPY_CHECK_RUNNING
 from pip._internal.utils.urls import get_url_scheme
 
-
-class RequirementConcreteUrl(object):
-    def __init__(self, req):
-        # type: (InstallRequirement) -> None
-        self._req = req
-        self.url = req.link.url
-
-    def __hash__(self):
-        # type: () -> int
-        return hash(self.url)
-
-    def __eq__(self, other):
-        # type: (object) -> bool
-        return isinstance(other, type(self)) and self.url == other.url
-
-    def __repr__(self):
-        # type: () -> str
-        return '{}({!r})'.format(type(self).__name__, self._req)
-
-
 if MYPY_CHECK_RUNNING:
     from typing import Callable, DefaultDict, Dict, List, Optional, Set, Tuple
     from pip._vendor import pkg_resources
@@ -81,8 +61,7 @@ if MYPY_CHECK_RUNNING:
     from pip._internal.resolution.base import InstallRequirementProvider
 
     DiscoveredDependencies = DefaultDict[str, List[InstallRequirement]]
-    RequirementDependencyCacheDict = (
-        Dict[RequirementConcreteUrl, List[InstallRequirement]])
+
 
 logger = logging.getLogger(__name__)
 
@@ -191,11 +170,10 @@ class PersistentRequirementDependencyCache(object):
             with open(self._file_path, 'rb') as f:
                 cache_from_config = RequirementDependencyCache.deserialize(
                     f.read())
-        except (OSError, pickle.PickleError, EOFError) as e:
-            # If the file does not exist, or the pickle was not readable for
-            # any reason, just start anew.
-            logger.debug('error reading pickled dependency cache: {}.'
-                         .format(e))
+        except (OSError, EOFError) as e:
+            # If the file does not exist, or the cache was not readable for any
+            # reason, just start anew.
+            logger.debug('error reading dependency cache: {}.'.format(e))
             cache_from_config = RequirementDependencyCache({})
 
         self._cache = cache_from_config
@@ -209,36 +187,93 @@ class PersistentRequirementDependencyCache(object):
             self._cache = None
 
 
+class RequirementConcreteUrl(object):
+    @classmethod
+    def from_install_req(cls, install_req):
+        # type: (InstallRequirement) -> RequirementConcreteUrl
+        return cls(install_req.req, install_req.link.url)
+
+    def __init__(self, req, url):
+        # type: (Requirement, str) -> None
+        self.req = req
+        self.url = url
+
+    def __hash__(self):
+        # type: () -> int
+        return hash((self.req, self.url))
+
+    def __eq__(self, other):
+        # type: (object) -> bool
+        return (isinstance(other, type(self)) and
+                self.req == other.req and self.url == other.url)
+
+    def __repr__(self):
+        # type: () -> str
+        return '{}({!r}, {!r})'.format(type(self).__name__, self.req, self.url)
+
+    def into_json(self):
+        # type: () -> str
+        return '{},{}'.format(str(self.req), self.url)
+
+    @classmethod
+    def from_json(cls, comma_delimited):
+        # type: (str) -> RequirementConcreteUrl
+        req, _, url = tuple(comma_delimited.partition(','))
+        return cls(Requirement(req), url)
+
+
+if MYPY_CHECK_RUNNING:
+    RequirementsCacheDict = \
+        Dict[RequirementConcreteUrl, List[RequirementConcreteUrl]]
+
+
 class RequirementDependencyCache(object):
     def __init__(self, cache_from_config):
-        # type: (RequirementDependencyCacheDict) -> None
+        # type: (RequirementsCacheDict) -> None
         self._cache = cache_from_config
 
-    def add_dependency_links(self, url, dep_reqs):
-        # type: (RequirementConcreteUrl, List[InstallRequirement]) -> None
+    # FIXME: InstallRequirement objects are mutable, and we record their
+    # mutable attributes when we serialize them and persist them. We should
+    # probably reinstate the copy() method for InstallRequirement objects!
+    def add_dependency_links(self, req, dep_reqs):
+        # type: (InstallRequirement, List[InstallRequirement]) -> None
+        base_concrete_req = RequirementConcreteUrl.from_install_req(req)
+        dep_concrete_reqs = [
+            RequirementConcreteUrl.from_install_req(dep)
+            for dep in dep_reqs
+        ]
 
         # NB: We will always overwrite any previous value here!!!
-        prev_deps = self._cache.get(url, [])
-        if len(dep_reqs) < len(prev_deps):
-            logger.debug(
-                'new dependency links ({}) are less than previous '
-                'cached entry {}; skipping'
-                .format(dep_reqs, prev_deps))
-        else:
-            self._cache[url] = dep_reqs
+        prev_deps = self._cache.get(base_concrete_req, None)
 
-    def get(self, concrete_url):
-        # type: (RequirementConcreteUrl) -> Optional[List[InstallRequirement]]
+        if prev_deps is not None:
+            assert dep_concrete_reqs == prev_deps
+        else:
+            self._cache[base_concrete_req] = dep_concrete_reqs
+
+    def get(self,
+            concrete_url,       # type: RequirementConcreteUrl
+            ):
+        # type: (...) -> Optional[List[RequirementConcreteUrl]]
         return self._cache.get(concrete_url, None)
 
     def serialize(self):
         # type: () -> bytes
-        return pickle.dumps(self._cache)
+        return json.dumps({
+            url.into_json(): [dep_url.into_json() for dep_url in deps]
+            for url, deps in self._cache.items()
+        }).encode('utf-8')
 
     @classmethod
-    def deserialize(cls, pickled_object):
+    def deserialize(cls, json_object):
         # type: (bytes) -> RequirementDependencyCache
-        return cls(pickle.loads(pickled_object))
+        return cls({
+            RequirementConcreteUrl.from_json(url): [
+                RequirementConcreteUrl.from_json(dep_url)
+                for dep_url in deps
+            ]
+            for url, deps in json.loads(json_object).items()
+        })
 
 
 class Resolver(BaseResolver):
@@ -333,9 +368,15 @@ class Resolver(BaseResolver):
                 try:
                     dep_reqs = self._resolve_one(requirement_set, req,
                                                  dep_cache)
-                    concrete_url = RequirementConcreteUrl(req)
-                    dep_cache.add_dependency_links(concrete_url, dep_reqs)
-                    for r in dep_reqs:
+
+                    link_populated_dep_reqs = [
+                        self._get_abstract_dist_for(dep).req
+                        for dep in dep_reqs
+                    ]
+
+                    dep_cache.add_dependency_links(req,
+                                                   link_populated_dep_reqs)
+                    for r in link_populated_dep_reqs:
                         # NB: This package appears to be within the
                         # tensorflow==1.14 transitive dependencies, but
                         # building it on py3 fails with the message "This
@@ -671,17 +712,25 @@ class Resolver(BaseResolver):
 
         abstract_dist = self._get_abstract_dist_for(req_to_install)
 
+        assert abstract_dist.req.link is not None
+
         # FIXME: perform the Requires-Python checking for shallowly-resolved
         # requirements (via self._hacky_extract_sub_reqs)!!!
         if not abstract_dist.has_been_downloaded():
-            if abstract_dist.req.link is not None:
-                maybe_cached_sub_reqs = dep_cache.get(
-                    RequirementConcreteUrl(abstract_dist.req))
-                if maybe_cached_sub_reqs is not None:
-                    logger.debug(
-                        'cached sub requirements were found: {} for {}'
-                        .format(maybe_cached_sub_reqs, abstract_dist.req.link))
-                    return maybe_cached_sub_reqs
+            maybe_cached_sub_reqs = dep_cache.get(
+                RequirementConcreteUrl.from_install_req(abstract_dist.req))
+            if maybe_cached_sub_reqs is not None:
+                logger.debug(
+                    'cached sub requirements were found: {} for {}'
+                    .format(maybe_cached_sub_reqs, abstract_dist.req.link))
+                hydrated_sub_reqs = [
+                    InstallRequirement(
+                        req=req.req,
+                        comes_from=abstract_dist.req,
+                    )
+                    for req in maybe_cached_sub_reqs
+                ]
+                return hydrated_sub_reqs
             sub_reqs = self._hacky_extract_sub_reqs(req_to_install)
             req_to_install.force_eager_download = True
             req_to_install.is_direct = True

@@ -417,7 +417,8 @@ class RequirementPreparer(object):
 
         with indent_log():
             # Since source_dir is only set for editable requirements.
-            assert req.source_dir is None
+            if not self.quickly_parse_sub_requirements:
+                assert req.source_dir is None
             req.ensure_has_source_dir(self.build_dir, autodelete_unpacked)
             # If a checkout exists, it's unwise to keep going.  version
             # inconsistencies are logged later, but do not fail the
