@@ -137,9 +137,13 @@ class DownloadCommand(RequirementCommand, SessionCommandMixin):
 
         self.trace_basic_info(finder)
 
-        requirement_set = resolver.resolve(
-            reqs, check_supported_wheels=True
-        )
+        try:
+            requirement_set = resolver.resolve(
+                reqs, check_supported_wheels=True
+            )
+        except Exception as e:
+            logger.exception(e)
+            raise
 
         downloaded = ' '.join([
             req.name for req in requirement_set.requirements.values()

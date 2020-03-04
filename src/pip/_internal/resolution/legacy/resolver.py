@@ -51,6 +51,7 @@ from pip._internal.utils.urls import get_url_scheme
 class RequirementConcreteUrl(object):
     def __init__(self, req):
         # type: (InstallRequirement) -> None
+        self._req = req
         self.url = req.link.url
 
     def __hash__(self):
@@ -60,6 +61,10 @@ class RequirementConcreteUrl(object):
     def __eq__(self, other):
         # type: (object) -> bool
         return isinstance(other, type(self)) and self.url == other.url
+
+    def __repr__(self):
+        # type: () -> str
+        return '{}({!r})'.format(type(self).__name__, self._req)
 
 
 if MYPY_CHECK_RUNNING:
@@ -186,11 +191,11 @@ class PersistentRequirementDependencyCache(object):
             with open(self._file_path, 'rb') as f:
                 cache_from_config = RequirementDependencyCache.deserialize(
                     f.read())
-        except (OSError, pickle.PickleError) as e:
+        except (OSError, pickle.PickleError, EOFError) as e:
             # If the file does not exist, or the pickle was not readable for
             # any reason, just start anew.
             logger.debug('error reading pickled dependency cache: {}.'
-                         .format(str(e)))
+                         .format(e))
             cache_from_config = RequirementDependencyCache({})
 
         self._cache = cache_from_config
@@ -211,8 +216,16 @@ class RequirementDependencyCache(object):
 
     def add_dependency_links(self, url, dep_reqs):
         # type: (RequirementConcreteUrl, List[InstallRequirement]) -> None
-        assert url not in self._cache
-        self._cache[url] = dep_reqs
+
+        # NB: We will always overwrite any previous value here!!!
+        prev_deps = self._cache.get(url, [])
+        if len(dep_reqs) < len(prev_deps):
+            logger.debug(
+                'new dependency links ({}) are less than previous '
+                'cached entry {}; skipping'
+                .format(dep_reqs, prev_deps))
+        else:
+            self._cache[url] = dep_reqs
 
     def get(self, concrete_url):
         # type: (RequirementConcreteUrl) -> Optional[List[InstallRequirement]]
@@ -661,9 +674,15 @@ class Resolver(BaseResolver):
         # FIXME: perform the Requires-Python checking for shallowly-resolved
         # requirements (via self._hacky_extract_sub_reqs)!!!
         if not abstract_dist.has_been_downloaded():
-            sub_reqs = dep_cache.get(RequirementConcreteUrl(req_to_install))
-            if not sub_reqs:
-                sub_reqs = self._hacky_extract_sub_reqs(req_to_install)
+            if abstract_dist.req.link is not None:
+                maybe_cached_sub_reqs = dep_cache.get(
+                    RequirementConcreteUrl(abstract_dist.req))
+                if maybe_cached_sub_reqs is not None:
+                    logger.debug(
+                        'cached sub requirements were found: {} for {}'
+                        .format(maybe_cached_sub_reqs, abstract_dist.req.link))
+                    return maybe_cached_sub_reqs
+            sub_reqs = self._hacky_extract_sub_reqs(req_to_install)
             req_to_install.force_eager_download = True
             req_to_install.is_direct = True
             return sub_reqs + [req_to_install]
