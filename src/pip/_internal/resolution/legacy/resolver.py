@@ -254,7 +254,6 @@ class RequirementDependencyCache(object):
             for dep in dep_reqs
         ]
 
-        # NB: We will always overwrite any previous value here!!!
         prev_deps = self._cache.get(base_concrete_req, None)
 
         if prev_deps is not None:
@@ -373,6 +372,10 @@ class Resolver(BaseResolver):
             found_reqs = set()  # type: Set[str]
 
             for req in chain(root_reqs, discovered_reqs, forced_eager_reqs):
+
+                if (req.force_eager_download and
+                        self.quickly_parse_sub_requirements):
+                    continue
 
                 # import pdb; pdb.set_trace()
 
