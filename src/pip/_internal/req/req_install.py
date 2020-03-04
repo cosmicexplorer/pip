@@ -97,6 +97,33 @@ class InstallRequirement(object):
     installing the said requirement.
     """
 
+    def copy(self):
+        # type: () -> InstallRequirement
+        comes_from = None      # type: Optional[Union[str, InstallRequirement]]
+        if self.comes_from:
+            if isinstance(self.comes_from, str):
+                comes_from = self.comes_from
+            else:
+                comes_from = self.comes_from.copy()
+        return InstallRequirement(
+            req=self.req,
+            comes_from=comes_from,
+            source_dir=self.source_dir,
+            editable=self.editable,
+            link=self.link,
+            markers=self.markers,
+            use_pep517=self.use_pep517,
+            isolated=self.isolated,
+            install_options=self.install_options.copy(),
+            global_options=self.global_options.copy(),
+            hash_options=self.hash_options.copy(),
+            wheel_cache=self._wheel_cache,
+            constraint=self.constraint,
+            extras=list(self.extras).copy(),
+            force_eager_download=self.force_eager_download,
+            has_backing_dist=self.has_backing_dist,
+        )
+
     def __init__(
         self,
         req,  # type: Optional[Requirement]

@@ -7,6 +7,9 @@ import logging
 import os
 import sys
 
+from pip._vendor.packaging.requirements import Requirement
+from pip._vendor.packaging.version import Version
+
 from pip._internal.cli import cmdoptions
 from pip._internal.cli.cmdoptions import make_target_python
 from pip._internal.cli.req_command import (
@@ -14,9 +17,17 @@ from pip._internal.cli.req_command import (
     SessionCommandMixin,
     with_cleanup,
 )
+from pip._internal.models.link import Link
 from pip._internal.req.req_tracker import get_requirement_tracker
 from pip._internal.utils.misc import ensure_dir, normalize_path, write_output
 from pip._internal.utils.temp_dir import TempDirectory
+from pip._internal.utils.typing import MYPY_CHECK_RUNNING
+
+if MYPY_CHECK_RUNNING:
+    from typing import List, Tuple
+    from pip._internal.index.package_finder import PackageFinder
+    from pip._internal.req.req_install import InstallRequirement
+
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +89,22 @@ class ResolveCommand(RequirementCommand, SessionCommandMixin):
 
         self.parser.insert_option_group(0, index_opts)
         self.parser.insert_option_group(0, cmd_opts)
+
+    class InvalidPackageUrlError(Exception):
+        pass
+
+    def _infer_package_name_and_version_from_url(self, req, finder):
+        # type: (InstallRequirement, PackageFinder) -> Tuple[str, Version, str]
+        name = req.req.name
+        assert req.link
+        url = req.link.url
+        assert url
+        link_evaluator = finder.make_link_evaluator(name)
+        is_candidate, result = link_evaluator.evaluate_link(Link(url))
+        if not is_candidate:
+            raise self.InvalidPackageUrlError(result)
+
+        return (name, Version(result), url)
 
     @with_cleanup
     def run(self, options, args):
@@ -147,15 +174,15 @@ class ResolveCommand(RequirementCommand, SessionCommandMixin):
             reqs, check_supported_wheels=True
         )
 
-        downloaded = ' '.join([
-            req.name for req in requirement_set.requirements.values()
-            if req.successfully_downloaded
-        ])
-        if downloaded:
-            write_output('Successfully downloaded %s', downloaded)
+        requirement_resolve_output_entries = []  # type: List[str]
+        for req in requirement_set.requirements.values():
+            name, version, url = self._infer_package_name_and_version_from_url(
+                req, finder)
+            entry = '{}=={} ({})'.format(name, version, url)
+            requirement_resolve_output_entries.append(entry)
 
-        req_strings = '\n'.join(
-            str(req) for req in requirement_set.requirements.values())
-        sys.stdout.write('{}\n'.format(req_strings))
+        sys.stdout.write(
+            'Resolve output:\n{}\n'
+            .format('\n'.join(requirement_resolve_output_entries)))
 
         return requirement_set

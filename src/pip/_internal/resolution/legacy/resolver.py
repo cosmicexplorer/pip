@@ -34,6 +34,7 @@ from pip._internal.exceptions import (
     HashErrors,
     UnsupportedPythonVersion,
 )
+from pip._internal.models.link import Link
 from pip._internal.req.req_install import InstallRequirement
 from pip._internal.resolution.base import BaseResolver
 from pip._internal.utils.compatibility_tags import get_supported
@@ -193,6 +194,14 @@ class RequirementConcreteUrl(object):
         # type: (InstallRequirement) -> RequirementConcreteUrl
         return cls(install_req.req, install_req.link.url)
 
+    def into_install_req(self, comes_from):
+        # type: (Optional[InstallRequirement]) -> InstallRequirement
+        return InstallRequirement(
+            req=self.req,
+            comes_from=comes_from,
+            link=Link(self.url),
+        )
+
     def __init__(self, req, url):
         # type: (Requirement, str) -> None
         self.req = req
@@ -200,12 +209,12 @@ class RequirementConcreteUrl(object):
 
     def __hash__(self):
         # type: () -> int
-        return hash((self.req, self.url))
+        return hash((str(self.req), self.url))
 
     def __eq__(self, other):
         # type: (object) -> bool
         return (isinstance(other, type(self)) and
-                self.req == other.req and self.url == other.url)
+                str(self.req) == str(other.req) and self.url == other.url)
 
     def __repr__(self):
         # type: () -> str
@@ -237,9 +246,6 @@ class RequirementDependencyCache(object):
         # type: (RequirementsCacheDict) -> None
         self._cache = cache_from_config
 
-    # FIXME: InstallRequirement objects are mutable, and we record their
-    # mutable attributes when we serialize them and persist them. We should
-    # probably reinstate the copy() method for InstallRequirement objects!
     def add_dependency_links(self, req, dep_reqs):
         # type: (InstallRequirement, List[InstallRequirement]) -> None
         base_concrete_req = RequirementConcreteUrl.from_install_req(req)
@@ -367,33 +373,40 @@ class Resolver(BaseResolver):
             found_reqs = set()  # type: Set[str]
 
             for req in chain(root_reqs, discovered_reqs, forced_eager_reqs):
+
+                # import pdb; pdb.set_trace()
+
                 if req.name in found_reqs:
                     continue
                 found_reqs.add(req.name)
+
                 try:
-                    dep_reqs = self._resolve_one(requirement_set, req,
-                                                 dep_cache)
+                    dep_reqs = [
+                        r for r in
+                        self._resolve_one(requirement_set, req, dep_cache)
+                        if r.match_markers()
+                    ]
+
+                    # import pdb; pdb.set_trace()
 
                     link_populated_dep_reqs = [
-                        self._get_abstract_dist_for(dep).req
+                        (dep
+                         if dep.link
+                         else self._get_abstract_dist_for(dep).req)
                         for dep in dep_reqs
                     ]
 
-                    dep_cache.add_dependency_links(req,
-                                                   link_populated_dep_reqs)
+                    cur_discovered_reqs = []
+
                     for r in link_populated_dep_reqs:
-                        # NB: This package appears to be within the
-                        # tensorflow==1.14 transitive dependencies, but
-                        # building it on py3 fails with the message "This
-                        # backport is for Python 2.7 only.". It's not yet clear
-                        # why this only occurs with
-                        # --quickly-parse-sub-requirements.
-                        if r.name == 'functools32':
-                            continue
                         if r.force_eager_download:
                             forced_eager_reqs.append(r)
                         else:
-                            discovered_reqs.append(r)
+                            cur_discovered_reqs.append(r)
+
+                    dep_cache.add_dependency_links(req, cur_discovered_reqs)
+
+                    discovered_reqs.extend(cur_discovered_reqs)
                 except HashError as exc:
                     exc.req = req
                     hash_errors.append(exc)
@@ -559,6 +572,8 @@ class Resolver(BaseResolver):
                 req.link.is_wheel_file()):
             return LazyDistribution(self.preparer, req)
 
+        # import pdb; pdb.set_trace()
+
         abstract_dist = self.preparer.prepare_linked_requirement(req)
 
         # NOTE
@@ -622,6 +637,7 @@ class Resolver(BaseResolver):
         filename_in_central_dir_header = re.search(metadata_file_pattern,
                                                    last_2k_bytes,
                                                    flags=re.IGNORECASE)
+
         try:
             _st = filename_in_central_dir_header.start()
         except AttributeError:
@@ -715,62 +731,6 @@ class Resolver(BaseResolver):
 
         req_to_install.prepared = True
 
-        abstract_dist = self._get_abstract_dist_for(req_to_install)
-
-        assert abstract_dist.req.link is not None
-
-        # FIXME: perform the Requires-Python checking for shallowly-resolved
-        # requirements (via self._hacky_extract_sub_reqs)!!!
-        if not abstract_dist.has_been_downloaded():
-            maybe_cached_sub_reqs = dep_cache.get(
-                RequirementConcreteUrl.from_install_req(abstract_dist.req))
-            if maybe_cached_sub_reqs is not None:
-                logger.debug(
-                    'cached sub requirements were found: {} for {}'
-                    .format(maybe_cached_sub_reqs, abstract_dist.req.link))
-                hydrated_sub_reqs = [
-                    InstallRequirement(
-                        req=req.req,
-                        comes_from=abstract_dist.req,
-                    )
-                    for req in maybe_cached_sub_reqs
-                ]
-                return hydrated_sub_reqs
-            sub_reqs = self._hacky_extract_sub_reqs(req_to_install)
-            req_to_install.force_eager_download = True
-            req_to_install.is_direct = True
-            return sub_reqs + [req_to_install]
-
-        abstract_dist.req.has_backing_dist = True
-
-        # Parse and return dependencies
-        dist = abstract_dist.get_pkg_resources_distribution()
-        # This will raise UnsupportedPythonVersion if the given Python
-        # version isn't compatible with the distribution's Requires-Python.
-        _check_dist_requires_python(
-            dist, version_info=self._py_version_info,
-            ignore_requires_python=self.ignore_requires_python,
-        )
-
-        more_reqs = []  # type: List[InstallRequirement]
-
-        def add_req(subreq, extras_requested):
-            sub_install_req = self._make_install_req(
-                str(subreq),
-                req_to_install,
-            )
-            parent_req_name = req_to_install.name
-            to_scan_again, add_to_parent = requirement_set.add_requirement(
-                sub_install_req,
-                parent_req_name=parent_req_name,
-                extras_requested=extras_requested,
-            )
-            if parent_req_name and add_to_parent:
-                self._discovered_dependencies[parent_req_name].append(
-                    add_to_parent
-                )
-            more_reqs.extend(to_scan_again)
-
         with indent_log():
             # We add req_to_install before its dependencies, so that we
             # can refer to it when adding dependencies.
@@ -786,28 +746,111 @@ class Resolver(BaseResolver):
                     req_to_install, parent_req_name=None,
                 )
 
-            if ((not self.ignore_dependencies) and
-                    (not req_to_install.force_eager_download)):
-                if req_to_install.extras:
-                    logger.debug(
-                        "Installing extra requirements: %r",
-                        ','.join(req_to_install.extras),
-                    )
-                missing_requested = sorted(
-                    set(req_to_install.extras) - set(dist.extras)
-                )
-                for missing in missing_requested:
-                    logger.warning(
-                        '%s does not provide the extra \'%s\'',
-                        dist, missing
-                    )
+        if req_to_install.link and not req_to_install.force_eager_download:
+            parent_req = req_to_install.copy()
 
-                available_requested = sorted(
-                    set(dist.extras) & set(req_to_install.extras)
-                )
-                for subreq in dist.requires(available_requested):
-                    add_req(subreq, extras_requested=available_requested)
+            maybe_cached_sub_reqs = dep_cache.get(
+                RequirementConcreteUrl.from_install_req(parent_req))
+            if maybe_cached_sub_reqs is not None:
+                logger.debug(
+                    'cached sub requirements were found: {} for {}'
+                    .format(maybe_cached_sub_reqs, parent_req.link))
+                hydrated_sub_reqs = [
+                    req.into_install_req(comes_from=parent_req)
+                    for req in maybe_cached_sub_reqs
+                ]
 
+                parent_req.force_eager_download = True
+                parent_req.is_direct = True
+
+                # more_reqs = hydrated_sub_reqs + [parent_req]
+                return hydrated_sub_reqs + [parent_req]
+
+        abstract_dist = self._get_abstract_dist_for(req_to_install)
+
+        assert abstract_dist.req.link is not None
+
+        more_reqs = []  # type: List[InstallRequirement]
+
+        # FIXME: perform the Requires-Python checking for shallowly-resolved
+        # requirements (via self._hacky_extract_sub_reqs)!!!
+        if not abstract_dist.has_been_downloaded():
+            # import pdb; pdb.set_trace()
+
+            parent_req = abstract_dist.req.copy()
+
+            maybe_cached_sub_reqs = dep_cache.get(
+                RequirementConcreteUrl.from_install_req(parent_req))
+            if maybe_cached_sub_reqs is not None:
+                logger.debug(
+                    'cached sub requirements were found: {} for {}'
+                    .format(maybe_cached_sub_reqs, parent_req.link))
+                hydrated_sub_reqs = [
+                    req.into_install_req(comes_from=parent_req)
+                    for req in maybe_cached_sub_reqs
+                ]
+            else:
+                hydrated_sub_reqs = self._hacky_extract_sub_reqs(
+                    parent_req)
+
+            parent_req.force_eager_download = True
+            parent_req.is_direct = True
+
+            more_reqs = hydrated_sub_reqs + [parent_req]
+
+        else:
+            abstract_dist.req.has_backing_dist = True
+
+            # Parse and return dependencies
+            dist = abstract_dist.get_pkg_resources_distribution()
+            # This will raise UnsupportedPythonVersion if the given Python
+            # version isn't compatible with the distribution's Requires-Python.
+            _check_dist_requires_python(
+                dist, version_info=self._py_version_info,
+                ignore_requires_python=self.ignore_requires_python,
+            )
+
+            def add_req(subreq, extras_requested):
+                sub_install_req = self._make_install_req(
+                    str(subreq),
+                    req_to_install,
+                )
+                parent_req_name = req_to_install.name
+                to_scan_again, add_to_parent = requirement_set.add_requirement(
+                    sub_install_req,
+                    parent_req_name=parent_req_name,
+                    extras_requested=extras_requested,
+                )
+                if parent_req_name and add_to_parent:
+                    self._discovered_dependencies[parent_req_name].append(
+                        add_to_parent
+                    )
+                more_reqs.extend(to_scan_again)
+
+            with indent_log():
+                if ((not self.ignore_dependencies) and
+                        (not req_to_install.force_eager_download)):
+                    if req_to_install.extras:
+                        logger.debug(
+                            "Installing extra requirements: %r",
+                            ','.join(req_to_install.extras),
+                        )
+                    missing_requested = sorted(
+                        set(req_to_install.extras) - set(dist.extras)
+                    )
+                    for missing in missing_requested:
+                        logger.warning(
+                            '%s does not provide the extra \'%s\'',
+                            dist, missing
+                        )
+
+                    available_requested = sorted(
+                        set(dist.extras) & set(req_to_install.extras)
+                    )
+                    for subreq in dist.requires(available_requested):
+                        add_req(subreq, extras_requested=available_requested)
+
+        with indent_log():
             if not req_to_install.editable and not req_to_install.satisfied_by:
                 # XXX: --no-install leads this to report 'Successfully
                 # downloaded' for only non-editable reqs, even though we took
