@@ -171,7 +171,7 @@ class PersistentRequirementDependencyCache(object):
             with open(self._file_path, 'rb') as f:
                 cache_from_config = RequirementDependencyCache.deserialize(
                     f.read())
-        except (OSError, EOFError) as e:
+        except (OSError, json.decoder.JSONDecodeError, EOFError) as e:
             # If the file does not exist, or the cache was not readable for any
             # reason, just start anew.
             logger.debug('error reading dependency cache: {}.'.format(e))
@@ -257,7 +257,7 @@ class RequirementDependencyCache(object):
         prev_deps = self._cache.get(base_concrete_req, None)
 
         if prev_deps is not None:
-            assert dep_concrete_reqs == prev_deps
+            assert dep_concrete_reqs == prev_deps, f'prev_deps {prev_deps} were not equal to {dep_concrete_reqs}'
         else:
             self._cache[base_concrete_req] = dep_concrete_reqs
 
@@ -355,6 +355,7 @@ class Resolver(BaseResolver):
         dependency resolution.
         """
         with self._persistent_dependency_cache as dep_cache:
+
             requirement_set = RequirementSet(
                 check_supported_wheels=check_supported_wheels
             )
@@ -572,7 +573,7 @@ class Resolver(BaseResolver):
         # wheel, extract sub requirements first!
         if (self.quickly_parse_sub_requirements and
                 (not req.force_eager_download) and
-                req.link.is_wheel_file()):
+                req.link.is_wheel):
             return LazyDistribution(self.preparer, req)
 
         # import pdb; pdb.set_trace()

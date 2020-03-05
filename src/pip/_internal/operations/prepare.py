@@ -21,7 +21,6 @@ from pip._internal.exceptions import (
     HashMismatch,
     HashUnpinned,
     InstallationError,
-    PreviousBuildDirError,
     VcsHashUnsupported,
 )
 from pip._internal.utils.filesystem import copy2_fixed

@@ -566,7 +566,7 @@ class CandidateEvaluator(object):
         if self.quickly_parse_sub_requirements:
             maybe_zip_candidates = [
                 c for c in candidates
-                if c.link.is_wheel_file()
+                if c.link.is_wheel
             ]
             if maybe_zip_candidates:
                 candidates = maybe_zip_candidates

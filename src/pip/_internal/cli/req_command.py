@@ -268,7 +268,7 @@ class RequirementCommand(IndexGroupCommand):
 
         persistent_cache_file = os.path.join(
             options.cache_dir,
-            'requirement-link-dependency-cache.json')
+            'requirement-link-dependency-cache-v1.json')
         persistent_dependency_cache = PersistentRequirementDependencyCache(
             persistent_cache_file)
 

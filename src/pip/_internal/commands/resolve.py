@@ -19,6 +19,8 @@ from pip._internal.cli.req_command import (
 )
 from pip._internal.models.link import Link
 from pip._internal.req.req_tracker import get_requirement_tracker
+from pip._internal.resolution import resolver
+from pip._internal.resolution.legacy import resolver as v1_resolver
 from pip._internal.utils.misc import ensure_dir, normalize_path, write_output
 from pip._internal.utils.temp_dir import TempDirectory
 from pip._internal.utils.typing import MYPY_CHECK_RUNNING
@@ -78,6 +80,13 @@ class ResolveCommand(RequirementCommand, SessionCommandMixin):
             metavar='dir',
             default=os.curdir,
             help=("Download packages into <dir>."),
+        )
+
+        cmd_opts.add_option(
+            '--v1',
+            dest='v1',
+            default=False,
+            help=("Use the v1 resolver."),
         )
 
         cmdoptions.add_target_python_options(cmd_opts)
@@ -158,31 +167,65 @@ class ResolveCommand(RequirementCommand, SessionCommandMixin):
                 options.quickly_parse_sub_requirements),
         )
 
-        resolver = self.make_resolver(
-            preparer=preparer,
-            finder=finder,
-            options=options,
-            py_version_info=options.python_version,
-            quickly_parse_sub_requirements=(
-                options.quickly_parse_sub_requirements),
-            session=self._session,
-        )
-
         self.trace_basic_info(finder)
 
-        requirement_set = resolver.resolve(
-            reqs, check_supported_wheels=True
-        )
-
-        requirement_resolve_output_entries = []  # type: List[str]
-        for req in requirement_set.requirements.values():
-            name, version, url = self._infer_package_name_and_version_from_url(
-                req, finder)
-            entry = '{}=={} ({})'.format(name, version, url)
-            requirement_resolve_output_entries.append(entry)
+        v1_requirement_set = None
+        if options.v1:
+            logger.debug('using the v1 resolver!!')
+            v1_resolver_instance = self.make_resolver(
+                preparer=preparer,
+                finder=finder,
+                options=options,
+                py_version_info=options.python_version,
+                quickly_parse_sub_requirements=(
+                    options.quickly_parse_sub_requirements),
+                session=self._session,
+            )
+            v1_requirement_set = v1_resolver_instance.resolve(
+                reqs, check_supported_wheels=True
+            )
+            name_version_url_sequence = [
+                self._infer_package_name_and_version_from_url(req, finder)
+                for req in v1_requirement_set.requirements.values()
+            ]
+        else:
+            logger.debug('using the v2 resolver!!')
+            persistent_cache_file = os.path.join(
+                options.cache_dir,
+                'requirement-link-dependency-cache.json')
+            persistent_dependency_cache = (
+                resolver.PersistentRequirementDependencyCache(
+                    persistent_cache_file))
+            with persistent_dependency_cache as dependency_cache:
+                provider = resolver.PipProvider(
+                    preparer=preparer,
+                    finder=finder,
+                    ignore_requires_python=False,
+                    py_version_info=options.python_version,
+                    session=self._session,
+                    dependency_cache=dependency_cache,
+                )
+                input_requirements = [
+                    resolver.Requirement.from_pip_requirement(r.req)
+                    for r in reqs
+                ]
+                result = resolver.resolve(provider, input_requirements)
+            name_version_url_sequence = [
+                (
+                    # name
+                    candidate.package.decorative_name_with_extras(),
+                    # version
+                    candidate.version.serialize(),
+                    # url
+                    candidate.link.url
+                )
+                for candidate in result.mapping.values()
+            ]
 
         sys.stdout.write(
             'Resolve output:\n{}\n'
-            .format('\n'.join(requirement_resolve_output_entries)))
+            .format('\n'.join(
+                '{}=={} ({})'.format(name, version, url)
+                for name, version, url in name_version_url_sequence)))
 
-        return requirement_set
+        return v1_requirement_set
