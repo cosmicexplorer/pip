@@ -376,25 +376,27 @@ def test_parse_links_caches_same_page_by_url():
     )
     html_bytes = html.encode('utf-8')
 
+    url = 'https://example.com/simple/'
+
     page_1 = HTMLPage(
         html_bytes,
         encoding=None,
-        url='https://example.com/simple/',
+        url=url,
     )
     # Make a second page with zero content, to ensure that it's not accessed,
     # because the page was cached by url.
     page_2 = HTMLPage(
         b'',
         encoding=None,
-        url='https://example.com/simple/',
+        url=url,
     )
     # Make a third page which represents an index url, which should not be
     # cached, even for the same url. We modify the page content slightly to
-    # ensure that the result is not cached.
+    # verify that the result is not cached.
     page_3 = HTMLPage(
         re.sub(b'pkg1', b'pkg2', html_bytes),
         encoding=None,
-        url='https://example.com/simple/',
+        url=url,
         uncacheable_links=True,
     )
 
@@ -576,13 +578,14 @@ class TestLinkCollector(object):
         fake_response = make_fake_html_response(url)
         mock_get_html_response.return_value = fake_response
 
-        location = Link(url)
+        location = Link(url, uncacheable=True)
         link_collector = make_test_link_collector()
         actual = link_collector.fetch_page(location)
 
         assert actual.content == fake_response.content
         assert actual.encoding is None
         assert actual.url == url
+        assert actual.uncacheable_links == location.uncacheable
 
         # Also check that the right session object was passed to
         # _get_html_response().
@@ -607,8 +610,12 @@ class TestLinkCollector(object):
 
         assert len(actual.find_links) == 1
         check_links_include(actual.find_links, names=['packages'])
+        # Check that find-links URLs are not marked as cacheable.
+        assert not actual.find_links[0].uncacheable
 
         assert actual.project_urls == [Link('https://pypi.org/simple/twine/')]
+        # Check that index URLs are always marked as uncacheable.
+        assert actual.project_urls[0].uncacheable
 
         expected_message = dedent("""\
         1 location(s) to search for versions of twine:

@@ -335,6 +335,11 @@ def with_cached_html_pages(
     fn,    # type: Callable[[HTMLPage], Iterable[Link]]
 ):
     # type: (...) -> Callable[[HTMLPage], List[Link]]
+    """
+    Given a function that parses an Iterable[Link] from an HTMLPage, cache the
+    function's result (keyed by CacheablePageContent), unless the HTMLPage
+    `page` has `page.uncacheable_links == True`.
+    """
 
     @_lru_cache(maxsize=None)
     def wrapper(cacheable_page):
@@ -345,7 +350,6 @@ def with_cached_html_pages(
     def wrapper_wrapper(page):
         # type: (HTMLPage) -> List[Link]
         if page.uncacheable_links:
-            # Avoid caching when requesting pypi indices.
             return list(fn(page))
         return wrapper(CacheablePageContent(page))
 
@@ -639,6 +643,8 @@ class LinkCollector(object):
         # We want to filter out anything that does not have a secure origin.
         url_locations = [
             link for link in itertools.chain(
+                # Mark PyPI indices as "uncacheable" -- this will avoid caching
+                # the result of parsing the page for links.
                 (Link(url, uncacheable=True) for url in index_url_loc),
                 (Link(url) for url in fl_url_loc),
             )
