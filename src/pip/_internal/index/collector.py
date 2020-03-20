@@ -3,6 +3,7 @@ The main purpose of this module is to expose LinkCollector.collect_links().
 """
 
 import cgi
+import functools
 import itertools
 import logging
 import mimetypes
@@ -317,6 +318,7 @@ def _create_link_from_element(
 class CacheablePageContent(object):
     def __init__(self, page):
         # type: (HTMLPage) -> None
+        assert not page.uncacheable_links
         self.page = page
 
     def __eq__(self, other):
@@ -339,9 +341,10 @@ def with_cached_html_pages(
         # type: (CacheablePageContent) -> List[Link]
         return list(fn(cacheable_page.page))
 
+    @functools.wraps(fn)
     def wrapper_wrapper(page):
         # type: (HTMLPage) -> List[Link]
-        if page.is_index_url:
+        if page.uncacheable_links:
             # Avoid caching when requesting pypi indices.
             return list(fn(page))
         return wrapper(CacheablePageContent(page))
@@ -379,20 +382,23 @@ class HTMLPage(object):
 
     def __init__(
         self,
-        content,                # type: bytes
-        encoding,               # type: Optional[str]
-        url,                    # type: str
-        is_index_url=False,     # type: bool
+        content,                  # type: bytes
+        encoding,                 # type: Optional[str]
+        url,                      # type: str
+        uncacheable_links=False,  # type: bool
     ):
         # type: (...) -> None
         """
         :param encoding: the encoding to decode the given content.
         :param url: the URL from which the HTML was downloaded.
+        :param uncacheable_links: whether links parsed from this page's url
+                                  should be cached. PyPI index urls will have
+                                  this set, for example.
         """
         self.content = content
         self.encoding = encoding
         self.url = url
-        self.is_index_url = is_index_url
+        self.uncacheable_links = uncacheable_links
 
     def __str__(self):
         # type: () -> str
@@ -410,13 +416,14 @@ def _handle_get_page_fail(
     meth("Could not fetch URL %s: %s - skipping", link, reason)
 
 
-def _make_html_page(response, is_index_url=False):
+def _make_html_page(response, uncacheable_links=False):
     # type: (Response, bool) -> HTMLPage
     encoding = _get_encoding_from_headers(response.headers)
     return HTMLPage(
         response.content,
         encoding=encoding,
-        url=response.url, is_index_url=is_index_url)
+        url=response.url,
+        uncacheable_links=uncacheable_links)
 
 
 def _get_html_page(link, session=None):
@@ -469,7 +476,7 @@ def _get_html_page(link, session=None):
     except requests.Timeout:
         _handle_get_page_fail(link, "timed out")
     else:
-        return _make_html_page(resp, is_index_url=link.is_index_url)
+        return _make_html_page(resp, uncacheable_links=link.uncacheable)
     return None
 
 
@@ -632,7 +639,7 @@ class LinkCollector(object):
         # We want to filter out anything that does not have a secure origin.
         url_locations = [
             link for link in itertools.chain(
-                (Link(url, is_index_url=True) for url in index_url_loc),
+                (Link(url, uncacheable=True) for url in index_url_loc),
                 (Link(url) for url in fl_url_loc),
             )
             if self.session.is_secure_origin(link)

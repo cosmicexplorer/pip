@@ -395,7 +395,7 @@ def test_parse_links_caches_same_page_by_url():
         re.sub(b'pkg1', b'pkg2', html_bytes),
         encoding=None,
         url='https://example.com/simple/',
-        is_index_url=True,
+        uncacheable_links=True,
     )
 
     parsed_links_1 = list(parse_links(page_1))

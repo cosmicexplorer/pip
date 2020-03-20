@@ -30,7 +30,7 @@ class Link(KeyBasedCompareMixin):
         comes_from=None,       # type: Optional[Union[str, HTMLPage]]
         requires_python=None,  # type: Optional[str]
         yanked_reason=None,    # type: Optional[Text]
-        is_index_url=False,    # type: bool
+        uncacheable=False,     # type: bool
     ):
         # type: (...) -> None
         """
@@ -47,6 +47,10 @@ class Link(KeyBasedCompareMixin):
             a simple repository HTML link. If the file has been yanked but
             no reason was provided, this should be the empty string. See
             PEP 592 for more information and the specification.
+        :param uncacheable: A flag that is used elsewhere to determine whether
+                            resources retrieved from this link should be
+                            cached. PyPI index urls will have this set, for
+                            example.
         """
 
         # url can be a UNC windows share
@@ -64,7 +68,7 @@ class Link(KeyBasedCompareMixin):
 
         super(Link, self).__init__(key=url, defining_class=Link)
 
-        self.is_index_url = is_index_url
+        self.uncacheable = uncacheable
 
     def __str__(self):
         # type: () -> str
