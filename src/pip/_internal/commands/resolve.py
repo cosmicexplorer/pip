@@ -15,13 +15,15 @@ from pip._internal.cli.cmdoptions import make_target_python
 from pip._internal.cli.req_command import (
     RequirementCommand,
     SessionCommandMixin,
-    with_cleanup,
 )
 from pip._internal.models.link import Link
+from pip._internal.req import RequirementSet
 from pip._internal.req.req_tracker import get_requirement_tracker
+from pip._internal.utils.filesystem import check_path_owner
 from pip._internal.utils.misc import ensure_dir, normalize_path, write_output
 from pip._internal.utils.temp_dir import TempDirectory
 from pip._internal.utils.typing import MYPY_CHECK_RUNNING
+
 
 if MYPY_CHECK_RUNNING:
     from typing import List, Tuple
@@ -106,7 +108,6 @@ class ResolveCommand(RequirementCommand, SessionCommandMixin):
 
         return (name, Version(result), url)
 
-    @with_cleanup
     def run(self, options, args):
         options.ignore_installed = True
         # editable doesn't really make sense for `pip resolve`, but the bowels
@@ -127,55 +128,50 @@ class ResolveCommand(RequirementCommand, SessionCommandMixin):
             session=session,
             target_python=target_python,
         )
-        build_delete = (not (options.no_clean or options.build_dir))
+        build_delete = (not options.build_dir)
 
-        req_tracker = self.enter_context(get_requirement_tracker())
+        with get_requirement_tracker() as req_tracker, TempDirectory(
+            options.build_dir, delete=build_delete, kind="download"
+        ) as directory:
 
-        directory = TempDirectory(
-            options.build_dir,
-            delete=build_delete,
-            kind="download",
-            globally_managed=True,
-        )
+            requirement_set = RequirementSet()
+            self.populate_requirement_set(
+                requirement_set,
+                args,
+                options,
+                finder,
+                session,
+                None
+            )
 
-        reqs = self.get_requirements(
-            args,
-            options,
-            finder,
-            session,
-            None
-        )
+            preparer = self.make_requirement_preparer(
+                temp_build_dir=directory,
+                options=options,
+                req_tracker=req_tracker,
+                session=session,
+                finder=finder,
+                download_dir=options.download_dir,
+                use_user_site=False,
+                quickly_parse_sub_requirements=(
+                    options.quickly_parse_sub_requirements),
+            )
 
-        preparer = self.make_requirement_preparer(
-            temp_build_dir=directory,
-            options=options,
-            req_tracker=req_tracker,
-            session=session,
-            finder=finder,
-            download_dir=options.download_dir,
-            use_user_site=False,
-            quickly_parse_sub_requirements=(
-                options.quickly_parse_sub_requirements),
-        )
+            resolver = self.make_resolver(
+                preparer=preparer,
+                finder=finder,
+                options=options,
+                py_version_info=options.python_version,
+                quickly_parse_sub_requirements=(
+                    options.quickly_parse_sub_requirements),
+                session=self._session,
+            )
 
-        resolver = self.make_resolver(
-            preparer=preparer,
-            finder=finder,
-            options=options,
-            py_version_info=options.python_version,
-            quickly_parse_sub_requirements=(
-                options.quickly_parse_sub_requirements),
-            session=self._session,
-        )
+            self.trace_basic_info(finder)
 
-        self.trace_basic_info(finder)
-
-        requirement_set = resolver.resolve(
-            reqs, check_supported_wheels=True
-        )
+            completed_requirement_set = resolver.resolve(requirement_set)
 
         requirement_resolve_output_entries = []  # type: List[str]
-        for req in requirement_set.requirements.values():
+        for req in completed_requirement_set.requirements.values():
             name, version, url = self._infer_package_name_and_version_from_url(
                 req, finder)
             entry = '{}=={} ({})'.format(name, version, url)

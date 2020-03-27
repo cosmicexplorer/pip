@@ -343,8 +343,8 @@ class Resolver(BaseResolver):
 
         self._persistent_dependency_cache = persistent_dependency_cache
 
-    def resolve(self, root_reqs, check_supported_wheels):
-        # type: (List[InstallRequirement], bool) -> RequirementSet
+    def resolve(self, requirement_set):
+        # type: (RequirementSet) -> RequirementSet
         """Resolve what operations need to be done
 
         As a side-effect of this method, the packages (and their dependencies)
@@ -356,12 +356,6 @@ class Resolver(BaseResolver):
         dependency resolution.
         """
         with self._persistent_dependency_cache as dep_cache:
-            requirement_set = RequirementSet(
-                check_supported_wheels=check_supported_wheels
-            )
-            for req in root_reqs:
-                requirement_set.add_requirement(req)
-
             # Actually prepare the files, and collect any exceptions. Most hash
             # exceptions cannot be checked ahead of time, because
             # req.populate_link() needs to be called before we can make
@@ -371,6 +365,8 @@ class Resolver(BaseResolver):
             hash_errors = HashErrors()
 
             found_reqs = set()  # type: Set[str]
+
+            root_reqs = requirement_set.all_requirements()
 
             for req in chain(root_reqs, discovered_reqs, forced_eager_reqs):
 

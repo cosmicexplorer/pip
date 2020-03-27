@@ -9,11 +9,12 @@ import logging
 import os
 from functools import partial
 
+from pip._internal.cli import cmdoptions
 from pip._internal.cli.base_command import Command
 from pip._internal.cli.command_context import CommandContextMixIn
 from pip._internal.exceptions import CommandError
 from pip._internal.index.package_finder import PackageFinder
-from pip._internal.legacy_resolve import Resolver
+from pip._internal.legacy_resolve import PersistentRequirementDependencyCache, Resolver
 from pip._internal.models.selection_prefs import SelectionPreferences
 from pip._internal.network.download import Downloader
 from pip._internal.network.session import PipSession
@@ -25,10 +26,6 @@ from pip._internal.req.constructors import (
 )
 from pip._internal.req.req_file import parse_requirements
 from pip._internal.req.req_set import RequirementSet
-from pip._internal.resolution.legacy.resolver import (
-    PersistentRequirementDependencyCache,
-    Resolver,
-)
 from pip._internal.self_outdated_check import (
     make_link_collector,
     pip_self_version_check,
@@ -160,7 +157,6 @@ class RequirementCommand(IndexGroupCommand):
         # type: (Any, Any) -> None
         super(RequirementCommand, self).__init__(*args, **kw)
 
-        self.cmd_opts.add_option(cmdoptions.no_clean())
         self.cmd_opts.add_option(cmdoptions.quickly_parse_sub_requirements())
 
     @staticmethod
@@ -231,25 +227,7 @@ class RequirementCommand(IndexGroupCommand):
         persistent_dependency_cache = PersistentRequirementDependencyCache(
             persistent_cache_file)
 
-        # The long import name and duplicated invocation is needed to convince
-        # Mypy into correctly typechecking. Otherwise it would complain the
-        # "Resolver" class being redefined.
-        if 'resolver' in options.unstable_features:
-            import pip._internal.resolution.resolvelib.resolver
-            return pip._internal.resolution.resolvelib.resolver.Resolver(
-                preparer=preparer,
-                finder=finder,
-                make_install_req=make_install_req,
-                use_user_site=use_user_site,
-                ignore_dependencies=options.ignore_dependencies,
-                ignore_installed=ignore_installed,
-                ignore_requires_python=ignore_requires_python,
-                force_reinstall=force_reinstall,
-                upgrade_strategy=upgrade_strategy,
-                py_version_info=py_version_info,
-            )
-        import pip._internal.resolution.legacy.resolver
-        return pip._internal.resolution.legacy.resolver.Resolver(
+        return Resolver(
             preparer=preparer,
             finder=finder,
             make_install_req=make_install_req,
