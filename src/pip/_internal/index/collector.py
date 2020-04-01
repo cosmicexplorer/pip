@@ -27,7 +27,7 @@ from pip._internal.vcs import is_url, vcs
 if MYPY_CHECK_RUNNING:
     from typing import (
         Callable, Iterable, List, MutableMapping, Optional,
-        Sequence, Tuple, TypeVar, Union,
+        Protocol, Sequence, Tuple, TypeVar, Union,
     )
     import xml.etree.ElementTree
 
@@ -42,19 +42,24 @@ if MYPY_CHECK_RUNNING:
     # Used in the @lru_cache polyfill.
     F = TypeVar('F')
 
+    class LruCache(Protocol):
+        def __call__(self, maxsize=None):
+            # type: (Optional[int]) -> Callable[[F], F]
+            raise NotImplementedError
+
 
 logger = logging.getLogger(__name__)
 
 
-try:
-    from functools import lru_cache as _lru_cache  # type: ignore
-except ImportError:
-    def _lru_cache(maxsize=None):  # type: ignore
-        # type: (Optional[int]) -> Callable[[F], F]
-        def _wrapper(f):
-            # type: (F) -> F
-            return f
-        return _wrapper
+def noop_lru_cache(maxsize=None):
+    # type: (Optional[int]) -> Callable[[F], F]
+    def _wrapper(f):
+        # type: (F) -> F
+        return f
+    return _wrapper
+
+
+_lru_cache = getattr(functools, "lru_cache", noop_lru_cache)  # type: LruCache
 
 
 def _match_vcs_scheme(url):
