@@ -26,8 +26,8 @@ from pip._internal.vcs import is_url, vcs
 
 if MYPY_CHECK_RUNNING:
     from typing import (
-        Any, Callable, Dict, Iterable, List, MutableMapping, Optional,
-        Sequence, Tuple, Union,
+        Callable, Iterable, List, MutableMapping, Optional,
+        Sequence, Tuple, TypeVar, Union,
     )
     import xml.etree.ElementTree
 
@@ -39,37 +39,22 @@ if MYPY_CHECK_RUNNING:
     HTMLElement = xml.etree.ElementTree.Element
     ResponseHeaders = MutableMapping[str, str]
 
+    # Used in the @lru_cache polyfill.
+    F = TypeVar('F')
+
 
 logger = logging.getLogger(__name__)
 
 
-# TODO: This is a stand-in for @functools.lru_cache() until python 2 support is
-# dropped. mypy does not appear to understand `except ImportError`, so this
-# polyfill is used everywhere.
-def _lru_cache(
-        *args,                  # type: Any
-        **kwargs                # type: Any
-):
-    # type: (...) -> Any
-    cache = {}                  # type: Dict[Any, Any]
-
-    def wrapper(fn):
-        # type: (Any) -> Any
-
-        def wrapped(
-                *args,          # type: Any
-                **kwargs        # type: Any
-        ):
-            # type: (...) -> Any
-            cache_key = tuple(args) + tuple(kwargs.items())
-            value = cache.get(cache_key, None)
-            if value is not None:
-                return value
-            value = fn(*args, **kwargs)
-            cache[cache_key] = value
-            return value
-        return wrapped
-    return wrapper
+try:
+    from functools import lru_cache as _lru_cache  # type: ignore
+except ImportError:
+    def _lru_cache(maxsize=None):  # type: ignore
+        # type: (Optional[int]) -> Callable[[F], F]
+        def _wrapper(f):
+            # type: (F) -> F
+            return f
+        return _wrapper
 
 
 def _match_vcs_scheme(url):
