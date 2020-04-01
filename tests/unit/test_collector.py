@@ -28,7 +28,7 @@ from pip._internal.index.collector import (
 from pip._internal.models.index import PyPI
 from pip._internal.models.link import Link
 from pip._internal.network.session import PipSession
-from tests.lib import make_test_link_collector
+from tests.lib import make_test_link_collector, skip_if_python2
 
 
 @pytest.mark.parametrize(
@@ -367,6 +367,7 @@ def test_parse_links__yanked_reason(anchor_html, expected):
     assert actual == expected
 
 
+@skip_if_python2
 def test_parse_links_caches_same_page_by_url():
     html = (
         # Mark this as a unicode string for Python 2 since anchor_html
