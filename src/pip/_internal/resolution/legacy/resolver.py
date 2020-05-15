@@ -378,8 +378,6 @@ class Resolver(BaseResolver):
                         self.quickly_parse_sub_requirements):
                     continue
 
-                # import pdb; pdb.set_trace()
-
                 if req.name in found_reqs:
                     continue
                 found_reqs.add(req.name)
@@ -390,8 +388,6 @@ class Resolver(BaseResolver):
                         self._resolve_one(requirement_set, req, dep_cache)
                         if r.match_markers()
                     ]
-
-                    # import pdb; pdb.set_trace()
 
                     link_populated_dep_reqs = [
                         (dep
@@ -567,7 +563,7 @@ class Resolver(BaseResolver):
 
         # We eagerly populate the link, since that's our "legacy" behavior.
         require_hashes = self.preparer.require_hashes
-        req.populate_link(self.finder, upgrade_allowed, require_hashes)
+        self._populate_link(req)
 
         # If we've been configured to hack out the METADATA file from a remote
         # wheel, extract sub requirements first!
@@ -575,8 +571,6 @@ class Resolver(BaseResolver):
                 (not req.force_eager_download) and
                 req.link.is_wheel):
             return LazyDistribution(self.preparer, req)
-
-        # import pdb; pdb.set_trace()
 
         abstract_dist = self.preparer.prepare_linked_requirement(req)
 
@@ -779,8 +773,6 @@ class Resolver(BaseResolver):
         # FIXME: perform the Requires-Python checking for shallowly-resolved
         # requirements (via self._hacky_extract_sub_reqs)!!!
         if not abstract_dist.has_been_downloaded():
-            # import pdb; pdb.set_trace()
-
             parent_req = abstract_dist.req.copy()
 
             maybe_cached_sub_reqs = dep_cache.get(

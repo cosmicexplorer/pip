@@ -85,6 +85,7 @@ class ResolveCommand(RequirementCommand, SessionCommandMixin):
         cmd_opts.add_option(
             '--v1',
             dest='v1',
+            action='store_true',
             default=False,
             help=("Use the v1 resolver."),
         )
@@ -152,7 +153,6 @@ class ResolveCommand(RequirementCommand, SessionCommandMixin):
             options,
             finder,
             session,
-            None
         )
 
         preparer = self.make_requirement_preparer(

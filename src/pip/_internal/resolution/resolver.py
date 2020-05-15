@@ -23,8 +23,8 @@ from pip._vendor.packaging.requirements import Requirement as PipRequirement
 from pip._vendor.packaging.specifiers import SpecifierSet as PipSpecifierSet
 from pip._vendor.packaging.utils import canonicalize_name
 from pip._vendor.packaging.version import Version as PipVersion
+from pip._vendor.resolvelib import AbstractProvider, BaseReporter, Resolver
 from pip._vendor.six import add_metaclass
-from resolvelib import AbstractProvider, BaseReporter, Resolver
 
 from pip._internal.models.link import Link
 from pip._internal.req.req_install import InstallRequirement

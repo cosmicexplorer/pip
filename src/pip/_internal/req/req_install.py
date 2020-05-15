@@ -108,7 +108,6 @@ class InstallRequirement(object):
         return InstallRequirement(
             req=self.req,
             comes_from=comes_from,
-            source_dir=self.source_dir,
             editable=self.editable,
             link=self.link,
             markers=self.markers,
@@ -117,7 +116,6 @@ class InstallRequirement(object):
             install_options=self.install_options.copy(),
             global_options=self.global_options.copy(),
             hash_options=self.hash_options.copy(),
-            wheel_cache=self._wheel_cache,
             constraint=self.constraint,
             extras=list(self.extras).copy(),
             force_eager_download=self.force_eager_download,
