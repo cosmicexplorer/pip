@@ -613,7 +613,7 @@ class Resolver(BaseResolver):
         METADATA file."""
         url = str(req.link)
         scheme = get_url_scheme(url)
-        assert scheme in ['http', 'https']
+        assert scheme in ['http', 'https'], 'scheme was: {}, url was: {}, req was: {}'.format(scheme, url, req)
 
         head_resp = self.session.head(url)
         head_resp.raise_for_status()

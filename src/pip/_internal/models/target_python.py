@@ -27,11 +27,9 @@ class TargetPython(object):
     def as_regex(self):
         version = 'py{}'.format(self.py_version_info[0])
         if self.implementation:
-            version = '{}{}{}|{}'.format(
+            version = '{}{}{}'.format(
                 self.implementation,
-                *self.py_version_info[:2],
-                version
-            )
+                *self.py_version_info[:2]) + '|' + version
 
         abi = 'none'
         if self.abi:
@@ -42,7 +40,7 @@ class TargetPython(object):
             if 'linux' in self.platform:
                 platform = '.*linux1?.x86.64.*|{}'.format(platform)
             if 'macos' in self.platform:
-                platform = '.*macos.10.[0-9]+.x86.64.*|{}'.format(platform)
+                platform = '.*macosx.10.[0-9]+.x86.64.*|{}'.format(platform)
 
         ret = ('({version})-({abi})-({platform})'
                 .format(version=version,
