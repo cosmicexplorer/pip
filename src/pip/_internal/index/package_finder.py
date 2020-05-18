@@ -208,6 +208,11 @@ class LinkEvaluator(object):
 
                 version = wheel.version
 
+        # This should be up by the self.ok_binary check, but see issue 2700.
+        if "source" not in self._formats and ext != WHEEL_EXTENSION:
+            reason = 'No sources permitted for {}'.format(self.project_name)
+            return (False, reason)
+
         if not version:
             version = _extract_version_from_fragment(
                 egg_info, self._canonical_name,
