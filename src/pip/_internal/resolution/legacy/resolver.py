@@ -16,6 +16,7 @@ for sub-dependencies
 
 import json
 import logging
+import os
 import re
 import struct
 import sys
@@ -182,6 +183,9 @@ class PersistentRequirementDependencyCache(object):
 
     def __exit__(self, exc_type, exc_value, exc_tb):
         try:
+            parent_dir = os.path.dirname(self._file_path)
+            if not os.path.exists(parent_dir):
+                os.makedirs(parent_dir)
             with open(self._file_path, 'wb') as f:
                 f.write(self._cache.serialize())
         finally:
