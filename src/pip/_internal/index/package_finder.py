@@ -196,6 +196,7 @@ class LinkEvaluator(object):
 
                 supported_tags = self._target_python.get_tags()
                 if not wheel.supported(supported_tags):
+                    import pdb; pdb.set_trace()
                     # Include the wheel's tags in the reason string to
                     # simplify troubleshooting compatibility issues.
                     file_tags = wheel.get_formatted_file_tags()
@@ -764,6 +765,10 @@ class PackageFinder(object):
         is_candidate, result = link_evaluator.evaluate_link(link)
         if not is_candidate:
             if result:
+                # FIXME: Fix the output "Skipping link: none of the wheel's tags match: cp38-cp38-manylinux2010_x86_64"
+                # when trying to shallow `pip resolve tensorflow==1.14.0`! Our
+                # method of scanning the page probably works for osx links, but
+                # not linux ones!!
                 self._log_skipped_link(link, reason=result)
             return None
 
