@@ -261,7 +261,9 @@ class RequirementDependencyCache(object):
         prev_deps = self._cache.get(base_concrete_req, None)
 
         if prev_deps is not None:
-            assert dep_concrete_reqs == prev_deps, f'prev_deps {prev_deps} were not equal to {dep_concrete_reqs}'
+            assert dep_concrete_reqs == prev_deps, ('prev_deps {prev_deps} were not equal to {dep_concrete_reqs}'
+                                                    .format(prev_deps=prev_deps,
+                                                            dep_concrete_reqs=dep_concrete_reqs))
         else:
             self._cache[base_concrete_req] = dep_concrete_reqs
 

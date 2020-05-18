@@ -196,7 +196,6 @@ class LinkEvaluator(object):
 
                 supported_tags = self._target_python.get_tags()
                 if not wheel.supported(supported_tags):
-                    import pdb; pdb.set_trace()
                     # Include the wheel's tags in the reason string to
                     # simplify troubleshooting compatibility issues.
                     file_tags = wheel.get_formatted_file_tags()
