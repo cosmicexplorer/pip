@@ -620,18 +620,21 @@ class Resolver(BaseResolver):
         assert 'bytes' in head_resp.headers['Accept-Ranges']
         wheel_content_length = int(head_resp.headers['Content-Length'])
 
-        shallow_begin = max(wheel_content_length - 2000, 0)
+        _INITIAL_ENDING_BYTES_RANGE = max(2000, int(wheel_content_length * 0.01))
+
+        shallow_begin = max((wheel_content_length - _INITIAL_ENDING_BYTES_RANGE),
+                            0)
         wheel_shallow_resp = self.session.get(url, headers={
             'Range': ('bytes={shallow_begin}-{wheel_content_length}'
                       .format(shallow_begin=shallow_begin,
                               wheel_content_length=wheel_content_length)),
         })
         wheel_shallow_resp.raise_for_status()
-        if wheel_content_length <= 2000:
+        if wheel_content_length <= _INITIAL_ENDING_BYTES_RANGE:
             last_2k_bytes = wheel_shallow_resp.content
         else:
-            assert len(wheel_shallow_resp.content) >= 2000
-            last_2k_bytes = wheel_shallow_resp.content[-2000:]
+            assert len(wheel_shallow_resp.content) >= _INITIAL_ENDING_BYTES_RANGE
+            last_2k_bytes = wheel_shallow_resp.content[-_INITIAL_ENDING_BYTES_RANGE:]
 
         sanitized_requirement_name = req.name.lower().replace('-', '_')
         metadata_file_pattern = (
@@ -646,8 +649,8 @@ class Resolver(BaseResolver):
             _st = filename_in_central_dir_header.start()
         except AttributeError:
             raise Exception(
-                'req: {}, pat: {}, len(b):{}'
-                .format(req, metadata_file_pattern, len(last_2k_bytes)))
+                'req: {}, pat: {}, len(b):{}, bytes:\n{}'
+                .format(req, metadata_file_pattern, len(last_2k_bytes), last_2k_bytes))
 
         encoded_offset_for_local_file = last_2k_bytes[(_st - 4):_st]
         _off = _decode_4_byte_unsigned(encoded_offset_for_local_file)
