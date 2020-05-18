@@ -149,10 +149,11 @@ class LinkEvaluator(object):
         self._ignore_requires_python = ignore_requires_python
         self._formats = formats
         self._target_python = target_python
+        self.t_py_regex = re.compile(self._target_python.as_regex())
 
         self.project_name = project_name
 
-    def evaluate_link(self, link):
+    def evaluate_link(self, link, ignore_tags=False):
         # type: (Link) -> Tuple[bool, Optional[Text]]
         """
         Determine whether a link is a candidate for installation.
@@ -196,8 +197,7 @@ class LinkEvaluator(object):
                     return (False, reason)
 
                 supported_tags = self._target_python.get_tags()
-                if not wheel.supported(supported_tags):
-                    import pdb; pdb.set_trace()
+                if not wheel.supported(supported_tags) and not ignore_tags:
                     # Include the wheel's tags in the reason string to
                     # simplify troubleshooting compatibility issues.
                     file_tags = wheel.get_formatted_file_tags()
@@ -530,14 +530,20 @@ class CandidateEvaluator(object):
         if link.is_wheel:
             # can raise InvalidWheelFilename
             wheel = Wheel(link.filename)
-            if not wheel.supported(valid_tags):
-                raise UnsupportedWheel(
-                    "{} is not a supported wheel for this platform. It "
-                    "can't be sorted.".format(wheel.filename)
-                )
+            # FIXME: add back this check for non-`resolve` tasks!!
+            # if not wheel.supported(valid_tags):
+            #     raise UnsupportedWheel(
+            #         "{} is not a supported wheel for this platform. It "
+            #         "can't be sorted.".format(wheel.filename)
+            #     )
             if self._prefer_binary:
                 binary_preference = 1
-            pri = -(wheel.support_index_min(valid_tags))
+
+            try:
+                pri = -(wheel.support_index_min(valid_tags))
+            except ValueError:
+                pri = 0
+
             if wheel.build_tag is not None:
                 match = re.match(r'^(\d+)(.*)$', wheel.build_tag)
                 build_tag_groups = match.groups()
@@ -767,13 +773,30 @@ class PackageFinder(object):
         If the link is a candidate for install, convert it to an
         InstallationCandidate and return it. Otherwise, return None.
         """
+        if self._external_package_link_processor:
+            # This addresses the output "Skipping link: none of the wheel's
+            # tags match: cp38-cp38-manylinux2010_x86_64" when trying to
+            # shallow `pip resolve tensorflow==1.14.0`! Our previous method of
+            # scanning the page probably works for osx links, but not linux
+            # ones!!
+            egg_info, ext = link.splitext()
+            if ext == WHEEL_EXTENSION:
+                wheel = Wheel(link.filename)
+                file_tags = wheel.get_formatted_file_tags()
+                for tag in file_tags:
+                    if link_evaluator.t_py_regex.match(tag):
+                        return InstallationCandidate(
+                            name=link_evaluator.project_name,
+                            link=link,
+                            version=str(wheel.version),
+                        )
+                else:
+                    self._log_skipped_link(link, reason=file_tags)
+                    return None
+
         is_candidate, result = link_evaluator.evaluate_link(link)
         if not is_candidate:
             if result:
-                # FIXME: Fix the output "Skipping link: none of the wheel's tags match: cp38-cp38-manylinux2010_x86_64"
-                # when trying to shallow `pip resolve tensorflow==1.14.0`! Our
-                # method of scanning the page probably works for osx links, but
-                # not linux ones!!
                 self._log_skipped_link(link, reason=result)
             return None
 

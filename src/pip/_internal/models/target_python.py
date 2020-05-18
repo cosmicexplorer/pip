@@ -20,6 +20,34 @@ class TargetPython(object):
     for a package install, download, etc.
     """
 
+    def as_regex(self):
+        version = 'py{}'.format(self.py_version_info[0])
+        if self.implementation:
+            version = '{}{}{}|{}'.format(
+                self.implementation,
+                *self.py_version_info[:2],
+                version
+            )
+
+        if self.abi:
+            abi = '{}{}'.format(self.implementation, self.abi)
+        else:
+            abi = 'none'
+
+        if self.platform:
+            if 'linux' in self.platform:
+                platform = '.*linux.*|any'
+            else:
+                assert 'macos' in self.platform
+                platform = '.*macos.*|any'
+        else:
+            platform = 'any'
+
+        return ('{version}-{abi}-{platform}'
+                .format(version=version,
+                        abi=abi,
+                        platform=platform))
+
     def __init__(
         self,
         platform=None,  # type: Optional[str]

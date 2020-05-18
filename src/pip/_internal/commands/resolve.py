@@ -118,7 +118,8 @@ class ResolveCommand(RequirementCommand, SessionCommandMixin):
         url = req.link.url
         assert url
         link_evaluator = finder.make_link_evaluator(name)
-        is_candidate, result = link_evaluator.evaluate_link(Link(url))
+        is_candidate, result = link_evaluator.evaluate_link(Link(url),
+                                                            ignore_tags=True)
         if not is_candidate:
             raise self.InvalidPackageUrlError(result)
 
