@@ -29,21 +29,18 @@ class TargetPython(object):
                 version
             )
 
+        abi = 'none'
         if self.abi:
-            abi = '{}{}'.format(self.implementation, self.abi)
-        else:
-            abi = 'none'
+            abi = '{}{}|{}'.format(self.implementation, self.abi, abi)
 
+        platform = 'any'
         if self.platform:
             if 'linux' in self.platform:
-                platform = '.*linux.*|any'
-            else:
-                assert 'macos' in self.platform
-                platform = '.*macos.*|any'
-        else:
-            platform = 'any'
+                platform = '.*linux.*|{}'.format(platform)
+            if 'macos' in self.platform:
+                platform = '.*macos.*|{}'.format(platform)
 
-        return ('{version}-{abi}-{platform}'
+        return ('({version})-({abi})-({platform})'
                 .format(version=version,
                         abi=abi,
                         platform=platform))
