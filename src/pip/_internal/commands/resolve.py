@@ -231,9 +231,10 @@ class ResolveCommand(RequirementCommand, SessionCommandMixin):
                 for candidate in result.mapping.values()
             ]
 
-        sys.stdout.write(
-            'Resolve output:\n{}\n'
-            .format('\n'.join(
+
+        output_file = os.path.join(options.download_dir, 'resolve-output.txt')
+        with open(output_file, 'w') as f:
+            f.write('{}\n'.format('\n'.join(
                 '{}=={} ({})'.format(name, version, url)
                 for name, version, url in name_version_url_sequence)))
 

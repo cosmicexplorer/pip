@@ -1,3 +1,4 @@
+import logging
 import sys
 
 from pip._internal.utils.compatibility_tags import (
@@ -11,6 +12,9 @@ if MYPY_CHECK_RUNNING:
     from typing import List, Optional, Tuple
 
     from pip._vendor.packaging.tags import Tag
+
+
+logger = logging.getLogger(__name__)
 
 
 class TargetPython(object):
@@ -36,14 +40,16 @@ class TargetPython(object):
         platform = 'any'
         if self.platform:
             if 'linux' in self.platform:
-                platform = '.*linux.*|{}'.format(platform)
+                platform = '.*linux1?.x86.64.*|{}'.format(platform)
             if 'macos' in self.platform:
-                platform = '.*macos.*|{}'.format(platform)
+                platform = '.*macos.10.[0-9]+.x86.64.*|{}'.format(platform)
 
-        return ('({version})-({abi})-({platform})'
+        ret = ('({version})-({abi})-({platform})'
                 .format(version=version,
                         abi=abi,
                         platform=platform))
+        logger.debug('created fuzzy matching regex {}!'.format(ret))
+        return ret
 
     def __init__(
         self,
