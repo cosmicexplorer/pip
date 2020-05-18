@@ -7,6 +7,7 @@ from __future__ import absolute_import
 
 import logging
 import re
+import shlex
 
 from pip._vendor.packaging import specifiers
 from pip._vendor.packaging.utils import canonicalize_name
@@ -196,6 +197,7 @@ class LinkEvaluator(object):
 
                 supported_tags = self._target_python.get_tags()
                 if not wheel.supported(supported_tags):
+                    import pdb; pdb.set_trace()
                     # Include the wheel's tags in the reason string to
                     # simplify troubleshooting compatibility issues.
                     file_tags = wheel.get_formatted_file_tags()
@@ -609,6 +611,7 @@ class PackageFinder(object):
         candidate_prefs=None,         # type: CandidatePreferences
         ignore_requires_python=None,  # type: Optional[bool]
         quickly_parse_sub_requirements=False,   # type: bool
+        external_package_link_processor=False,  # type: bool
     ):
         # type: (...) -> None
         """
@@ -638,6 +641,7 @@ class PackageFinder(object):
         self._logged_links = set()  # type: Set[Link]
 
         self.quickly_parse_sub_requirements = quickly_parse_sub_requirements
+        self._external_package_link_processor = external_package_link_processor
 
     # Don't include an allow_yanked default value to make sure each call
     # site considers whether yanked releases are allowed. This also causes
@@ -650,6 +654,7 @@ class PackageFinder(object):
         selection_prefs,     # type: SelectionPreferences
         target_python=None,  # type: Optional[TargetPython]
         quickly_parse_sub_requirements=False,   # type: bool
+        external_package_link_processor=False,  # type: bool
     ):
         # type: (...) -> PackageFinder
         """Create a PackageFinder.
@@ -676,6 +681,7 @@ class PackageFinder(object):
             format_control=selection_prefs.format_control,
             ignore_requires_python=selection_prefs.ignore_requires_python,
             quickly_parse_sub_requirements=quickly_parse_sub_requirements,
+            external_package_link_processor=external_package_link_processor,
         )
 
     @property
@@ -794,14 +800,32 @@ class PackageFinder(object):
 
     def process_project_url(self, project_url, link_evaluator):
         # type: (Link, LinkEvaluator) -> List[InstallationCandidate]
-        logger.debug(
-            'Fetching project page and analyzing links: %s', project_url,
-        )
-        html_page = self._link_collector.fetch_page(project_url)
-        if html_page is None:
-            return []
+        if self._external_package_link_processor:
+            logger.debug(
+                'Executing a subprocess to fetch and analyze links: %s', project_url,
+            )
+            import subprocess
+            raw_links = (subprocess
+                         .check_output(
+                             'curl -sSL --fail {url} | pup {arg}'.format(
+                                 url=shlex.quote(project_url.url),
+                                 arg=shlex.quote('a attr{href}'),
+                             ),
+                             shell=True)
+                         .decode('utf-8')
+                         .splitlines())
+            page_links = [
+                Link(url) for url in raw_links
+            ]
+        else:
+            logger.debug(
+                'Fetching project page and analyzing links: %s', project_url,
+            )
+            html_page = self._link_collector.fetch_page(project_url)
+            if html_page is None:
+                return []
 
-        page_links = list(parse_links(html_page))
+            page_links = list(parse_links(html_page))
 
         with indent_log():
             package_links = self.evaluate_links(

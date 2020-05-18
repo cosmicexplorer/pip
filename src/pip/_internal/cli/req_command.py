@@ -422,4 +422,6 @@ class RequirementCommand(IndexGroupCommand):
             target_python=target_python,
             quickly_parse_sub_requirements=(
                 options.quickly_parse_sub_requirements),
+            external_package_link_processor=(
+                options.external_package_link_processor),
         )

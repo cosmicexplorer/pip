@@ -90,6 +90,14 @@ class ResolveCommand(RequirementCommand, SessionCommandMixin):
             help=("Use the v1 resolver."),
         )
 
+        cmd_opts.add_option(
+            '--external-package-link-processor',
+            dest='external_package_link_processor',
+            action='store_true',
+            default=False,
+            help=("Delegate parsing webpages for links to a subprocess!"),
+        )
+
         cmdoptions.add_target_python_options(cmd_opts)
 
         index_opts = cmdoptions.make_option_group(
