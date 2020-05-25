@@ -1,5 +1,6 @@
 from __future__ import absolute_import
 
+import json
 import logging
 import os
 
@@ -63,6 +64,14 @@ class DownloadCommand(RequirementCommand):
             metavar='dir',
             default=os.curdir,
             help=("Download packages into <dir>."),
+        )
+
+        self.cmd_opts.add_option(
+            '--print-download-urls',
+            dest='print_download_urls',
+            metavar='output-file',
+            default=None,
+            help=("Print URLs of any downloaded distributions to this file."),
         )
 
         cmdoptions.add_target_python_options(self.cmd_opts)
@@ -133,6 +142,19 @@ class DownloadCommand(RequirementCommand):
         requirement_set = resolver.resolve(
             reqs, check_supported_wheels=True
         )
+
+        if options.print_download_urls:
+            infos = []
+            for req in requirement_set.requirements.values():
+                if req.successfully_downloaded and req.link:
+                    name = req.name
+                    url = req.link.url
+                    infos.append({
+                        'name': name,
+                        'url': url,
+                    })
+            with open(options.print_download_urls, 'w') as f:
+                json.dump(infos, f, indent=4)
 
         downloaded = ' '.join([req.name  # type: ignore
                                for req in requirement_set.requirements.values()
