@@ -1,5 +1,6 @@
 import functools
 import logging
+import os
 
 from pip._vendor import six
 from pip._vendor.packaging.utils import canonicalize_name
@@ -7,12 +8,14 @@ from pip._vendor.resolvelib import BaseReporter, ResolutionImpossible
 from pip._vendor.resolvelib import Resolver as RLResolver
 
 from pip._internal.exceptions import DistributionNotFound, InstallationError
+from pip._internal.locations import USER_CACHE_DIR
 from pip._internal.req.req_set import RequirementSet
 from pip._internal.resolution.base import BaseResolver
 from pip._internal.resolution.resolvelib.provider import PipProvider
 from pip._internal.utils.deprecation import deprecated
 from pip._internal.utils.typing import MYPY_CHECK_RUNNING
 
+from .caching import PersistentRequirementDependencyCache
 from .factory import Factory
 
 if MYPY_CHECK_RUNNING:
@@ -123,53 +126,65 @@ class Resolver(BaseResolver):
                     self.factory.make_requirement_from_install_req(req)
                 )
 
-        provider = PipProvider(
+        persistent_cache_file = os.path.join(
+            USER_CACHE_DIR,
+            'requirement-link-dependency-cache.json')
+        persisted_cache = PersistentRequirementDependencyCache(
+            persistent_cache_file,
             factory=self.factory,
-            constraints=constraints,
-            ignore_dependencies=self.ignore_dependencies,
-            upgrade_strategy=self.upgrade_strategy,
-            user_requested=user_requested,
         )
-        reporter = BaseReporter()
-        resolver = RLResolver(provider, reporter)
 
-        try:
-            try_to_avoid_resolution_too_deep = 2000000
-            self._result = resolver.resolve(
-                requirements, max_rounds=try_to_avoid_resolution_too_deep,
+        with persisted_cache as dependency_cache:
+            provider = PipProvider(
+                factory=self.factory,
+                constraints=constraints,
+                ignore_dependencies=self.ignore_dependencies,
+                upgrade_strategy=self.upgrade_strategy,
+                user_requested=user_requested,
+                dependency_cache=dependency_cache,
             )
+            reporter = BaseReporter()
+            resolver = RLResolver(provider, reporter)
 
-        except ResolutionImpossible as e:
-            error = self.factory.get_installation_error(e)
-            if not error:
-                # TODO: This needs fixing, we need to look at the
-                # factory.get_installation_error infrastructure, as that
-                # doesn't really allow for the logger.critical calls I'm
-                # using here.
-                for req, parent in e.causes:
-                    logger.critical(
-                        "Could not find a version that satisfies " +
-                        "the requirement " +
-                        str(req) +
-                        ("" if parent is None else " (from {})".format(
-                            parent.name
-                        ))
-                    )
-                raise DistributionNotFound(
-                    "No matching distribution found for " +
-                    ", ".join([r.name for r, _ in e.causes])
+            try:
+                try_to_avoid_resolution_too_deep = 2000000
+                self._result = resolver.resolve(
+                    requirements, max_rounds=try_to_avoid_resolution_too_deep,
                 )
-            six.raise_from(error, e)
 
-        req_set = RequirementSet(check_supported_wheels=check_supported_wheels)
-        for candidate in self._result.mapping.values():
-            ireq = candidate.get_install_requirement()
-            if ireq is None:
-                continue
-            ireq.should_reinstall = self.factory.should_reinstall(candidate)
-            req_set.add_named_requirement(ireq)
+            except ResolutionImpossible as e:
+                error = self.factory.get_installation_error(e)
+                if not error:
+                    # TODO: This needs fixing, we need to look at the
+                    # factory.get_installation_error infrastructure, as that
+                    # doesn't really allow for the logger.critical calls I'm
+                    # using here.
+                    for req, parent in e.causes:
+                        logger.critical(
+                            "Could not find a version that satisfies " +
+                            "the requirement " +
+                            str(req) +
+                            ("" if parent is None else " (from {})".format(
+                                parent.name
+                            ))
+                        )
+                    raise DistributionNotFound(
+                        "No matching distribution found for " +
+                        ", ".join([r.name for r, _ in e.causes])
+                    )
+                six.raise_from(error, e)
 
-        return req_set
+            req_set = RequirementSet(
+                check_supported_wheels=check_supported_wheels)
+            for candidate in self._result.mapping.values():
+                ireq = candidate.get_install_requirement()
+                if ireq is None:
+                    continue
+                ireq.should_reinstall = self.factory.should_reinstall(
+                    candidate)
+                req_set.add_named_requirement(ireq)
+
+            return req_set
 
     def get_installation_order(self, req_set):
         # type: (RequirementSet) -> List[InstallRequirement]

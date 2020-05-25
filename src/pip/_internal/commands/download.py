@@ -146,7 +146,7 @@ class DownloadCommand(RequirementCommand):
         if options.print_download_urls:
             infos = []
             for req in requirement_set.requirements.values():
-                if req.successfully_downloaded and req.link:
+                if req.link:
                     name = req.name
                     url = req.link.url
                     infos.append({

@@ -9,6 +9,7 @@ if MYPY_CHECK_RUNNING:
     from pip._vendor.packaging.version import _BaseVersion
 
     from .base import Requirement, Candidate
+    from .caching import RequirementDependencyCache
     from .factory import Factory
 
 # Notes on the relationship between the provider, the factory, and the
@@ -22,7 +23,7 @@ if MYPY_CHECK_RUNNING:
 # ideas. The API of Requirement and Candidate objects are defined in the base
 # classes, but essentially map fairly directly to the equivalent provider
 # methods. In particular, `find_matches` and `is_satisfied_by` are
-# requirement methods, and `get_dependencies` is a candidate method.
+# requirement methods, and `iter_dependencies` is a candidate method.
 #
 # The factory is the interface to pip's internal mechanisms. It is stateless,
 # and is created by the resolver and held as a property of the provider. It is
@@ -38,6 +39,7 @@ class PipProvider(AbstractProvider):
         ignore_dependencies,  # type: bool
         upgrade_strategy,  # type: str
         user_requested,  # type: Set[str]
+        dependency_cache,  # type: RequirementDependencyCache
     ):
         # type: (...) -> None
         self._factory = factory
@@ -45,6 +47,7 @@ class PipProvider(AbstractProvider):
         self._ignore_dependencies = ignore_dependencies
         self._upgrade_strategy = upgrade_strategy
         self.user_requested = user_requested
+        self._dependency_cache = dependency_cache
 
     def _sort_matches(self, matches):
         # type: (Sequence[Candidate]) -> Sequence[Candidate]
@@ -132,4 +135,11 @@ class PipProvider(AbstractProvider):
         # type: (Candidate) -> Sequence[Requirement]
         if self._ignore_dependencies:
             return []
-        return list(candidate.iter_dependencies())
+
+        # deps = list(candidate.iter_dependencies())
+        deps = self._dependency_cache.get(candidate)
+        if deps is None:
+            deps = list(candidate.iter_dependencies())
+            self._dependency_cache.add_dependency_links(candidate, deps)
+
+        return deps
