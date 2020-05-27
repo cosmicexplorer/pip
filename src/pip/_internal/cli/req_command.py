@@ -242,6 +242,7 @@ class RequirementCommand(IndexGroupCommand):
         use_user_site=False,                 # type: bool
         ignore_installed=True,               # type: bool
         ignore_requires_python=False,        # type: bool
+        avoid_wheel_downloads=False,         # type: bool
         force_reinstall=False,               # type: bool
         upgrade_strategy="to-satisfy-only",  # type: str
         use_pep517=None,                     # type: Optional[bool]
@@ -270,6 +271,7 @@ class RequirementCommand(IndexGroupCommand):
                 ignore_dependencies=options.ignore_dependencies,
                 ignore_installed=ignore_installed,
                 ignore_requires_python=ignore_requires_python,
+                avoid_wheel_downloads=avoid_wheel_downloads,
                 force_reinstall=force_reinstall,
                 upgrade_strategy=upgrade_strategy,
                 py_version_info=py_version_info,

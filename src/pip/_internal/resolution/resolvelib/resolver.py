@@ -79,6 +79,7 @@ class Resolver(BaseResolver):
         ignore_dependencies,  # type: bool
         ignore_installed,  # type: bool
         ignore_requires_python,  # type: bool
+        avoid_wheel_downloads,  # type: bool
         force_reinstall,  # type: bool
         upgrade_strategy,  # type: str
         py_version_info=None,  # type: Optional[Tuple[int, ...]]
@@ -95,6 +96,7 @@ class Resolver(BaseResolver):
             force_reinstall=force_reinstall,
             ignore_installed=ignore_installed,
             ignore_requires_python=ignore_requires_python,
+            avoid_wheel_downloads=avoid_wheel_downloads,
             py_version_info=py_version_info,
         )
         self.ignore_dependencies = ignore_dependencies

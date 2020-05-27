@@ -167,6 +167,7 @@ class _InstallRequirementBackedCandidate(Candidate):
         if self._dist is not None:
             return
 
+        # TODO: don't download the distribution here!!!
         abstract_dist = self._prepare_abstract_distribution()
         self._dist = abstract_dist.get_pkg_resources_distribution()
         assert self._dist is not None, "Distribution already installed"
@@ -224,6 +225,8 @@ class _InstallRequirementBackedCandidate(Candidate):
 
     def get_install_requirement(self):
         # type: () -> Optional[InstallRequirement]
+        # TODO: can this `self._prepare()` just be deleted? self._ireq is
+        # already populated at construction!
         self._prepare()
         return self._ireq
 
