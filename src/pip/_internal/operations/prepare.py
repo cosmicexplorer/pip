@@ -7,14 +7,20 @@
 import logging
 import mimetypes
 import os
+import re
 import shutil
+import struct
+import zlib
 
 from pip._vendor import requests
+from pip._vendor.packaging.requirements import Requirement
+from pip._vendor.pkg_resources import Distribution
 from pip._vendor.six import PY2
 
 from pip._internal.distributions import (
     make_distribution_for_install_requirement,
 )
+from pip._internal.distributions.base import AbstractDistribution
 from pip._internal.distributions.installed import InstalledDistribution
 from pip._internal.exceptions import (
     DirectoryUrlHashUnsupported,
@@ -36,19 +42,20 @@ from pip._internal.utils.misc import (
 from pip._internal.utils.temp_dir import TempDirectory
 from pip._internal.utils.typing import MYPY_CHECK_RUNNING
 from pip._internal.utils.unpacking import unpack_file
+from pip._internal.utils.urls import get_url_scheme
 from pip._internal.vcs import vcs
 
 if MYPY_CHECK_RUNNING:
     from typing import (
-        Callable, List, Optional, Tuple,
+        Any, Callable, Dict, List, Optional, Tuple, cast
     )
 
     from mypy_extensions import TypedDict
 
-    from pip._internal.distributions import AbstractDistribution
     from pip._internal.index.package_finder import PackageFinder
     from pip._internal.models.link import Link
     from pip._internal.network.download import Downloader
+    from pip._internal.network.session import PipSession
     from pip._internal.req.req_install import InstallRequirement
     from pip._internal.req.req_tracker import RequirementTracker
     from pip._internal.utils.hashes import Hashes
@@ -273,7 +280,7 @@ def _download_http_url(
     hashes,  # type: Optional[Hashes]
 ):
     # type: (...) -> Tuple[str, str]
-    """Download link url into temp_dir using provided session"""
+    """Download link url into temp_dir using provided downloader"""
     download = downloader(link)
 
     file_path = os.path.join(temp_dir, download.filename)
@@ -311,6 +318,72 @@ def _check_download_dir(link, download_dir, hashes):
             os.unlink(download_path)
             return None
     return download_path
+
+
+# From https://stackoverflow.com/a/1089787/2518889:
+def _inflate(data):
+    # type: (bytes) -> bytes
+    decompress = zlib.decompressobj(-zlib.MAX_WBITS)
+    inflated = decompress.decompress(data)
+    inflated += decompress.flush()
+    return inflated
+
+
+def _decode_4_byte_unsigned(byte_string):
+    # type: (bytes) -> int
+    """Unpack as a little-endian unsigned long."""
+    assert isinstance(byte_string, bytes) and len(byte_string) == 4
+    return struct.unpack('<L', byte_string)[0]
+
+
+def _decode_2_byte_unsigned(byte_string):
+    # type: (bytes) -> int
+    """Unpack as a little-endian unsigned short."""
+    assert isinstance(byte_string, bytes) and len(byte_string) == 2
+    return struct.unpack('<H', byte_string)[0]
+
+
+class ShallowWheelDistribution(Distribution):
+    PKG_INFO = 'METADATA'
+
+    def __init__(self, project_name, version, metadata):
+        # type: (str, str, Dict[str, Any]) -> None
+        self._metadata = metadata
+        super(ShallowWheelDistribution, self).__init__(
+            project_name=project_name,
+            version=version)
+
+    def get_requires_python(self):
+        # type: () -> Optional[str]
+        return self._metadata.get('Requires-Python')
+
+    def requires(self):
+        # type: () -> List[Requirement]
+        requires_raw = self._metadata.get('Requires-Dist', [])
+        if isinstance(requires_raw, list):
+            requires = requires_raw
+        else:
+            requires = [requires_raw]
+
+        return [
+            Requirement(r) for r in requires
+        ]
+
+
+class MetadataOnlyDistribution(AbstractDistribution):
+
+    def __init__(self, dist, req):
+        # type: (ShallowWheelDistribution, InstallRequirement) -> None
+        self._dist = dist
+        super(MetadataOnlyDistribution, self).__init__(req)
+
+    def get_pkg_resources_distribution(self):
+        # type: () -> Distribution
+        return self._dist
+
+    def prepare_distribution_metadata(self, finder, build_isolation):
+        # type: (PackageFinder, bool) -> None
+        pass
 
 
 class RequirementPreparer(object):
@@ -375,6 +448,165 @@ class RequirementPreparer(object):
         raise InstallationError(
             "Could not find or access download directory '{}'"
             .format(self.download_dir))
+
+    @property
+    def _session(self):
+        # type: () -> PipSession
+        return self.downloader.session
+
+    def prepare_metadata_only_linked_requirement(
+        self,
+        req,  # type: InstallRequirement
+    ):
+        # type: (...) -> AbstractDistribution
+        """Prepare a requirement that would be obtained from req.link.
+
+        This method will avoid downloading specifically remote wheel files in
+        favor of a process that extracts the relevant metadata without
+        downloading the entire wheel file.
+
+        Other types of dists, as well as file:// urls, are not specially
+        treated, and this method will fall back to
+        `self.prepare_linked_requirement()` in those cases.
+        """
+        assert req.link
+        link = req.link
+
+        # If the link doesn't point to a wheel, or if the wheel is already on
+        # the machine (via a file:// url), we do not attempt to create a
+        # metadata-only distribution.
+        if (not link.is_wheel) or (link.scheme == 'file'):
+            return self.prepare_linked_requirement(req)
+
+        logger.info(
+            'Preparing a metadata-only distribution for requirement %s',
+            req.req or req)
+
+        url = str(req.link)
+        scheme = get_url_scheme(url)
+        assert scheme in ['http', 'https'], (
+            'scheme was: {}, url was: {}, req was: {}'
+            .format(scheme, url, req))
+
+        head_resp = self._session.head(url)
+        head_resp.raise_for_status()
+        assert 'bytes' in head_resp.headers['Accept-Ranges']
+        wheel_content_length = int(head_resp.headers['Content-Length'])
+
+        _INITIAL_ENDING_BYTES_RANGE = max(
+            2000,
+            int(wheel_content_length * 0.01))
+
+        shallow_begin = max(
+            0,
+            (wheel_content_length - _INITIAL_ENDING_BYTES_RANGE))
+        wheel_shallow_resp = self._session.get(url, headers={
+            'Range': ('bytes={shallow_begin}-{wheel_content_length}'
+                      .format(shallow_begin=shallow_begin,
+                              wheel_content_length=wheel_content_length)),
+        })
+        wheel_shallow_resp.raise_for_status()
+        if wheel_content_length <= _INITIAL_ENDING_BYTES_RANGE:
+            last_2k_bytes = wheel_shallow_resp.content
+        else:
+            assert (
+                len(wheel_shallow_resp.content) >= _INITIAL_ENDING_BYTES_RANGE)
+            last_2k_bytes = (wheel_shallow_resp
+                             .content[-_INITIAL_ENDING_BYTES_RANGE:])
+
+        sanitized_requirement_name = req.name.lower().replace('-', '_')
+        metadata_file_pattern = (
+            '{sanitized_requirement_name}[^/]+?.dist-info/METADATAPK'
+            .format(sanitized_requirement_name=sanitized_requirement_name)
+            .encode())
+        filename_in_central_dir_header = re.search(metadata_file_pattern,
+                                                   last_2k_bytes,
+                                                   flags=re.IGNORECASE)
+
+        try:
+            _st = filename_in_central_dir_header.start()
+        except AttributeError:
+            raise Exception(
+                'req: {}, pat: {!r}, len(b):{}, bytes:\n{!r}'
+                .format(req, metadata_file_pattern,
+                        len(last_2k_bytes), last_2k_bytes))
+
+        encoded_offset_for_local_file = last_2k_bytes[(_st - 4):_st]
+        _off = _decode_4_byte_unsigned(encoded_offset_for_local_file)
+
+        local_file_header_resp = self._session.get(url, headers={
+            'Range': ('bytes={beg}-{end}'.format(beg=(_off + 18),
+                                                 end=(_off + 30))),
+        })
+        local_file_header_resp.raise_for_status()
+
+        if len(local_file_header_resp.content) == 13:
+            file_header_no_filename = local_file_header_resp.content[:12]
+        elif len(local_file_header_resp.content) > 12:
+            file_header_no_filename = (
+                local_file_header_resp.content[(_off + 18):(_off + 30)])
+        else:
+            file_header_no_filename = local_file_header_resp.content
+
+        try:
+            compressed_size = _decode_4_byte_unsigned(
+                file_header_no_filename[:4])
+        except AssertionError:
+            raise Exception(
+                'c: {}, _off: {}'
+                .format(local_file_header_resp.content, _off)
+            )
+        uncompressed_size = _decode_4_byte_unsigned(
+            file_header_no_filename[4:8])
+        file_name_length = _decode_2_byte_unsigned(
+            file_header_no_filename[8:10])
+        assert file_name_length == (
+            len(filename_in_central_dir_header.group(0)) - 2)
+        extra_field_length = _decode_2_byte_unsigned(
+            file_header_no_filename[10:12])
+        compressed_start = _off + 30 + file_name_length + extra_field_length
+        compressed_end = compressed_start + compressed_size
+
+        metadata_file_resp = self._session.get(url, headers={
+            'Range': ('bytes={compressed_start}-{compressed_end}'
+                      .format(compressed_start=compressed_start,
+                              compressed_end=compressed_end)),
+        })
+        metadata_file_resp.raise_for_status()
+
+        header_response_length = len(local_file_header_resp.content)
+        metadata_response_length = len(metadata_file_resp.content)
+        if metadata_response_length == header_response_length:
+            metadata_file_bytes = (
+                metadata_file_resp.content[compressed_start:compressed_end])
+        else:
+            metadata_file_bytes = metadata_file_resp.content[:compressed_size]
+        uncompressed_file_contents = _inflate(metadata_file_bytes)
+        assert len(uncompressed_file_contents) == uncompressed_size
+
+        decoded_metadata_file = uncompressed_file_contents.decode('utf-8')
+        metadata = {}           # type: Dict[str, Any]
+
+        for g in re.finditer(r'^([a-zA-Z\-]+): (.*)$', decoded_metadata_file,
+                             flags=re.MULTILINE):
+            key_base, value = g.groups()
+            if PY2:
+                key = cast(str, key_base)  # type: str
+            else:
+                key = key_base  # type: str
+            previous_value = metadata.get(key, None)
+            if previous_value is None:
+                metadata[key] = value
+            elif isinstance(previous_value, list):
+                previous_value.append(value)
+            else:
+                metadata[key] = [previous_value, value]
+
+        dist = ShallowWheelDistribution(
+            project_name=metadata['Name'],
+            version=metadata['Version'],
+            metadata=metadata)
+        return MetadataOnlyDistribution(dist, req)
 
     def prepare_linked_requirement(
         self,

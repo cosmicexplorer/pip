@@ -1,6 +1,7 @@
 import functools
 import logging
 import os
+from typing import Dict, cast
 
 from pip._vendor import six
 from pip._vendor.packaging.utils import canonicalize_name
@@ -9,6 +10,7 @@ from pip._vendor.resolvelib import Resolver as RLResolver
 
 from pip._internal.exceptions import DistributionNotFound, InstallationError
 from pip._internal.locations import USER_CACHE_DIR
+from pip._internal.models.link import Link
 from pip._internal.req.req_set import RequirementSet
 from pip._internal.resolution.base import BaseResolver
 from pip._internal.resolution.resolvelib.provider import PipProvider
@@ -16,10 +18,11 @@ from pip._internal.utils.deprecation import deprecated
 from pip._internal.utils.typing import MYPY_CHECK_RUNNING
 
 from .caching import PersistentRequirementDependencyCache
+from .candidates import LinkCandidate
 from .factory import Factory
 
 if MYPY_CHECK_RUNNING:
-    from typing import Dict, List, Optional, Set, Tuple
+    from typing import List, Optional, Set, Tuple
 
     from pip._vendor.packaging.specifiers import SpecifierSet
     from pip._vendor.resolvelib.resolvers import Result
@@ -137,6 +140,15 @@ class Resolver(BaseResolver):
         )
 
         with persisted_cache as dependency_cache:
+            # Read in any cached LinkCandidates. This avoids having to fetch
+            # anything for the cached links. Note that this caching is (TODO:
+            # will be!!) disabled when --avoid-downloading-wheels is off!
+            cached_link_candidates = cast(
+                Dict[Link, LinkCandidate],
+                dependency_cache.get_cached_link_candidates())
+            self.factory.initialize_link_candidate_cache(
+                cached_link_candidates)
+
             provider = PipProvider(
                 factory=self.factory,
                 constraints=constraints,

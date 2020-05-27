@@ -254,6 +254,47 @@ class LinkCandidate(_InstallRequirementBackedCandidate):
         return self._factory.preparer.prepare_linked_requirement(self._ireq)
 
 
+class MetadataOnlyLinkCandidate(_InstallRequirementBackedCandidate):
+    def __init__(
+        self,
+        link,          # type: Link
+        parent,        # type: InstallRequirement
+        factory,       # type: Factory
+        name=None,     # type: Optional[str]
+        version=None,  # type: Optional[_BaseVersion]
+    ):
+        # type: (...) -> None
+        super(MetadataOnlyLinkCandidate, self).__init__(
+            link=link,
+            ireq=make_install_req_from_link(link, parent),
+            factory=factory,
+            name=name,
+            version=version,
+        )
+
+    def _prepare_abstract_distribution(self):
+        # type: () -> AbstractDistribution
+        return (self
+                ._factory
+                .preparer
+                .prepare_metadata_only_linked_requirement(
+                    self._ireq))
+
+    def _get_requires_python_specifier(self):
+        # type: () -> Optional[SpecifierSet]
+        requires_python = self.dist.get_requires_python()
+        if requires_python is None:
+            return None
+        try:
+            spec = SpecifierSet(requires_python)
+        except InvalidSpecifier as e:
+            logger.warning(
+                "Package %r has an invalid Requires-Python: %s", self.name, e,
+            )
+            return None
+        return spec
+
+
 class EditableCandidate(_InstallRequirementBackedCandidate):
     def __init__(
         self,

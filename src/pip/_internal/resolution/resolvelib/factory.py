@@ -1,5 +1,6 @@
 import collections
 import logging
+from typing import cast
 
 from pip._vendor import six
 from pip._vendor.packaging.utils import canonicalize_name
@@ -21,6 +22,7 @@ from .candidates import (
     EditableCandidate,
     ExtrasCandidate,
     LinkCandidate,
+    MetadataOnlyLinkCandidate,
     RequiresPythonCandidate,
 )
 from .requirements import (
@@ -30,7 +32,8 @@ from .requirements import (
 )
 
 if MYPY_CHECK_RUNNING:
-    from typing import Dict, Iterable, Iterator, Optional, Set, Tuple, TypeVar
+    from typing import (Any, Dict, Iterable, Iterator, Optional, Set, Tuple,
+                        TypeVar, Union)
 
     from pip._vendor.packaging.specifiers import SpecifierSet
     from pip._vendor.packaging.version import _BaseVersion
@@ -89,6 +92,20 @@ class Factory(object):
         else:
             self._installed_dists = {}
 
+    def initialize_link_candidate_cache(self, cache):
+        # type: (Cache[LinkCandidate]) -> None
+        self._link_candidate_cache.update(cache)
+
+    def _construct_link_candidate(self,
+                                  link,     # type: Link
+                                  *args,    # type: Any
+                                  **kwargs  # type: Any
+                                  ):
+        # type: (...) -> Union[LinkCandidate, MetadataOnlyLinkCandidate]
+        if self._avoid_wheel_downloads and link.is_wheel:
+            return MetadataOnlyLinkCandidate(link, *args, **kwargs)
+        return LinkCandidate(link, *args, **kwargs)
+
     def _make_candidate_from_dist(
         self,
         dist,  # type: Distribution
@@ -120,9 +137,13 @@ class Factory(object):
             base = self._editable_candidate_cache[link]  # type: BaseCandidate
         else:
             if link not in self._link_candidate_cache:
-                self._link_candidate_cache[link] = LinkCandidate(
-                    link, parent, factory=self, name=name, version=version,
-                )
+                self._link_candidate_cache[link] = cast(
+                    LinkCandidate,
+                    self
+                    ._construct_link_candidate(
+                        link, parent,
+                        factory=self, name=name,
+                        version=version))
             base = self._link_candidate_cache[link]
         if extras:
             return ExtrasCandidate(base, extras)
