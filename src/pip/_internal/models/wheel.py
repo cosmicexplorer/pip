@@ -43,10 +43,10 @@ class Wheel(object):
         self.plats = wheel_info.group('plat').split('.')
 
         # All the tag combinations from this file
-        self.file_tags = {
+        self.file_tags = frozenset({
             Tag(x, y, z) for x in self.pyversions
             for y in self.abis for z in self.plats
-        }
+        })
 
     def get_formatted_file_tags(self):
         # type: () -> List[str]
