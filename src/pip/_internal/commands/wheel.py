@@ -11,6 +11,7 @@ from pip._internal.cli import cmdoptions
 from pip._internal.cli.req_command import RequirementCommand, with_cleanup
 from pip._internal.cli.status_codes import SUCCESS
 from pip._internal.exceptions import CommandError
+from pip._internal.network.download import PartialRequirementDownloadCompleter
 from pip._internal.req.req_tracker import get_requirement_tracker
 from pip._internal.utils.misc import ensure_dir, normalize_path
 from pip._internal.utils.temp_dir import TempDirectory
@@ -155,6 +156,13 @@ class WheelCommand(RequirementCommand):
         requirement_set = resolver.resolve(
             reqs, check_supported_wheels=True
         )
+
+        # Download any requirements which were only fetched by metadata.
+        download_completer = PartialRequirementDownloadCompleter(
+            session,
+            progress_bar=options.progress_bar,
+            download_dir=options.wheel_dir)
+        download_completer.complete_requirement_downloads(requirement_set)
 
         reqs_to_build = [
             r for r in requirement_set.requirements.values()

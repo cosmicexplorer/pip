@@ -24,7 +24,7 @@ from pip._internal.exceptions import (
     VcsHashUnsupported,
 )
 from pip._internal.models.wheel import Wheel
-from pip._internal.network.download import BatchDownloader, Downloader
+from pip._internal.network.download import Downloader
 from pip._internal.network.lazy_wheel import (
     HTTPRangeRequestUnsupported,
     dist_from_wheel_url,
@@ -318,7 +318,6 @@ class RequirementPreparer(object):
         self.req_tracker = req_tracker
         self._session = session
         self._download = Downloader(session, progress_bar)
-        self._batch_download = BatchDownloader(session, progress_bar)
         self.finder = finder
 
         # Where still-packed archives should be written to. If None, they are
