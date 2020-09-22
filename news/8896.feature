@@ -1,0 +1,1 @@
+Move the batched download of lazily-fetched wheel files out of the ``Resolver.resolve()`` codepath, into ``PartialRequirementDownloadCompleter``. Consume this in the ``pip download``, ``pip wheel``, and ``pip install`` tasks.
