@@ -2,11 +2,13 @@ from __future__ import absolute_import
 
 import logging
 import os
+import shutil
 
 from pip._internal.cli import cmdoptions
 from pip._internal.cli.cmdoptions import make_target_python
 from pip._internal.cli.req_command import RequirementCommand, with_cleanup
 from pip._internal.cli.status_codes import SUCCESS
+from pip._internal.network.download import BatchDownloader
 from pip._internal.req.req_tracker import get_requirement_tracker
 from pip._internal.utils.misc import ensure_dir, normalize_path, write_output
 from pip._internal.utils.temp_dir import TempDirectory
@@ -133,6 +135,24 @@ class DownloadCommand(RequirementCommand):
         requirement_set = resolver.resolve(
             reqs, check_supported_wheels=True
         )
+
+        # Download any requirements which were only partially downloaded with
+        # --use-feature=fast-deps.
+        reqs_to_fully_download = [
+            r for r in requirement_set.requirements.values()
+            if r.needs_more_preparation
+        ]
+        links_from_newly_downloaded = []
+        for partially_downloaded_req in reqs_to_fully_download:
+            assert partially_downloaded_req.link
+            links_from_newly_downloaded.append(partially_downloaded_req.link)
+        # Let's download to a temporary directory.
+        tmpdir = TempDirectory(kind="unpack", globally_managed=True).path
+        batch_download = BatchDownloader(session,
+                                         progress_bar=options.progress_bar)
+        download_iterable = batch_download(links_from_newly_downloaded, tmpdir)
+        for _link, (filepath, _) in download_iterable:
+            shutil.copy(filepath, options.download_dir)
 
         downloaded = []  # type: List[str]
         for req in requirement_set.requirements.values():
