@@ -18,7 +18,6 @@ from pip._internal.cli.req_command import RequirementCommand, with_cleanup
 from pip._internal.cli.status_codes import ERROR, SUCCESS
 from pip._internal.exceptions import CommandError, InstallationError
 from pip._internal.locations import distutils_scheme
-from pip._internal.network.download import PartialRequirementDownloadCompleter
 from pip._internal.operations.check import check_install_conflicts
 from pip._internal.req import install_given_reqs
 from pip._internal.req.req_tracker import get_requirement_tracker
@@ -323,15 +322,6 @@ class InstallCommand(RequirementCommand):
             requirement_set = resolver.resolve(
                 reqs, check_supported_wheels=not options.target_dir
             )
-
-            # Download any requirements which were only fetched by metadata.
-            # Let's download to a temporary directory.
-            tmpdir = TempDirectory(kind="unpack", globally_managed=True).path
-            download_completer = PartialRequirementDownloadCompleter(
-                session,
-                progress_bar=options.progress_bar,
-                download_dir=tmpdir)
-            download_completer.complete_requirement_downloads(requirement_set)
 
             try:
                 pip_req = requirement_set.get_requirement("pip")

@@ -162,6 +162,11 @@ class Resolver(BaseResolver):
 
         reqs = req_set.all_requirements
         self.factory.preparer.prepare_linked_requirements_more(reqs)
+
+        # TODO: extricate this call from the resolver.resolve() code path once
+        # we can drop the v1 resolver.
+        self.factory.preparer.complete_partial_requirements(req_set)
+
         return req_set
 
     def get_installation_order(self, req_set):

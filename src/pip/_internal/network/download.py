@@ -168,7 +168,7 @@ class Downloader(object):
         return filepath, content_type
 
 
-class BatchDownloader(object):
+class _BatchDownloader(object):
 
     def __init__(
         self,
@@ -204,39 +204,35 @@ class BatchDownloader(object):
             yield link, (filepath, content_type)
 
 
-class PartialRequirementDownloadCompleter(object):
+def complete_partial_requirement_downloads(
+    session,       # type: PipSession
+    progress_bar,  # type: str
+    req_set,       # type: RequirementSet
+    download_dir,  # type: str
+):
+    # type: (...) -> None
+    """Download any requirements which were only partially downloaded with
+    --use-feature=fast-deps."""
+    batch_downloader = _BatchDownloader(session, progress_bar)
 
-    def __init__(
-        self,
-        session,           # type: PipSession
-        progress_bar,      # type: str
-        download_dir,      # type: str
-    ):
-        # type: (...) -> None
-        self._batch_downloader = BatchDownloader(session, progress_bar)
-        self._download_dir = download_dir
+    reqs_to_fully_download = [
+        r for r in req_set.requirements.values()
+        if r.needs_more_preparation
+    ]
 
-    def complete_requirement_downloads(self, req_set):
-        # type: (RequirementSet) -> None
-        """Download any requirements which were only partially downloaded with
-        --use-feature=fast-deps."""
-        reqs_to_fully_download = [
-            r for r in req_set.requirements.values()
-            if r.needs_more_preparation
-        ]
+    # Map each link to the requirement that owns it. This allows us to set
+    # `req.local_file_path` on the appropriate requirement after passing
+    # all the links at once into BatchDownloader.
+    links_to_fully_download = {}  # type: Dict[Link, InstallRequirement]
+    for req in reqs_to_fully_download:
+        assert req.link
+        links_to_fully_download[req.link] = req
 
-        # Map each link to the requirement that owns it. This allows us to set
-        # `req.local_file_path` on the appropriate requirement after passing
-        # all the links at once into BatchDownloader.
-        links_to_fully_download = {}  # type: Dict[Link, InstallRequirement]
-        for req in reqs_to_fully_download:
-            assert req.link
-            links_to_fully_download[req.link] = req
-
-        batch_download = self._batch_downloader(
-            links_to_fully_download.keys(),
-            self._download_dir)
-        for link, (filepath, _) in batch_download:
-            logger.debug("Downloading link %s to %s", link, filepath)
-            req = links_to_fully_download[link]
-            req.local_file_path = filepath
+    batch_download = batch_downloader(
+        links_to_fully_download.keys(),
+        download_dir,
+    )
+    for link, (filepath, _) in batch_download:
+        logger.debug("Downloading link %s to %s", link, filepath)
+        req = links_to_fully_download[link]
+        req.local_file_path = filepath

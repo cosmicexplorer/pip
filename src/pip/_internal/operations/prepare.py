@@ -24,7 +24,10 @@ from pip._internal.exceptions import (
     VcsHashUnsupported,
 )
 from pip._internal.models.wheel import Wheel
-from pip._internal.network.download import Downloader
+from pip._internal.network.download import (
+    Downloader,
+    complete_partial_requirement_downloads,
+)
 from pip._internal.network.lazy_wheel import (
     HTTPRangeRequestUnsupported,
     dist_from_wheel_url,
@@ -46,6 +49,7 @@ if MYPY_CHECK_RUNNING:
 
     from pip._internal.index.package_finder import PackageFinder
     from pip._internal.models.link import Link
+    from pip._internal.models.req_set import RequirementSet
     from pip._internal.network.session import PipSession
     from pip._internal.req.req_install import InstallRequirement
     from pip._internal.req.req_tracker import RequirementTracker
@@ -345,6 +349,10 @@ class RequirementPreparer(object):
 
         # Should wheels be downloaded lazily?
         self.use_lazy_wheel = lazy_wheel
+        # TODO: this field is only needed in
+        # .complete_partial_requirements(). When the v1 resolver can be
+        # removed, partial downloads can be completed outside of the resolver.
+        self._progress_bar = progress_bar
 
         # Memoized downloaded files, as mapping of url: (path, mime type)
         self._downloaded = {}  # type: Dict[str, Tuple[str, str]]
@@ -483,6 +491,17 @@ class RequirementPreparer(object):
             logger.debug('%s does not support range requests', url)
             return None
 
+    def complete_partial_requirements(self, req_set):
+        # type: (RequirementSet) -> None
+        """Download any requirements which were only fetched by metadata."""
+        download_location = self.wheel_download_dir or self.download_dir
+        complete_partial_requirement_downloads(
+            self._session,
+            self._progress_bar,
+            req_set,
+            download_location,
+        )
+
     def prepare_linked_requirement(self, req, parallel_builds=False):
         # type: (InstallRequirement, bool) -> Distribution
         """Prepare a requirement to be obtained from req.link."""
@@ -511,7 +530,7 @@ class RequirementPreparer(object):
                     req.needs_more_preparation = False
 
         # Prepare requirements we found were already downloaded for some
-        # reason. The rest will be downloaded outside of the resolver.
+        # reason. The other downloads will be completed elsewhere.
         for req in reqs:
             if not req.needs_more_preparation:
                 self._prepare_linked_requirement(req, parallel_builds)
