@@ -24,10 +24,7 @@ from pip._internal.exceptions import (
     VcsHashUnsupported,
 )
 from pip._internal.models.wheel import Wheel
-from pip._internal.network.download import (
-    Downloader,
-    complete_partial_requirement_downloads,
-)
+from pip._internal.network.download import BatchDownloader, Downloader
 from pip._internal.network.lazy_wheel import (
     HTTPRangeRequestUnsupported,
     dist_from_wheel_url,
@@ -49,7 +46,6 @@ if MYPY_CHECK_RUNNING:
 
     from pip._internal.index.package_finder import PackageFinder
     from pip._internal.models.link import Link
-    from pip._internal.models.req_set import RequirementSet
     from pip._internal.network.session import PipSession
     from pip._internal.req.req_install import InstallRequirement
     from pip._internal.req.req_tracker import RequirementTracker
@@ -322,6 +318,7 @@ class RequirementPreparer(object):
         self.req_tracker = req_tracker
         self._session = session
         self._download = Downloader(session, progress_bar)
+        self._batch_download = BatchDownloader(session, progress_bar)
         self.finder = finder
 
         # Where still-packed archives should be written to. If None, they are
@@ -349,10 +346,6 @@ class RequirementPreparer(object):
 
         # Should wheels be downloaded lazily?
         self.use_lazy_wheel = lazy_wheel
-        # TODO: this field is only needed in
-        # .complete_partial_requirements(). When the v1 resolver can be
-        # removed, partial downloads can be completed outside of the resolver.
-        self._progress_bar = progress_bar
 
         # Memoized downloaded files, as mapping of url: (path, mime type)
         self._downloaded = {}  # type: Dict[str, Tuple[str, str]]
@@ -491,16 +484,38 @@ class RequirementPreparer(object):
             logger.debug('%s does not support range requests', url)
             return None
 
-    def complete_partial_requirements(self, req_set):
-        # type: (RequirementSet) -> None
+    def _complete_partial_requirements(
+        self,
+        partially_downloaded_reqs,  # type: Iterable[InstallRequirement]
+        parallel_builds=False,      # type: bool
+    ):
+        # type: (...) -> None
         """Download any requirements which were only fetched by metadata."""
-        download_location = self.wheel_download_dir or self.download_dir
-        complete_partial_requirement_downloads(
-            self._session,
-            self._progress_bar,
-            req_set,
-            download_location,
+        # Download to a temporary directory. These will be copied over as
+        # needed for downstream 'download', 'wheel', and 'install' commands.
+        temp_dir = TempDirectory(kind="unpack", globally_managed=True).path
+
+        # Map each link to the requirement that owns it. This allows us to set
+        # `req.local_file_path` on the appropriate requirement after passing
+        # all the links at once into BatchDownloader.
+        links_to_fully_download = {}  # type: Dict[Link, InstallRequirement]
+        for req in partially_downloaded_reqs:
+            assert req.link
+            links_to_fully_download[req.link] = req
+
+        batch_download = self._batch_download(
+            links_to_fully_download.keys(),
+            temp_dir,
         )
+        for link, (filepath, _) in batch_download:
+            logger.debug("Downloading link %s to %s", link, filepath)
+            req = links_to_fully_download[link]
+            req.local_file_path = filepath
+
+        # This step is necessary to ensure all lazy wheels are processed
+        # successfully by the 'download', 'wheel', and 'install' commands.
+        for req in partially_downloaded_reqs:
+            self._prepare_linked_requirement(req, parallel_builds)
 
     def prepare_linked_requirement(self, req, parallel_builds=False):
         # type: (InstallRequirement, bool) -> Distribution
@@ -530,10 +545,19 @@ class RequirementPreparer(object):
                     req.needs_more_preparation = False
 
         # Prepare requirements we found were already downloaded for some
-        # reason. The other downloads will be completed elsewhere.
+        # reason. The other downloads will be completed separately.
+        partially_downloaded_reqs = []  # type: List[InstallRequirement]
         for req in reqs:
-            if not req.needs_more_preparation:
+            if req.needs_more_preparation:
+                partially_downloaded_reqs.append(req)
+            else:
                 self._prepare_linked_requirement(req, parallel_builds)
+
+        # TODO: separate this part out from RequirementPreparer when the v1
+        # resolver can be removed!
+        self._complete_partial_requirements(
+            partially_downloaded_reqs, parallel_builds=parallel_builds,
+        )
 
     def _prepare_linked_requirement(self, req, parallel_builds):
         # type: (InstallRequirement, bool) -> Distribution

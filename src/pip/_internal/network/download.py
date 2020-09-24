@@ -16,13 +16,11 @@ from pip._internal.utils.misc import format_size, redact_auth_from_url, splitext
 from pip._internal.utils.typing import MYPY_CHECK_RUNNING
 
 if MYPY_CHECK_RUNNING:
-    from typing import Dict, Iterable, Optional, Tuple
+    from typing import Iterable, Optional, Tuple
 
     from pip._vendor.requests.models import Response
 
     from pip._internal.models.link import Link
-    from pip._internal.models.req_install import InstallRequirement
-    from pip._internal.models.req_set import RequirementSet
     from pip._internal.network.session import PipSession
 
 logger = logging.getLogger(__name__)
@@ -168,7 +166,7 @@ class Downloader(object):
         return filepath, content_type
 
 
-class _BatchDownloader(object):
+class BatchDownloader(object):
 
     def __init__(
         self,
@@ -202,37 +200,3 @@ class _BatchDownloader(object):
                     content_file.write(chunk)
             content_type = resp.headers.get('Content-Type', '')
             yield link, (filepath, content_type)
-
-
-def complete_partial_requirement_downloads(
-    session,       # type: PipSession
-    progress_bar,  # type: str
-    req_set,       # type: RequirementSet
-    download_dir,  # type: str
-):
-    # type: (...) -> None
-    """Download any requirements which were only partially downloaded with
-    --use-feature=fast-deps."""
-    batch_downloader = _BatchDownloader(session, progress_bar)
-
-    reqs_to_fully_download = [
-        r for r in req_set.requirements.values()
-        if r.needs_more_preparation
-    ]
-
-    # Map each link to the requirement that owns it. This allows us to set
-    # `req.local_file_path` on the appropriate requirement after passing
-    # all the links at once into BatchDownloader.
-    links_to_fully_download = {}  # type: Dict[Link, InstallRequirement]
-    for req in reqs_to_fully_download:
-        assert req.link
-        links_to_fully_download[req.link] = req
-
-    batch_download = batch_downloader(
-        links_to_fully_download.keys(),
-        download_dir,
-    )
-    for link, (filepath, _) in batch_download:
-        logger.debug("Downloading link %s to %s", link, filepath)
-        req = links_to_fully_download[link]
-        req.local_file_path = filepath

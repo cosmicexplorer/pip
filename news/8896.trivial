@@ -1,1 +1,1 @@
-Move the batched download of lazily-fetched wheel files out of the ``Resolver.resolve()`` codepath, into ``PartialRequirementDownloadCompleter``. Consume this in the ``pip download``, ``pip wheel``, and ``pip install`` tasks.
+Separate the batched *download* of lazily-fetched wheel files from the preparation of regularly-downloaded requirements in ``RequirementPreparer.prepare_linked_requirements_more()``.
