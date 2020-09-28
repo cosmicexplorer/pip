@@ -7,7 +7,10 @@
 import logging
 import mimetypes
 import os
+import re
 import shutil
+import tarfile
+import zipfile
 
 from pip._vendor.packaging.utils import canonicalize_name
 from pip._vendor.six import PY2
@@ -32,11 +35,18 @@ from pip._internal.network.lazy_wheel import (
 from pip._internal.utils.filesystem import copy2_fixed
 from pip._internal.utils.hashes import MissingHashes
 from pip._internal.utils.logging import indent_log
-from pip._internal.utils.misc import display_path, hide_url, path_to_display, rmtree
+from pip._internal.utils.misc import (
+    display_path,
+    hide_url,
+    path_to_display,
+    rmtree,
+)
+from pip._internal.utils.pkg_resources import DictMetadata
 from pip._internal.utils.temp_dir import TempDirectory
 from pip._internal.utils.typing import MYPY_CHECK_RUNNING
 from pip._internal.utils.unpacking import unpack_file
 from pip._internal.vcs import vcs
+from pip._vendor.pkg_resources import DistInfoDistribution
 
 if MYPY_CHECK_RUNNING:
     from typing import Callable, Dict, Iterable, List, Optional, Tuple
@@ -215,6 +225,67 @@ def get_file_url(
     if hashes:
         hashes.check_against_path(from_path)
     return File(from_path, None)
+
+
+class FastDepsSdistDistribution(DistInfoDistribution):
+    PKG_INFO = 'PKG-INFO'
+
+
+def _fast_deps_non_wheel(
+    link,  # type: Link
+    project_name,  # type: str
+    download,  # type: Downloader
+    download_dir=None,  # type: Optional[str]
+    hashes=None,  # type: Optional[Hashes]
+):
+    # type: (...) -> Optional[DistInfoDistribution]
+    # file urls
+    if link.is_file:
+        file = get_file_url(link, download_dir, hashes=hashes)
+
+    # http urls
+    else:
+        file = get_http_url(
+            link,
+            download,
+            download_dir,
+            hashes=hashes,
+        )
+
+    path = os.path.basename(file.path)
+    tgz_match = re.match(r'(.*)\.(tar\.gz|tgz)$', path)
+    zip_match = re.match(r'(.*)\.(zip|egg)$', path)
+    bz2_match = re.match(r'(.*)\.bz2$', path)
+    if tgz_match:
+        prefix = tgz_match[1]
+        pkg_info = os.path.join(prefix, 'PKG-INFO')
+        with tarfile.open(file.path, mode='r:gz') as tgzf:
+            with tgzf.extractfile(pkg_info) as entry:
+                contents = entry.read()
+    elif zip_match:
+        prefix = zip_match[1]
+        pkg_info = os.path.join(prefix, 'PKG-INFO')
+        with zipfile.ZipFile(file.path) as zf:
+            contents = zf.read(pkg_info)
+    elif bz2_match:
+        prefix = bz2_match[1]
+        pkg_info = os.path.join(prefix, 'PKG-INFO')
+        with tarfile.open(file.path, mode='r:bz2') as tbz2f:
+            with tbz2f.extractfile(pkg_info) as entry:
+                contents = entry.read()
+    else:
+        # Unrecognized file type.
+        return None
+
+    metadata = DictMetadata({
+        'PKG-INFO': contents,
+    })
+
+    return FastDepsSdistDistribution(
+        location=file.path,
+        metadata=metadata,
+        project_name=project_name,
+    )
 
 
 def unpack_url(
@@ -484,6 +555,31 @@ class RequirementPreparer(object):
             logger.debug('%s does not support range requests', url)
             return None
 
+    def _fetch_metadata_using_lazy_sdist(
+        self,
+        link,  # type: Link
+        project_name,  # type: str
+        hashes,  # type: Hashes
+    ):
+        # type: (...) -> Optional[DistInfoDistribution]
+        if not self.use_lazy_wheel:
+            return None
+        if self.require_hashes:
+            logger.debug('Lazy sdist is not used as hash checking is required')
+            return None
+
+        logger.info(
+            'Obtaining dependency information from %s %s',
+            project_name, link.url,
+        )
+        return _fast_deps_non_wheel(
+            link=link,
+            project_name=project_name,
+            download=self._download,
+            download_dir=self._get_download_dir(link),
+            hashes=hashes,
+        )
+
     def _complete_partial_requirements(
         self,
         partially_downloaded_reqs,  # type: Iterable[InstallRequirement]
@@ -528,6 +624,14 @@ class RequirementPreparer(object):
             if wheel_dist is not None:
                 req.needs_more_preparation = True
                 return wheel_dist
+            non_wheel_dist = self._fetch_metadata_using_lazy_sdist(
+                link=link,
+                project_name=req.req.name,
+                hashes=None,
+            )
+            if non_wheel_dist is not None:
+                req.needs_more_preparation = True
+                return non_wheel_dist
             return self._prepare_linked_requirement(req, parallel_builds)
 
     def prepare_linked_requirements_more(self, reqs, parallel_builds=False):
