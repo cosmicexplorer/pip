@@ -1,11 +1,13 @@
 """Download files with progress indicators.
 """
 import cgi
+import io
 import logging
 import mimetypes
 import os
-from typing import Iterable, Iterator, Optional, Tuple
+from typing import Dict, Iterable, Iterator, List, Optional, Tuple
 
+from pip._vendor.requests.adapters import HTTPAdapter
 from pip._vendor.requests.models import CONTENT_CHUNK_SIZE, Response
 
 from pip._internal.cli.progress_bars import get_download_progress_renderer
@@ -161,12 +163,60 @@ class BatchDownloader:
         session: PipSession,
         progress_bar: str,
     ) -> None:
+        adapter = HTTPAdapter(pool_connections=100, pool_maxsize=100)
+        session.mount('https://', adapter)
         self._downloader = Downloader(session, progress_bar)
+
+    def invoke_parallel(
+        self, links: Iterable[Link], location: str
+    ) -> Iterable[Tuple[Link,Tuple[str, str]]]:
+        download_locations: Dict[Link, Tuple[str, str]] = {}
+        download_files: Dict[Link, io.BufferedWriter] = {}
+        download_chunks: Dict[Link, Iterator[bytes]] = {}
+
+        for link in links:
+            resp = self._downloader.get_http_response(link)
+
+            filename = _get_http_response_filename(resp, link)
+            filepath = os.path.join(location, filename)
+
+            content_type = resp.headers.get("Content-Type", "")
+
+            download_locations[link] = (filepath, content_type)
+            download_files[link] = open(filepath, 'wb')
+            download_chunks[link] = self._downloader.download_chunks(resp, link)
+
+        remaining_links = list(links)[:]
+        while remaining_links:
+            new_remaining_links = []
+            for link in remaining_links:
+                filepath, _ = download_locations[link]
+                output_file = download_files[link]
+                bytes_iterator = download_chunks[link]
+                try:
+                    chunk = next(bytes_iterator)
+                    output_file.write(chunk)
+                    new_remaining_links.append(link)
+                except StopIteration:
+                    output_file.close()
+                    del download_files[link]
+                    del download_chunks[link]
+            remaining_links = new_remaining_links
+
+        for link in links:
+            filepath, content_type = download_locations[link]
+            yield link, (filepath, content_type)
+
+    def invoke_direct(
+        self, links: Iterable[Link], location: str
+    ) -> Iterable[Tuple[Link, Tuple[str, str]]]:
+        for link in links:
+            filepath, content_type = self._downloader(link, location)
+            yield link, (filepath, content_type)
 
     def __call__(
         self, links: Iterable[Link], location: str
     ) -> Iterable[Tuple[Link, Tuple[str, str]]]:
         """Download the files given by links into location."""
-        for link in links:
-            filepath, content_type = self._downloader(link, location)
-            yield link, (filepath, content_type)
+        return self.invoke_parallel(links, location)
+        # return self.invoke_direct(links, location)
