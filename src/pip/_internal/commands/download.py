@@ -1,7 +1,8 @@
+import json
 import logging
 import os
 from optparse import Values
-from typing import List
+from typing import Dict, List
 
 from pip._internal.cli import cmdoptions
 from pip._internal.cli.cmdoptions import make_target_python
@@ -60,6 +61,14 @@ class DownloadCommand(RequirementCommand):
             metavar="dir",
             default=os.curdir,
             help="Download packages into <dir>.",
+        )
+
+        self.cmd_opts.add_option(
+            '--print-download-urls',
+            dest='print_download_urls',
+            metavar='output-file',
+            default=None,
+            help=("Print URLs of any downloaded distributions to this file."),
         )
 
         cmdoptions.add_target_python_options(self.cmd_opts)
@@ -128,12 +137,22 @@ class DownloadCommand(RequirementCommand):
         requirement_set = resolver.resolve(reqs, check_supported_wheels=True)
 
         downloaded: List[str] = []
+        download_infos: List[Dict[str, str]] = []
         for req in requirement_set.requirements.values():
             if req.satisfied_by is None:
                 assert req.name is not None
+                assert req.link is not None
+                download_infos.append({
+                    'name': req.name,
+                    'url': req.link.url,
+                })
                 preparer.save_linked_requirement(req)
                 downloaded.append(req.name)
+
         if downloaded:
             write_output("Successfully downloaded %s", " ".join(downloaded))
+        if options.print_download_urls:
+            with open(options.print_download_urls, 'w') as f:
+                json.dump(download_infos, f, indent=4)
 
         return SUCCESS
