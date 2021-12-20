@@ -4,7 +4,7 @@ import cgi
 import logging
 import mimetypes
 import os
-from typing import Iterable, Optional, Tuple
+from typing import Iterable, Iterator, Optional, Tuple
 
 from pip._vendor.requests.models import CONTENT_CHUNK_SIZE, Response
 
@@ -127,10 +127,9 @@ class Downloader:
         self._session = session
         self._progress_bar = progress_bar
 
-    def __call__(self, link: Link, location: str) -> Tuple[str, str]:
-        """Download the file given by link into location."""
+    def get_http_response(self, link: Link) -> Response:
         try:
-            resp = _http_get_download(self._session, link)
+            return _http_get_download(self._session, link)
         except NetworkConnectionError as e:
             assert e.response is not None
             logger.critical(
@@ -138,10 +137,17 @@ class Downloader:
             )
             raise
 
+    def download_chunks(self, resp: Response, link: Link) -> Iterator[bytes]:
+        return _prepare_download(resp, link, self._progress_bar)
+
+    def __call__(self, link: Link, location: str) -> Tuple[str, str]:
+        """Download the file given by link into location."""
+        resp = self.get_http_response(link)
+
         filename = _get_http_response_filename(resp, link)
         filepath = os.path.join(location, filename)
 
-        chunks = _prepare_download(resp, link, self._progress_bar)
+        chunks = self.download_chunks(resp, link)
         with open(filepath, "wb") as content_file:
             for chunk in chunks:
                 content_file.write(chunk)
@@ -155,31 +161,12 @@ class BatchDownloader:
         session: PipSession,
         progress_bar: str,
     ) -> None:
-        self._session = session
-        self._progress_bar = progress_bar
+        self._downloader = Downloader(session, progress_bar)
 
     def __call__(
         self, links: Iterable[Link], location: str
     ) -> Iterable[Tuple[Link, Tuple[str, str]]]:
         """Download the files given by links into location."""
         for link in links:
-            try:
-                resp = _http_get_download(self._session, link)
-            except NetworkConnectionError as e:
-                assert e.response is not None
-                logger.critical(
-                    "HTTP error %s while getting %s",
-                    e.response.status_code,
-                    link,
-                )
-                raise
-
-            filename = _get_http_response_filename(resp, link)
-            filepath = os.path.join(location, filename)
-
-            chunks = _prepare_download(resp, link, self._progress_bar)
-            with open(filepath, "wb") as content_file:
-                for chunk in chunks:
-                    content_file.write(chunk)
-            content_type = resp.headers.get("Content-Type", "")
+            filepath, content_type = self._downloader(link, location)
             yield link, (filepath, content_type)
