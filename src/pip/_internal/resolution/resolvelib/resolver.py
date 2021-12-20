@@ -45,6 +45,7 @@ class Resolver(BaseResolver):
         ignore_dependencies: bool,
         ignore_installed: bool,
         ignore_requires_python: bool,
+        avoid_wheel_downloads: bool,
         force_reinstall: bool,
         upgrade_strategy: str,
         py_version_info: Optional[Tuple[int, ...]] = None,
@@ -64,6 +65,7 @@ class Resolver(BaseResolver):
             py_version_info=py_version_info,
         )
         self.ignore_dependencies = ignore_dependencies
+        self.avoid_wheel_downloads = avoid_wheel_downloads
         self.upgrade_strategy = upgrade_strategy
         self._result: Optional[Result] = None
 
@@ -157,8 +159,10 @@ class Resolver(BaseResolver):
 
             req_set.add_named_requirement(ireq)
 
-        reqs = req_set.all_requirements
-        self.factory.preparer.prepare_linked_requirements_more(reqs)
+        if not self.avoid_wheel_downloads:
+            reqs = req_set.all_requirements
+            self.factory.preparer.prepare_linked_requirements_more(reqs)
+
         return req_set
 
     def get_installation_order(

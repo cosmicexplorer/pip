@@ -71,6 +71,15 @@ class DownloadCommand(RequirementCommand):
             help=("Print URLs of any downloaded distributions to this file."),
         )
 
+        self.cmd_opts.add_option(
+            '--avoid-wheel-downloads',
+            dest='avoid_wheel_downloads',
+            default=False,
+            action='store_true',
+            help=("Where possible, avoid downloading wheels. This is "
+                  "currently only useful if --print-download-urls is set."),
+        )
+
         cmdoptions.add_target_python_options(self.cmd_opts)
 
         index_opts = cmdoptions.make_option_group(
@@ -130,6 +139,7 @@ class DownloadCommand(RequirementCommand):
             options=options,
             ignore_requires_python=options.ignore_requires_python,
             py_version_info=options.python_version,
+            avoid_wheel_downloads=options.avoid_wheel_downloads,
         )
 
         self.trace_basic_info(finder)
