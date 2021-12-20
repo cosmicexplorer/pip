@@ -5,7 +5,12 @@ import io
 import logging
 import mimetypes
 import os
-from typing import Dict, Iterable, Iterator, List, Optional, Tuple
+from multiprocessing import Process
+from multiprocessing import Pool as ProcessPool
+from multiprocessing import Queue as ProcessQueue
+from queue import Queue as ThreadQueue
+from threading import Thread
+from typing import Dict, Iterable, Iterator, List, Optional, Tuple, Union
 
 from pip._vendor.requests.adapters import HTTPAdapter
 from pip._vendor.requests.models import CONTENT_CHUNK_SIZE, Response
@@ -129,6 +134,10 @@ class Downloader:
         self._session = session
         self._progress_bar = progress_bar
 
+    @property
+    def session(self) -> PipSession:
+        return self._session
+
     def get_http_response(self, link: Link) -> Response:
         try:
             return _http_get_download(self._session, link)
@@ -163,13 +172,77 @@ class BatchDownloader:
         session: PipSession,
         progress_bar: str,
     ) -> None:
-        adapter = HTTPAdapter(pool_connections=100, pool_maxsize=100)
-        session.mount('https://', adapter)
         self._downloader = Downloader(session, progress_bar)
 
+    def _mount_pooled_connection_adapter(self) -> None:
+        adapter = HTTPAdapter(pool_connections=100, pool_maxsize=100)
+        self._downloader.session.mount('https://', adapter)
+
+    # def _split_link_responses(
+    #     self, links: Iterable[Link]
+    # ) -> Iterable[Tuple[Link, Tuple[str, Response]]]:
+    #     download_responses: Dict[Link, Tuple[str, Response]] = {}
+
+    #     for link in links:
+    #         resp = self._downloader.get_http_response(link)
+    #         content_type = resp.headers.get("Content-Type", "")
+    #         download_responses[link] = content_type, resp
+
+    #     return download_responses
+
+    @staticmethod
+    def multiprocess_target(
+        link: Link, location: str,
+        q: Union[ThreadQueue, ProcessQueue], downloader: Downloader
+    ) -> None:
+        filepath, content_type = downloader(link, location)
+        q.put((link, (filepath, content_type)))
+
+    def invoke_multiprocess(
+        self, links: Iterable[Link], location: str,
+        concurrency: int = 20,
+        pool_connections: bool = False
+    ) -> Iterable[Tuple[Link, Tuple[str, str]]]:
+        if pool_connections:
+            self._mount_pooled_connection_adapter()
+
+        # pool = ProcessPool(concurrency)
+        q = ProcessQueue(concurrency)
+        processes: List[Process] = []
+        for link in links:
+            p = Process(target=self.multiprocess_target, args=(link, location, q, self._downloader))
+            p.start()
+            processes.append(p)
+
+        for p in processes:
+            p.join()
+            yield q.get()
+
+    def invoke_threaded(
+        self, links: Iterable[Link], location: str,
+        concurrency: int = 20, pool_connections: bool = True
+    ) -> Iterable[Tuple[Link, Tuple[str, str]]]:
+        if pool_connections:
+            self._mount_pooled_connection_adapter()
+
+        q = ThreadQueue(concurrency)
+        threads: List[Thread] = []
+        for link in links:
+            t = Thread(target=self.multiprocess_target, args=(link, location, q, self._downloader))
+            t.start()
+            threads.append(t)
+
+        for t in threads:
+            t.join()
+            yield q.get()
+
     def invoke_parallel(
-        self, links: Iterable[Link], location: str
-    ) -> Iterable[Tuple[Link,Tuple[str, str]]]:
+        self, links: Iterable[Link], location: str,
+        pool_connections: bool = True
+    ) -> Iterable[Tuple[Link, Tuple[str, str]]]:
+        if pool_connections:
+            self._mount_pooled_connection_adapter()
+
         download_locations: Dict[Link, Tuple[str, str]] = {}
         download_files: Dict[Link, io.BufferedWriter] = {}
         download_chunks: Dict[Link, Iterator[bytes]] = {}
@@ -218,5 +291,7 @@ class BatchDownloader:
         self, links: Iterable[Link], location: str
     ) -> Iterable[Tuple[Link, Tuple[str, str]]]:
         """Download the files given by links into location."""
-        return self.invoke_parallel(links, location)
+        # return self.invoke_multiprocess(links, location)
+        return self.invoke_threaded(links, location)
+        # return self.invoke_parallel(links, location)
         # return self.invoke_direct(links, location)
