@@ -1,0 +1,1 @@
+Add --print-download-urls and --avoid-wheel-downloads to ``pip download`` to execute the resolver without downloading any files.
