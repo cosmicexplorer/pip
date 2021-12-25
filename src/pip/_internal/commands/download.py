@@ -64,20 +64,22 @@ class DownloadCommand(RequirementCommand):
         )
 
         self.cmd_opts.add_option(
-            '--print-download-urls',
-            dest='print_download_urls',
-            metavar='output-file',
+            "--print-download-urls",
+            dest="print_download_urls",
+            metavar="output-file",
             default=None,
             help=("Print URLs of any downloaded distributions to this file."),
         )
 
         self.cmd_opts.add_option(
-            '--avoid-wheel-downloads',
-            dest='avoid_wheel_downloads',
+            "--avoid-wheel-downloads",
+            dest="avoid_wheel_downloads",
             default=False,
-            action='store_true',
-            help=("Where possible, avoid downloading wheels. This is "
-                  "currently only useful if --print-download-urls is set."),
+            action="store_true",
+            help=(
+                "Where possible, avoid downloading wheels. This is "
+                "currently only useful if --print-download-urls is set."
+            ),
         )
 
         cmdoptions.add_target_python_options(self.cmd_opts)
@@ -152,17 +154,19 @@ class DownloadCommand(RequirementCommand):
             if req.satisfied_by is None:
                 assert req.name is not None
                 assert req.link is not None
-                download_infos.append({
-                    'name': req.name,
-                    'url': req.link.url,
-                })
+                download_infos.append(
+                    {
+                        "name": req.name,
+                        "url": req.link.url,
+                    }
+                )
                 preparer.save_linked_requirement(req)
                 downloaded.append(req.name)
 
         if downloaded:
             write_output("Successfully downloaded %s", " ".join(downloaded))
         if options.print_download_urls:
-            with open(options.print_download_urls, 'w') as f:
+            with open(options.print_download_urls, "w") as f:
                 json.dump(download_infos, f, indent=4)
 
         return SUCCESS
