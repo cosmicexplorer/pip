@@ -19,7 +19,10 @@ class SourceDistribution(AbstractDistribution):
     """
 
     def get_metadata_distribution(self) -> BaseDistribution:
-        return self.req.get_dist()
+        # NB: This will always have been prepared already through
+        # .prepare_distribution_metadata()!
+        assert self.req.is_concrete
+        return self.req.cached_dist
 
     def prepare_distribution_metadata(
         self,

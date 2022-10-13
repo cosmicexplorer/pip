@@ -105,6 +105,14 @@ class RequiresEntry(NamedTuple):
 
 
 class BaseDistribution(Protocol):
+    @property
+    def is_concrete(self) -> bool:
+        """Whether the distribution really exists somewhere on disk.
+
+        If this is false, it has been synthesized from metadata via
+        ``.from_metadata_file_contents()``."""
+        raise NotImplementedError()
+
     @classmethod
     def from_directory(cls, directory: str) -> "BaseDistribution":
         """Load the distribution from a metadata directory.
@@ -667,6 +675,10 @@ class BaseEnvironment:
 class Wheel(Protocol):
     location: str
 
+    @property
+    def is_concrete(self) -> bool:
+        raise NotImplementedError()
+
     def as_zipfile(self) -> zipfile.ZipFile:
         raise NotImplementedError()
 
@@ -674,6 +686,10 @@ class Wheel(Protocol):
 class FilesystemWheel(Wheel):
     def __init__(self, location: str) -> None:
         self.location = location
+
+    @property
+    def is_concrete(self) -> bool:
+        return True
 
     def as_zipfile(self) -> zipfile.ZipFile:
         return zipfile.ZipFile(self.location, allowZip64=True)
@@ -683,6 +699,10 @@ class MemoryWheel(Wheel):
     def __init__(self, location: str, stream: IO[bytes]) -> None:
         self.location = location
         self.stream = stream
+
+    @property
+    def is_concrete(self) -> bool:
+        return False
 
     def as_zipfile(self) -> zipfile.ZipFile:
         return zipfile.ZipFile(self.stream, allowZip64=True)
