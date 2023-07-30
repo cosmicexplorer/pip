@@ -6,12 +6,13 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Callable, Generic, List, Optional, TypeVar
 
 from pip._vendor.packaging.tags import Tag, interpreter_name, interpreter_version
 from pip._vendor.packaging.utils import canonicalize_name
 
 from pip._internal.exceptions import InvalidWheelFilename
+from pip._internal.metadata import get_metadata_distribution
 from pip._internal.models.direct_url import DirectUrl
 from pip._internal.models.link import Link
 from pip._internal.models.wheel import Wheel
@@ -290,3 +291,67 @@ class WheelCache(Cache):
                         download_info.url,
                     )
         origin_path.write_text(download_info.to_json(), encoding="utf-8")
+
+
+class PersistedKVStore:
+    def __init__(
+        self, data: Dict[Link, Any], path: Optional[Path] = None
+    ) -> None:
+        self._data = data
+        self._at = path
+
+    def prune(self, criterion):
+        ...
+
+    def __contains__(self, key: Link) -> bool:
+        return key.url in self._data
+
+    def __getitem__(self, key: Link) -> Any:
+        return self._data[key.url]
+
+    def __setitem__(self, key: Link, val: Any) -> Optional[Any]:
+        prev: Optional[Any] = self._data.get(key.url, None)
+        self._data[key.url] = val
+        return prev
+
+    @classmethod
+    def empty(cls) -> "PersistedKVStore":
+        return cls(data={})
+
+    @classmethod
+    def within_dir(cls, path: Path | str) -> "PersistedKVStore":
+        cache_path = Path(path) / "persisted-store.json"
+        os.makedirs(path, exist_ok=True)
+        return cls.from_file(cache_path)
+
+    @classmethod
+    def from_file(cls, path: Path) -> "PersistedKVStore":
+        assert path.is_absolute()
+        try:
+            with path.open("rb") as f:
+                serialized = json.load(f)
+        except FileNotFoundError:
+            serialized = {}
+        data = {
+            k: get_metadata_distribution(
+                v['metadata_contents'].encode('utf-8'),
+                v['filename'],
+                v['canonical_name'],
+            )
+            for k, v in serialized.items()
+        }
+        return cls(data, path)
+
+    def to_file(self) -> None:
+        if self._at is not None:
+            serialized = {
+                k: dict(
+                    metadata_contents=str(v.metadata),
+                    filename=Link(k).filename,
+                    canonical_name=v.canonical_name,
+                )
+                for k, v in self._data.items()
+            }
+            with self._at.open("w") as f:
+                # import pdb; pdb.set_trace()
+                json.dump(serialized, f)

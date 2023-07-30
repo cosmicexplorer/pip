@@ -4,7 +4,7 @@ import shutil
 from optparse import Values
 from typing import List
 
-from pip._internal.cache import WheelCache
+from pip._internal.cache import PersistedKVStore, WheelCache
 from pip._internal.cli import cmdoptions
 from pip._internal.cli.req_command import RequirementCommand, with_cleanup
 from pip._internal.cli.status_codes import SUCCESS
@@ -121,6 +121,7 @@ class WheelCommand(RequirementCommand):
         check_legacy_setup_py_options(options, reqs)
 
         wheel_cache = WheelCache(options.cache_dir)
+        kv_store = PersistedKVStore.within_dir(options.cache_dir)
 
         preparer = self.make_requirement_preparer(
             temp_build_dir=directory,
@@ -138,6 +139,7 @@ class WheelCommand(RequirementCommand):
             finder=finder,
             options=options,
             wheel_cache=wheel_cache,
+            kv_store=kv_store,
             ignore_requires_python=options.ignore_requires_python,
             use_pep517=options.use_pep517,
         )

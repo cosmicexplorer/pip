@@ -23,7 +23,7 @@ from pip._vendor.packaging.specifiers import SpecifierSet
 from pip._vendor.packaging.utils import NormalizedName, canonicalize_name
 from pip._vendor.resolvelib import ResolutionImpossible
 
-from pip._internal.cache import CacheEntry, WheelCache
+from pip._internal.cache import CacheEntry, PersistedKVStore, WheelCache
 from pip._internal.exceptions import (
     DistributionNotFound,
     InstallationError,
@@ -92,6 +92,7 @@ class Factory:
         preparer: RequirementPreparer,
         make_install_req: InstallRequirementProvider,
         wheel_cache: Optional[WheelCache],
+        kv_store: Optional[PersistedKVStore],
         use_user_site: bool,
         force_reinstall: bool,
         ignore_installed: bool,
@@ -115,6 +116,8 @@ class Factory:
             Tuple[int, FrozenSet[str]], ExtrasCandidate
         ] = {}
 
+        self._persisted_link_metadata = kv_store or PersistedKVStore.empty()
+
         if not ignore_installed:
             env = get_default_environment()
             self._installed_dists = {
@@ -123,6 +126,20 @@ class Factory:
             }
         else:
             self._installed_dists = {}
+
+    def ensure_persisted(self) -> None:
+        self._persisted_link_metadata.to_file()
+        if not ignore_installed:
+            env = get_default_environment()
+            self._installed_dists = {
+                dist.canonical_name: dist
+                for dist in env.iter_installed_distributions(local_only=False)
+            }
+        else:
+            self._installed_dists = {}
+
+    def ensure_persisted(self) -> None:
+        self._persisted_link_metadata.to_file()
 
     @property
     def force_reinstall(self) -> bool:
@@ -542,6 +559,15 @@ class Factory:
             package_name=name,
             supported_tags=get_supported(),
         )
+
+    def get_or_insert_link_dist(self, ireq: InstallRequirement) -> BaseDistribution:
+        assert ireq.link
+
+        if ireq.link not in self._persisted_link_metadata:
+            self._persisted_link_metadata[
+                ireq.link
+            ] = self.preparer.prepare_linked_requirement(ireq, parallel_builds=True)
+        return self._persisted_link_metadata[ireq.link]
 
     def get_dist_to_uninstall(self, candidate: Candidate) -> Optional[BaseDistribution]:
         # TODO: Are there more cases this needs to return True? Editable?

@@ -3,6 +3,7 @@ import os
 from optparse import Values
 from typing import List
 
+from pip._internal.cache import PersistedKVStore
 from pip._internal.cli import cmdoptions
 from pip._internal.cli.cmdoptions import make_target_python
 from pip._internal.cli.req_command import RequirementCommand, with_cleanup
@@ -118,10 +119,12 @@ class DownloadCommand(RequirementCommand):
             verbosity=self.verbosity,
         )
 
+        kv_store = PersistedKVStore.within_dir(options.cache_dir)
         resolver = self.make_resolver(
             preparer=preparer,
             finder=finder,
             options=options,
+            kv_store=kv_store,
             ignore_requires_python=options.ignore_requires_python,
             use_pep517=options.use_pep517,
             py_version_info=options.python_version,

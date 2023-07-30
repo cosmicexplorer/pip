@@ -300,8 +300,7 @@ class LinkCandidate(_InstallRequirementBackedCandidate):
         )
 
     def _prepare_distribution(self) -> BaseDistribution:
-        preparer = self._factory.preparer
-        return preparer.prepare_linked_requirement(self._ireq, parallel_builds=True)
+        return self._factory.get_or_insert_link_dist(self._ireq)
 
 
 class EditableCandidate(_InstallRequirementBackedCandidate):

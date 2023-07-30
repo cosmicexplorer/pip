@@ -9,7 +9,7 @@ from typing import List, Optional
 
 from pip._vendor.rich import print_json
 
-from pip._internal.cache import WheelCache
+from pip._internal.cache import PersistedKVStore, WheelCache
 from pip._internal.cli import cmdoptions
 from pip._internal.cli.cmdoptions import make_target_python
 from pip._internal.cli.req_command import (
@@ -342,6 +342,7 @@ class InstallCommand(RequirementCommand):
             reqs = self.get_requirements(args, options, finder, session)
             check_legacy_setup_py_options(options, reqs)
 
+            kv_store = PersistedKVStore.within_dir(options.cache_dir)
             wheel_cache = WheelCache(options.cache_dir)
 
             # Only when installing is it permitted to use PEP 660.
@@ -364,6 +365,7 @@ class InstallCommand(RequirementCommand):
                 finder=finder,
                 options=options,
                 wheel_cache=wheel_cache,
+                kv_store=kv_store,
                 use_user_site=options.use_user_site,
                 ignore_installed=options.ignore_installed,
                 ignore_requires_python=options.ignore_requires_python,

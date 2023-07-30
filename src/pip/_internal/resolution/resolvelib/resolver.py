@@ -8,7 +8,7 @@ from pip._vendor.resolvelib import BaseReporter, ResolutionImpossible
 from pip._vendor.resolvelib import Resolver as RLResolver
 from pip._vendor.resolvelib.structs import DirectedGraph
 
-from pip._internal.cache import WheelCache
+from pip._internal.cache import PersistedKVStore, WheelCache
 from pip._internal.index.package_finder import PackageFinder
 from pip._internal.operations.prepare import RequirementPreparer
 from pip._internal.req.req_install import InstallRequirement
@@ -40,6 +40,7 @@ class Resolver(BaseResolver):
         preparer: RequirementPreparer,
         finder: PackageFinder,
         wheel_cache: Optional[WheelCache],
+        kv_store: Optional[PersistedKVStore],
         make_install_req: InstallRequirementProvider,
         use_user_site: bool,
         ignore_dependencies: bool,
@@ -57,6 +58,7 @@ class Resolver(BaseResolver):
             preparer=preparer,
             make_install_req=make_install_req,
             wheel_cache=wheel_cache,
+            kv_store=kv_store,
             use_user_site=use_user_site,
             force_reinstall=force_reinstall,
             ignore_installed=ignore_installed,
@@ -162,6 +164,9 @@ class Resolver(BaseResolver):
         for req in reqs:
             req.prepared = True
             req.needs_more_preparation = False
+
+        self.factory.ensure_persisted()
+
         return req_set
 
     def get_installation_order(

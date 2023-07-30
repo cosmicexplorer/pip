@@ -12,7 +12,7 @@ from functools import partial
 from optparse import Values
 from typing import TYPE_CHECKING, Any, List, Optional, Tuple
 
-from pip._internal.cache import WheelCache
+from pip._internal.cache import PersistedKVStore, WheelCache
 from pip._internal.cli import cmdoptions
 from pip._internal.cli.base_command import Command
 from pip._internal.cli.command_context import CommandContextMixIn
@@ -332,6 +332,7 @@ class RequirementCommand(IndexGroupCommand):
         finder: PackageFinder,
         options: Values,
         wheel_cache: Optional[WheelCache] = None,
+        kv_store: Optional[PersistedKVStore] = None,
         use_user_site: bool = False,
         ignore_installed: bool = True,
         ignore_requires_python: bool = False,
@@ -359,6 +360,7 @@ class RequirementCommand(IndexGroupCommand):
                 preparer=preparer,
                 finder=finder,
                 wheel_cache=wheel_cache,
+                kv_store=kv_store,
                 make_install_req=make_install_req,
                 use_user_site=use_user_site,
                 ignore_dependencies=options.ignore_dependencies,
