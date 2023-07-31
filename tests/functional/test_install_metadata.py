@@ -52,6 +52,9 @@ class FakePackage:
     requires_dist: Tuple[str, ...] = ()
     # This will override the Name specified in the actual dist's METADATA.
     metadata_name: Optional[str] = None
+    # Whether to delete the file this points to, which causes any attempt to fetch this
+    # package to fail unless it is processed as a metadata-only dist.
+    delete_linked_file: bool = False
 
     def metadata_filename(self) -> str:
         """This is specified by PEP 658."""
@@ -155,6 +158,8 @@ def html_index_for_packages(
                 # (3.2) Copy over the corresponding file in `shared_data.packages`.
                 cached_file = shared_data.packages / package_link.filename
                 new_file = pkg_subdir / package_link.filename
+                if not package_link.delete_linked_file:
+                    shutil.copy(cached_file, new_file)
                 # (3.3) Write a metadata file, if applicable.
                 if package_link.metadata != MetadataKind.NoFile:
                     (pkg_subdir / package_link.metadata_filename()).write_bytes(
@@ -285,6 +290,27 @@ _simple_packages: Dict[str, List[FakePackage]] = {
             "compilewheel-1.0-py2.py3-none-any.whl",
             MetadataKind.Unhashed,
             ("simple==1.0",),
+        ),
+    ],
+    "complex-dist": [
+        FakePackage(
+            "complex-dist",
+            "0.1",
+            "complex_dist-0.1-py2.py3-none-any.whl",
+            MetadataKind.Unhashed,
+            # Validate that the wheel isn't fetched if metadata is available and
+            # --dry-run is on, when the metadata presents no hash itself.
+            delete_linked_file=True,
+        ),
+    ],
+    "corruptwheel": [
+        FakePackage(
+            "corruptwheel",
+            "1.0",
+            "corruptwheel-1.0-py2.py3-none-any.whl",
+            # Validate that the wheel isn't fetched if metadata is available and
+            # --dry-run is on, when the metadata *does* present a hash.
+            MetadataKind.Sha256,
         ),
     ],
     "has-script": [
@@ -460,3 +486,36 @@ def test_canonicalizes_package_name_before_verifying_metadata(
     )
     reqs = [str(r) for r, _ in iter_dists(report)]
     assert reqs == ["Requires_Simple.Extra==0.1"]
+
+
+@pytest.mark.parametrize(
+    "requirement,err_string",
+    (
+        # It's important that we verify pip won't even attempt to fetch the file, so we
+        # construct an input that will cause it to error if it tries at all.
+        ("complex-dist==0.1", "404 Client Error: FileNotFoundError"),
+        ("corruptwheel==1.0", ".whl is invalid."),
+    ),
+)
+def test_dry_run_avoids_downloading_metadata_only_dists(
+    install_with_generated_html_index: Callable[
+        ..., Tuple[TestPipResult, Dict[str, Any]]
+    ],
+    requirement: str,
+    err_string: str,
+) -> None:
+    """Verify that the underlying dist files are not downloaded at all when
+    `install --dry-run` is used to resolve dists with PEP 658 metadata."""
+    _, report = install_with_generated_html_index(
+        _simple_packages,
+        [requirement],
+    )
+    assert [requirement] == list(str(r) for r, _ in iter_dists(report))
+    result, _ = install_with_generated_html_index(
+        _simple_packages,
+        [requirement],
+        dry_run=False,
+        allow_error=True,
+    )
+    assert result.returncode != 0
+    assert err_string in result.stderr
