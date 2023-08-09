@@ -12,7 +12,7 @@ from functools import partial
 from optparse import Values
 from typing import TYPE_CHECKING, Any, List, Optional, Tuple
 
-from pip._internal.cache import WheelCache
+from pip._internal.cache import LinkMetadataCache, WheelCache
 from pip._internal.cli import cmdoptions
 from pip._internal.cli.base_command import Command
 from pip._internal.cli.command_context import CommandContextMixIn
@@ -308,6 +308,10 @@ class RequirementCommand(IndexGroupCommand):
                     "fast-deps has no effect when used with the legacy resolver."
                 )
 
+        if options.cache_dir:
+            metadata_cache = LinkMetadataCache(options.cache_dir)
+        else:
+            metadata_cache = None
         return RequirementPreparer(
             build_dir=temp_build_dir_path,
             src_dir=options.src_dir,
@@ -323,6 +327,7 @@ class RequirementCommand(IndexGroupCommand):
             lazy_wheel=lazy_wheel,
             verbosity=verbosity,
             legacy_resolver=legacy_resolver,
+            metadata_cache=metadata_cache,
         )
 
     @classmethod
