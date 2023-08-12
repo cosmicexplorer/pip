@@ -4,14 +4,17 @@
 # The following comment should be removed at some point in the future.
 # mypy: strict-optional=False
 
+import json
 import mimetypes
 import os
 import shutil
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional
 
 from pip._vendor.packaging.utils import canonicalize_name
 
+from pip._internal.cache import LinkMetadataCache
 from pip._internal.distributions import make_distribution_for_install_requirement
 from pip._internal.exceptions import (
     DirectoryUrlHashUnsupported,
@@ -213,6 +216,43 @@ def _check_download_dir(
     return download_path
 
 
+@dataclass(frozen=True)
+class CacheableDist:
+    metadata: str
+    filename: Path
+    canonical_name: str
+
+    @classmethod
+    def from_dist(cls, link: Link, dist: BaseDistribution) -> "CacheableDist":
+        return cls(
+            metadata=str(dist.metadata),
+            filename=Path(link.filename),
+            canonical_name=dist.canonical_name,
+        )
+
+    def to_dist(self) -> BaseDistribution:
+        return get_metadata_distribution(
+            metadata_contents=self.metadata.encode("utf-8"),
+            filename=str(self.filename),
+            canonical_name=self.canonical_name,
+        )
+
+    def to_json(self) -> Dict[str, Any]:
+        return dict(
+            metadata=self.metadata,
+            filename=str(self.filename),
+            canonical_name=self.canonical_name,
+        )
+
+    @classmethod
+    def from_json(cls, args: Dict[str, Any]) -> "CacheableDist":
+        return cls(
+            metadata=args["metadata"],
+            filename=Path(args["filename"]),
+            canonical_name=args["canonical_name"],
+        )
+
+
 class RequirementPreparer:
     """Prepares a Requirement"""
 
@@ -232,6 +272,7 @@ class RequirementPreparer:
         lazy_wheel: bool,
         verbosity: int,
         legacy_resolver: bool,
+        metadata_cache: Optional[LinkMetadataCache] = None,
     ) -> None:
         super().__init__()
 
@@ -276,6 +317,8 @@ class RequirementPreparer:
 
         # Whether an HTTPRangeRequestUnsupported was already thrown for this domain.
         self._domains_without_http_range: set[str] = set()
+
+        self._metadata_cache = metadata_cache
 
     def _log_preparing_link(self, req: InstallRequirement) -> None:
         """Provide context for the requirement being prepared."""
@@ -376,10 +419,57 @@ class RequirementPreparer:
                 "Metadata-only fetching is not used as hash checking is required",
             )
             return None
-        # Try PEP 658 metadata first, then fall back to lazy wheel if unavailable.
-        return self._fetch_metadata_using_link_data_attr(
+
+        cached_metadata = self._fetch_cached_metadata(req.link)
+        if cached_metadata is not None:
+            return cached_metadata
+
+        computed_metadata = self._fetch_metadata_using_link_data_attr(
             req
         ) or self._fetch_metadata_using_lazy_wheel(req.link)
+        # Populate the metadata cache.
+        if computed_metadata is not None:
+            self._cache_metadata(req.link, computed_metadata)
+        return computed_metadata
+
+    def _fetch_cached_metadata(
+        self,
+        link: Link,
+    ) -> Optional[BaseDistribution]:
+        if self._metadata_cache is None:
+            return None
+        try:
+            cached_path = self._metadata_cache.cache_path(link)
+            os.makedirs(str(cached_path.parent), exist_ok=True)
+            with cached_path.open("rb") as f:
+                logger.debug(
+                    "found cached metadata for link %s at %s", link.url, f.name
+                )
+                args = json.load(f)
+                cached_dist = CacheableDist.from_json(args)
+                return cached_dist.to_dist()
+        except (OSError, json.JSONDecodeError, KeyError) as e:
+            logger.debug(
+                "no cached metadata for link %s at %s %s(%s)",
+                link.url,
+                cached_path,
+                e.__class__.__name__,
+                str(e),
+            )
+            return None
+
+    def _cache_metadata(
+        self,
+        link: Link,
+        metadata_dist: BaseDistribution,
+    ) -> None:
+        if self._metadata_cache is None:
+            return
+        with self._metadata_cache.cache_path(link).open("w") as f:
+            cacheable_dist = CacheableDist.from_dist(link, metadata_dist)
+            args = cacheable_dist.to_json()
+            logger.debug("caching metadata for link %s at %s", link.url, f.name)
+            json.dump(args, f)
 
     def _fetch_metadata_using_link_data_attr(
         self,
@@ -541,7 +631,10 @@ class RequirementPreparer:
                     return metadata_dist
 
             # None of the optimizations worked, fully prepare the requirement
-            return self._prepare_linked_requirement(req, parallel_builds)
+            result = self._prepare_linked_requirement(req, parallel_builds)
+            # Cache the metadata for later.
+            self._cache_metadata(req.link, result)
+            return result
 
     def _ensure_download_info(self, reqs: Iterable[InstallRequirement]) -> None:
         """

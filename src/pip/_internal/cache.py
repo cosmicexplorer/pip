@@ -1,6 +1,7 @@
 """Cache Management
 """
 
+import abc
 import hashlib
 import json
 import logging
@@ -29,7 +30,7 @@ def _hash_dict(d: Dict[str, str]) -> str:
     return hashlib.sha224(s.encode("ascii")).hexdigest()
 
 
-class Cache:
+class Cache(abc.ABC):
     """An abstract class - provides cache directories for data from links
 
     :param cache_dir: The root of the cache.
@@ -85,10 +86,28 @@ class Cache:
                 candidates.append((candidate, path))
         return candidates
 
+    @abc.abstractmethod
     def get_path_for_link(self, link: Link) -> str:
         """Return a directory to store cached items in for link."""
-        raise NotImplementedError()
+        ...
 
+    def cache_path(self, link: Link) -> Path:
+        return Path(self.get_path_for_link(link))
+
+
+class LinkMetadataCache(Cache):
+    """Persistently store the metadata of dists found at each link."""
+
+    def get_path_for_link(self, link: Link) -> str:
+        parts = self._get_cache_path_parts(link)
+        assert self.cache_dir
+        return os.path.join(self.cache_dir, "link-metadata", *parts)
+
+
+class WheelCacheBase(Cache):
+    """Specializations to the cache concept for wheels."""
+
+    @abc.abstractmethod
     def get(
         self,
         link: Link,
@@ -98,10 +117,10 @@ class Cache:
         """Returns a link to a cached item if it exists, otherwise returns the
         passed link.
         """
-        raise NotImplementedError()
+        ...
 
 
-class SimpleWheelCache(Cache):
+class SimpleWheelCache(WheelCacheBase):
     """A cache of wheels for future installs."""
 
     def __init__(self, cache_dir: str) -> None:
@@ -207,7 +226,7 @@ class CacheEntry:
                 )
 
 
-class WheelCache(Cache):
+class WheelCache(WheelCacheBase):
     """Wraps EphemWheelCache and SimpleWheelCache into a single Cache
 
     This Cache allows for gracefully degradation, using the ephem wheel cache
