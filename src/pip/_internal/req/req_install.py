@@ -713,7 +713,7 @@ class InstallRequirement:
             )
 
     # For editable installations
-    def update_editable(self) -> None:
+    def update_editable(self) -> None:  # type: ignore[no-untyped-def]
         if not self.link:
             logger.debug(
                 "Cannot update repository at %s; repository location is unknown",
@@ -733,7 +733,7 @@ class InstallRequirement:
         vcs_backend.obtain(self.source_dir, url=hidden_url, verbosity=0)
 
     # Top-level Actions
-    def uninstall(
+    def uninstall(  # type: ignore[no-untyped-def]
         self, auto_confirm: bool = False, verbose: bool = False
     ) -> Optional[UninstallPathSet]:
         """
@@ -759,7 +759,7 @@ class InstallRequirement:
         uninstalled_pathset.remove(auto_confirm, verbose)
         return uninstalled_pathset
 
-    def _get_archive_name(self, path: str, parentdir: str, rootdir: str) -> str:
+    def _get_archive_name(self, path: str, parentdir: str, rootdir: str) -> str:  # type: ignore[no-untyped-def] # noqa: E501
         def _clean_zip_name(name: str, prefix: str) -> str:
             assert name.startswith(
                 prefix + os.path.sep
@@ -773,7 +773,7 @@ class InstallRequirement:
         name = _clean_zip_name(path, rootdir)
         return self.req.name + "/" + name
 
-    def archive(self, build_dir: Optional[str]) -> None:
+    def archive(self, build_dir: Optional[str]) -> None:  # type: ignore[no-untyped-def]
         """Saves archive to provided build_dir.
 
         Used for saving downloaded VCS requirements as part of `pip download`.
@@ -840,7 +840,7 @@ class InstallRequirement:
 
         logger.info("Saved %s", display_path(archive_path))
 
-    def install(
+    def install(  # type: ignore[no-untyped-def]
         self,
         global_options: Optional[Sequence[str]] = None,
         root: Optional[str] = None,

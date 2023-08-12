@@ -7,7 +7,7 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Type
 
 from pip._vendor.packaging.tags import Tag, interpreter_name, interpreter_version
 from pip._vendor.packaging.utils import canonicalize_name
@@ -41,7 +41,9 @@ class Cache(abc.ABC):
         assert not cache_dir or os.path.isabs(cache_dir)
         self.cache_dir = cache_dir or None
 
-    def _get_cache_path_parts(self, link: Link) -> List[str]:
+    def _get_cache_path_parts(
+        self, link: Link, *, interpreter_dependent: bool
+    ) -> List[str]:
         """Get parts of part that must be os.path.joined with cache_dir"""
 
         # We want to generate an url to use as our cache key, we don't want to
@@ -53,13 +55,14 @@ class Cache(abc.ABC):
         if link.subdirectory_fragment:
             key_parts["subdirectory"] = link.subdirectory_fragment
 
-        # Include interpreter name, major and minor version in cache key
-        # to cope with ill-behaved sdists that build a different wheel
-        # depending on the python version their setup.py is being run on,
-        # and don't encode the difference in compatibility tags.
-        # https://github.com/pypa/pip/issues/7296
-        key_parts["interpreter_name"] = interpreter_name()
-        key_parts["interpreter_version"] = interpreter_version()
+        if interpreter_dependent:
+            # Include interpreter name, major and minor version in cache key
+            # to cope with ill-behaved sdists that build a different wheel
+            # depending on the python version their setup.py is being run on,
+            # and don't encode the difference in compatibility tags.
+            # https://github.com/pypa/pip/issues/7296
+            key_parts["interpreter_name"] = interpreter_name()
+            key_parts["interpreter_version"] = interpreter_version()
 
         # Encode our key url with sha224, we'll use this because it has similar
         # security properties to sha256, but with a shorter total output (and
@@ -74,18 +77,6 @@ class Cache(abc.ABC):
 
         return parts
 
-    def _get_candidates(self, link: Link, canonical_package_name: str) -> List[Any]:
-        can_not_cache = not self.cache_dir or not canonical_package_name or not link
-        if can_not_cache:
-            return []
-
-        candidates = []
-        path = self.get_path_for_link(link)
-        if os.path.isdir(path):
-            for candidate in os.listdir(path):
-                candidates.append((candidate, path))
-        return candidates
-
     @abc.abstractmethod
     def get_path_for_link(self, link: Link) -> str:
         """Return a directory to store cached items in for link."""
@@ -99,13 +90,58 @@ class LinkMetadataCache(Cache):
     """Persistently store the metadata of dists found at each link."""
 
     def get_path_for_link(self, link: Link) -> str:
-        parts = self._get_cache_path_parts(link)
+        parts = self._get_cache_path_parts(link, interpreter_dependent=True)
         assert self.cache_dir
         return os.path.join(self.cache_dir, "link-metadata", *parts)
 
 
+class SerializableEntry(abc.ABC):
+    @classmethod
+    @abc.abstractmethod
+    def suffix(cls) -> str:
+        ...
+
+    @abc.abstractmethod
+    def serialize(self) -> Dict[str, Any]:
+        ...
+
+
+class FetchResolveCache(Cache):
+    def get_path_for_link(self, link: Link) -> str:
+        # We are reading index links to extract other links from, not executing any
+        # python code, so these caches are interpreter-independent.
+        parts = self._get_cache_path_parts(link, interpreter_dependent=False)
+        assert self.cache_dir
+        return os.path.join(self.cache_dir, "fetch-resolve", *parts)
+
+    def hashed_entry_path(self, link: Link, entry: SerializableEntry) -> Path:
+        hashed = _hash_dict(entry.serialize())
+        return self.cache_path(link) / f"{hashed}{entry.suffix()}"
+
+    def clear_hashed_entries(
+        self, link: Link, entry_type: Type[SerializableEntry]
+    ) -> None:
+        for hashed_entry in self.cache_path(link).glob(f"*{entry_type.suffix()}"):
+            logger.debug(
+                "unlinking invalidated hashed link eval cache entry %s", hashed_entry
+            )
+            hashed_entry.unlink()
+
+
 class WheelCacheBase(Cache):
     """Specializations to the cache concept for wheels."""
+
+    def _get_candidates(self, link: Link, canonical_package_name: str) -> List[Any]:
+        can_not_cache = not self.cache_dir or not canonical_package_name or not link
+        if can_not_cache:
+            return []
+
+        candidates = []
+        path = self.get_path_for_link(link)
+        if os.path.isdir(path):
+            for candidate in os.listdir(path):
+                candidates.append((candidate, path))
+        return candidates
 
     @abc.abstractmethod
     def get(
@@ -141,7 +177,7 @@ class SimpleWheelCache(WheelCacheBase):
 
         :param link: The link of the sdist for which this will cache wheels.
         """
-        parts = self._get_cache_path_parts(link)
+        parts = self._get_cache_path_parts(link, interpreter_dependent=True)
         assert self.cache_dir
         # Store wheels within the root cache_dir
         return os.path.join(self.cache_dir, "wheels", *parts)
