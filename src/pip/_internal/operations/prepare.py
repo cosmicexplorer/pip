@@ -583,12 +583,14 @@ class RequirementPreparer:
             # (2) If this is e.g. a git url, we don't know how to handle that in the
             #     BatchDownloader, so leave it for self._prepare_linked_requirement() at
             #     the end of this method, which knows how to handle any URL.
+            can_simply_download = True
             try:
                 # This will raise InvalidSchema if our Session can't download it.
                 self._session.get_adapter(req.link.url)
-                links_to_fully_download[req.link] = req
             except InvalidSchema:
-                pass
+                can_simply_download = False
+            if can_simply_download:
+                links_to_fully_download[req.link] = req
 
         batch_download = self._batch_download(
             links_to_fully_download.keys(),
