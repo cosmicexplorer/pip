@@ -4,7 +4,6 @@
 # The following comment should be removed at some point in the future.
 # mypy: strict-optional=False
 
-import email.errors
 import gzip
 import json
 import mimetypes
@@ -12,7 +11,7 @@ import os
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple
 
 from pip._vendor.packaging.utils import canonicalize_name
 from pip._vendor.requests.exceptions import InvalidSchema
@@ -20,6 +19,7 @@ from pip._vendor.requests.exceptions import InvalidSchema
 from pip._internal.cache import LinkMetadataCache, should_cache
 from pip._internal.distributions import make_distribution_for_install_requirement
 from pip._internal.exceptions import (
+    CacheMetadataError,
     DirectoryUrlHashUnsupported,
     HashMismatch,
     HashUnpinned,
@@ -32,6 +32,7 @@ from pip._internal.index.package_finder import PackageFinder
 from pip._internal.metadata import (
     BaseDistribution,
     get_metadata_distribution,
+    serialize_metadata,
 )
 from pip._internal.models.direct_url import ArchiveInfo
 from pip._internal.models.link import Link
@@ -230,7 +231,7 @@ class CacheableDist:
     def from_dist(cls, link: Link, dist: BaseDistribution) -> "CacheableDist":
         """Extract the serializable data necessary to generate a metadata-only dist."""
         return cls(
-            metadata=str(dist.metadata),
+            metadata=serialize_metadata(dist.metadata),
             filename=Path(link.filename),
             canonical_name=dist.canonical_name,
         )
@@ -243,7 +244,7 @@ class CacheableDist:
             canonical_name=self.canonical_name,
         )
 
-    def to_json(self) -> Dict[str, Any]:
+    def to_json(self) -> Dict[str, str]:
         return {
             "metadata": self.metadata,
             "filename": str(self.filename),
@@ -251,7 +252,7 @@ class CacheableDist:
         }
 
     @classmethod
-    def from_json(cls, args: Dict[str, Any]) -> "CacheableDist":
+    def from_json(cls, args: Dict[str, str]) -> "CacheableDist":
         return cls(
             metadata=args["metadata"],
             filename=Path(args["filename"]),
@@ -458,17 +459,10 @@ class RequirementPreparer:
                     "found cached metadata for link %s at %s", req.link, f.name
                 )
                 args = json.load(f)
-                cached_dist = CacheableDist.from_json(args)
-                return cached_dist.to_dist()
-        except (OSError, json.JSONDecodeError, KeyError) as e:
-            logger.exception(
-                "error reading cached metadata for link %s at %s %s(%s)",
-                req.link,
-                cached_path,
-                e.__class__.__name__,
-                str(e),
-            )
-            raise
+            cached_dist = CacheableDist.from_json(args)
+            return cached_dist.to_dist()
+        except Exception:
+            raise CacheMetadataError(req, "error reading cached metadata")
 
     def _cache_metadata(
         self,
@@ -490,23 +484,13 @@ class RequirementPreparer:
         # containing directory for the cache file exists before writing.
         os.makedirs(str(cached_path.parent), exist_ok=True)
         try:
+            cacheable_dist = CacheableDist.from_dist(req.link, metadata_dist)
+            args = cacheable_dist.to_json()
+            logger.debug("caching metadata for link %s at %s", req.link, cached_path)
             with gzip.open(cached_path, mode="wt", encoding="utf-8") as f:
-                cacheable_dist = CacheableDist.from_dist(req.link, metadata_dist)
-                args = cacheable_dist.to_json()
-                logger.debug("caching metadata for link %s at %s", req.link, f.name)
                 json.dump(args, f)
-        except (OSError, email.errors.HeaderParseError) as e:
-            # TODO: Some dists raise email.errors.HeaderParseError when calling str() or
-            # bytes() on the metadata, which is an email.Message. This is probably a bug
-            # in email parsing.
-            logger.exception(
-                "error caching metadata for dist %s from %s: %s(%s)",
-                metadata_dist,
-                req.link,
-                e.__class__.__name__,
-                str(e),
-            )
-            raise
+        except Exception:
+            raise CacheMetadataError(req, "failed to serialize metadata")
 
     def _fetch_metadata_using_link_data_attr(
         self,
