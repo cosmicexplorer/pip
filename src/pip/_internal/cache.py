@@ -8,7 +8,7 @@ import logging
 import os
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Dict, Iterator, List, Optional, Tuple
 
 from pip._vendor.packaging.tags import Tag, interpreter_name, interpreter_version
 from pip._vendor.packaging.utils import canonicalize_name
@@ -158,15 +158,22 @@ class WheelCacheBase(Cache):
         """
         ...
 
-    def _get_candidates(self, link: Link, canonical_package_name: str) -> List[Any]:
-        can_not_cache = not self.cache_dir or not canonical_package_name or not link
-        if can_not_cache:
-            return []
+    def _can_cache(self, link: Link, canonical_package_name: str) -> bool:
+        return bool(self.cache_dir and canonical_package_name and link)
+
+    def _get_candidates(
+        self, link: Link, canonical_package_name: str
+    ) -> Iterator[Tuple[str, str]]:
+        if not self._can_cache(link, canonical_package_name):
+            return
 
         path = self.get_path_for_link(link)
-        if os.path.isdir(path):
-            return [(candidate, path) for candidate in os.listdir(path)]
-        return []
+        if not os.path.isdir(path):
+            return
+
+        for candidate in os.scandir(path):
+            if candidate.is_file():
+                yield (candidate.name, path)
 
 
 class SimpleWheelCache(WheelCacheBase):
@@ -201,7 +208,7 @@ class SimpleWheelCache(WheelCacheBase):
         package_name: Optional[str],
         supported_tags: List[Tag],
     ) -> Link:
-        candidates = []
+        candidates: List[Tuple[int, str, str]] = []
 
         if not package_name:
             return link
