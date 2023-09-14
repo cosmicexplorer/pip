@@ -228,6 +228,7 @@ class CacheableDist:
 
     @classmethod
     def from_dist(cls, link: Link, dist: BaseDistribution) -> "CacheableDist":
+        """Extract the serializable data necessary to generate a metadata-only dist."""
         return cls(
             metadata=str(dist.metadata),
             filename=Path(link.filename),
@@ -235,6 +236,7 @@ class CacheableDist:
         )
 
     def to_dist(self) -> BaseDistribution:
+        """Return a metadata-only dist from the deserialized cache entry."""
         return get_metadata_distribution(
             metadata_contents=self.metadata.encode("utf-8"),
             filename=str(self.filename),
@@ -426,14 +428,31 @@ class RequirementPreparer:
             or self._fetch_metadata_using_lazy_wheel(req)
         )
 
+    def _locate_metadata_cache_entry(self, link: Link) -> Optional[Path]:
+        """If the metadata cache is active, generate a filesystem path from the hash of
+        the given Link."""
+        if self._metadata_cache is None:
+            return None
+
+        return self._metadata_cache.cache_path(link)
+
     def _fetch_cached_metadata(
         self, req: InstallRequirement
     ) -> Optional[BaseDistribution]:
-        if self._metadata_cache is None:
+        cached_path = self._locate_metadata_cache_entry(req.link)
+        if cached_path is None:
             return None
+
+        # Quietly continue if the cache entry does not exist.
+        if not os.path.isfile(cached_path):
+            logger.debug(
+                "no cached metadata for link %s at %s",
+                req.link,
+                cached_path,
+            )
+            return None
+
         try:
-            cached_path = self._metadata_cache.cache_path(req.link)
-            os.makedirs(str(cached_path.parent), exist_ok=True)
             with gzip.open(cached_path, mode="rt", encoding="utf-8") as f:
                 logger.debug(
                     "found cached metadata for link %s at %s", req.link, f.name
@@ -442,38 +461,52 @@ class RequirementPreparer:
                 cached_dist = CacheableDist.from_json(args)
                 return cached_dist.to_dist()
         except (OSError, json.JSONDecodeError, KeyError) as e:
-            logger.debug(
-                "no cached metadata for link %s at %s %s(%s)",
+            logger.exception(
+                "error reading cached metadata for link %s at %s %s(%s)",
                 req.link,
                 cached_path,
                 e.__class__.__name__,
                 str(e),
             )
-            return None
+            raise
 
     def _cache_metadata(
         self,
         req: InstallRequirement,
         metadata_dist: BaseDistribution,
     ) -> None:
-        if self._metadata_cache is None:
+        cached_path = self._locate_metadata_cache_entry(req.link)
+        if cached_path is None:
             return
+
+        # The cache file exists already, so we have nothing to do.
+        if os.path.isfile(cached_path):
+            logger.debug(
+                "metadata for link %s is already cached at %s", req.link, cached_path
+            )
+            return
+
+        # The metadata cache is split across several subdirectories, so ensure the
+        # containing directory for the cache file exists before writing.
+        os.makedirs(str(cached_path.parent), exist_ok=True)
         try:
-            cached_path = self._metadata_cache.cache_path(req.link)
-            os.makedirs(str(cached_path.parent), exist_ok=True)
             with gzip.open(cached_path, mode="wt", encoding="utf-8") as f:
                 cacheable_dist = CacheableDist.from_dist(req.link, metadata_dist)
                 args = cacheable_dist.to_json()
                 logger.debug("caching metadata for link %s at %s", req.link, f.name)
                 json.dump(args, f)
         except (OSError, email.errors.HeaderParseError) as e:
-            logger.debug(
-                "could not cache metadata for dist %s from %s: %s(%s)",
+            # TODO: Some dists raise email.errors.HeaderParseError when calling str() or
+            # bytes() on the metadata, which is an email.Message. This is probably a bug
+            # in email parsing.
+            logger.exception(
+                "error caching metadata for dist %s from %s: %s(%s)",
                 metadata_dist,
                 req.link,
                 e.__class__.__name__,
                 str(e),
             )
+            raise
 
     def _fetch_metadata_using_link_data_attr(
         self,
