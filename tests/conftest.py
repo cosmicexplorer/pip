@@ -1,3 +1,4 @@
+import abc
 import compileall
 import fnmatch
 import http.server
@@ -8,7 +9,7 @@ import shutil
 import subprocess
 import sys
 import threading
-from contextlib import ExitStack, contextmanager
+from contextlib import AbstractContextManager, ExitStack, contextmanager
 from dataclasses import dataclass
 from enum import Enum
 from hashlib import sha256
@@ -18,6 +19,7 @@ from typing import (
     TYPE_CHECKING,
     Any,
     AnyStr,
+    BinaryIO,
     Callable,
     ClassVar,
     Dict,
@@ -27,6 +29,7 @@ from typing import (
     Optional,
     Set,
     Tuple,
+    Type,
     Union,
 )
 from unittest.mock import patch
@@ -49,7 +52,13 @@ from pip import __file__ as pip_location
 from pip._internal.cli.main import main as pip_entry_point
 from pip._internal.locations import _USE_SYSCONFIG
 from pip._internal.utils.temp_dir import global_tempdir_manager
-from tests.lib import DATA_DIR, SRC_DIR, PipTestEnvironment, TestData
+from tests.lib import (
+    DATA_DIR,
+    SRC_DIR,
+    PipTestEnvironment,
+    TestData,
+    create_basic_wheel_for_package,
+)
 from tests.lib.server import MockServer as _MockServer
 from tests.lib.server import make_mock_server, server_running
 from tests.lib.venv import VirtualEnvironment, VirtualEnvironmentType
@@ -626,6 +635,24 @@ def script(
 
 
 @pytest.fixture(scope="session")
+def session_script(
+    request: pytest.FixtureRequest,
+    tmpdir_factory: pytest.TempPathFactory,
+    virtualenv_factory: Callable[[Path], VirtualEnvironment],
+    script_factory: ScriptFactory,
+) -> PipTestEnvironment:
+    """PipTestEnvironment shared across the whole session.
+
+    This is used by session-scoped fixtures. Tests should use the
+    function-scoped ``script`` fixture instead.
+    """
+    virtualenv = virtualenv_factory(
+        tmpdir_factory.mktemp("session_venv").joinpath("venv")
+    )
+    return script_factory(tmpdir_factory.mktemp("session_workspace"), virtualenv)
+
+
+@pytest.fixture(scope="session")
 def common_wheels() -> Path:
     """Provide a directory with latest setuptools and wheel wheels"""
     return DATA_DIR.joinpath("common_wheels")
@@ -779,6 +806,39 @@ class MetadataKind(Enum):
 
 
 @dataclass(frozen=True)
+class FakePackageSource:
+    """A test package file which may be hardcoded or generated dynamically."""
+
+    source_file: Union[str, Path]
+
+    @classmethod
+    def shared_data_package(cls, name: str) -> "FakePackageSource":
+        return cls(source_file=name)
+
+    @property
+    def _is_shared_data(self) -> bool:
+        return isinstance(self.source_file, str)
+
+    @classmethod
+    def generated_wheel(cls, path: Path) -> "FakePackageSource":
+        return cls(source_file=path)
+
+    @property
+    def filename(self) -> str:
+        if self._is_shared_data:
+            assert isinstance(self.source_file, str)
+            return self.source_file
+        assert isinstance(self.source_file, Path)
+        return self.source_file.name
+
+    def source_path(self, shared_data: TestData) -> Path:
+        if self._is_shared_data:
+            return shared_data.packages / self.filename
+        assert isinstance(self.source_file, Path)
+        return self.source_file
+
+
+@dataclass(frozen=True)
 class FakePackage:
     """Mock package structure used to generate a PyPI repository.
 
@@ -787,7 +847,7 @@ class FakePackage:
 
     name: str
     version: str
-    filename: str
+    source_file: FakePackageSource
     metadata: MetadataKind
     # This will override any dependencies specified in the actual dist's METADATA.
     requires_dist: Tuple[str, ...] = ()
@@ -796,6 +856,13 @@ class FakePackage:
     # Whether to delete the file this points to, which causes any attempt to fetch this
     # package to fail unless it is processed as a metadata-only dist.
     delete_linked_file: bool = False
+
+    @property
+    def filename(self) -> str:
+        return self.source_file.filename
+
+    def source_path(self, shared_data: TestData) -> Path:
+        return self.source_file.source_path(shared_data)
 
     def metadata_filename(self) -> str:
         """This is specified by PEP 658."""
@@ -834,14 +901,49 @@ class FakePackage:
 
 
 @pytest.fixture(scope="session")
-def fake_packages() -> Dict[str, List[FakePackage]]:
+def fake_packages(session_script: PipTestEnvironment) -> Dict[str, List[FakePackage]]:
     """The package database we generate for testing PEP 658 support."""
+    large_compilewheel_metadata_first = create_basic_wheel_for_package(
+        session_script,
+        "compilewheel",
+        "2.0",
+        extra_files={"asdf.txt": b"a" * 10_000},
+        metadata_first=True,
+    )
+    # This wheel must be larger than 10KB to trigger the lazy wheel behavior we want
+    # to test.
+    assert large_compilewheel_metadata_first.stat().st_size > 10_000
+
+    large_translationstring_metadata_last = create_basic_wheel_for_package(
+        session_script,
+        "translationstring",
+        "0.1",
+        extra_files={"asdf.txt": b"a" * 10_000},
+        metadata_first=False,
+    )
+    assert large_translationstring_metadata_last.stat().st_size > 10_000
+
     return {
         "simple": [
-            FakePackage("simple", "1.0", "simple-1.0.tar.gz", MetadataKind.Sha256),
-            FakePackage("simple", "2.0", "simple-2.0.tar.gz", MetadataKind.No),
+            FakePackage(
+                "simple",
+                "1.0",
+                FakePackageSource.shared_data_package("simple-1.0.tar.gz"),
+                MetadataKind.Sha256,
+            ),
+            FakePackage(
+                "simple",
+                "2.0",
+                FakePackageSource.shared_data_package("simple-2.0.tar.gz"),
+                MetadataKind.No,
+            ),
             # This will raise a hashing error.
-            FakePackage("simple", "3.0", "simple-3.0.tar.gz", MetadataKind.WrongHash),
+            FakePackage(
+                "simple",
+                "3.0",
+                FakePackageSource.shared_data_package("simple-3.0.tar.gz"),
+                MetadataKind.WrongHash,
+            ),
         ],
         "simple2": [
             # Override the dependencies here in order to force pip to download
@@ -849,17 +951,22 @@ def fake_packages() -> Dict[str, List[FakePackage]]:
             FakePackage(
                 "simple2",
                 "1.0",
-                "simple2-1.0.tar.gz",
+                FakePackageSource.shared_data_package("simple2-1.0.tar.gz"),
                 MetadataKind.Unhashed,
                 ("simple==1.0",),
             ),
             # This will raise an error when pip attempts to fetch the metadata file.
-            FakePackage("simple2", "2.0", "simple2-2.0.tar.gz", MetadataKind.NoFile),
+            FakePackage(
+                "simple2",
+                "2.0",
+                FakePackageSource.shared_data_package("simple2-2.0.tar.gz"),
+                MetadataKind.NoFile,
+            ),
             # This has a METADATA file with a mismatched name.
             FakePackage(
                 "simple2",
                 "3.0",
-                "simple2-3.0.tar.gz",
+                FakePackageSource.shared_data_package("simple2-3.0.tar.gz"),
                 MetadataKind.Sha256,
                 metadata_name="not-simple2",
             ),
@@ -870,7 +977,9 @@ def fake_packages() -> Dict[str, List[FakePackage]]:
             FakePackage(
                 "colander",
                 "0.9.9",
-                "colander-0.9.9-py2.py3-none-any.whl",
+                FakePackageSource.shared_data_package(
+                    "colander-0.9.9-py2.py3-none-any.whl"
+                ),
                 MetadataKind.No,
             ),
         ],
@@ -880,16 +989,28 @@ def fake_packages() -> Dict[str, List[FakePackage]]:
             FakePackage(
                 "compilewheel",
                 "1.0",
-                "compilewheel-1.0-py2.py3-none-any.whl",
+                FakePackageSource.shared_data_package(
+                    "compilewheel-1.0-py2.py3-none-any.whl"
+                ),
                 MetadataKind.Unhashed,
                 ("simple==1.0",),
+            ),
+            # This inserts a wheel larger than the default fast-deps request size with
+            # .dist-info metadata at the front.
+            FakePackage(
+                "compilewheel",
+                "2.0",
+                FakePackageSource.generated_wheel(large_compilewheel_metadata_first),
+                MetadataKind.No,
             ),
         ],
         "complex-dist": [
             FakePackage(
                 "complex-dist",
                 "0.1",
-                "complex_dist-0.1-py2.py3-none-any.whl",
+                FakePackageSource.shared_data_package(
+                    "complex_dist-0.1-py2.py3-none-any.whl"
+                ),
                 MetadataKind.Unhashed,
                 # Validate that the wheel isn't fetched if metadata is available and
                 # --dry-run is on, when the metadata presents no hash itself.
@@ -900,7 +1021,9 @@ def fake_packages() -> Dict[str, List[FakePackage]]:
             FakePackage(
                 "corruptwheel",
                 "1.0",
-                "corruptwheel-1.0-py2.py3-none-any.whl",
+                FakePackageSource.shared_data_package(
+                    "corruptwheel-1.0-py2.py3-none-any.whl"
+                ),
                 # Validate that the wheel isn't fetched if metadata is available and
                 # --dry-run is on, when the metadata *does* present a hash.
                 MetadataKind.Sha256,
@@ -911,15 +1034,27 @@ def fake_packages() -> Dict[str, List[FakePackage]]:
             FakePackage(
                 "has-script",
                 "1.0",
-                "has.script-1.0-py2.py3-none-any.whl",
+                FakePackageSource.shared_data_package(
+                    "has.script-1.0-py2.py3-none-any.whl"
+                ),
                 MetadataKind.WrongHash,
             ),
         ],
         "translationstring": [
+            # This inserts a wheel larger than the default fast-deps request size with
+            # .dist-info metadata at the back.
+            FakePackage(
+                "translationstring",
+                "0.1",
+                FakePackageSource.generated_wheel(
+                    large_translationstring_metadata_last
+                ),
+                MetadataKind.No,
+            ),
             FakePackage(
                 "translationstring",
                 "1.1",
-                "translationstring-1.1.tar.gz",
+                FakePackageSource.shared_data_package("translationstring-1.1.tar.gz"),
                 MetadataKind.No,
             ),
         ],
@@ -928,7 +1063,9 @@ def fake_packages() -> Dict[str, List[FakePackage]]:
             FakePackage(
                 "priority",
                 "1.0",
-                "priority-1.0-py2.py3-none-any.whl",
+                FakePackageSource.shared_data_package(
+                    "priority-1.0-py2.py3-none-any.whl"
+                ),
                 MetadataKind.NoFile,
             ),
         ],
@@ -937,7 +1074,9 @@ def fake_packages() -> Dict[str, List[FakePackage]]:
             FakePackage(
                 "requires-simple-extra",
                 "0.1",
-                "requires_simple_extra-0.1-py2.py3-none-any.whl",
+                FakePackageSource.shared_data_package(
+                    "requires_simple_extra-0.1-py2.py3-none-any.whl"
+                ),
                 MetadataKind.Sha256,
                 metadata_name="Requires_Simple.Extra",
             ),
@@ -990,11 +1129,14 @@ def html_index_for_packages(
             download_links.append(
                 f'    <a href="{package_link.filename}" {package_link.generate_additional_tag()}>{package_link.filename}</a><br/>'  # noqa: E501
             )
-            # (3.2) Copy over the corresponding file in `shared_data.packages`.
-            cached_file = shared_data.packages / package_link.filename
-            new_file = pkg_subdir / package_link.filename
+            # (3.2) Copy over the corresponding file in `shared_data.packages`, or the
+            #       generated wheel path if provided.
+            source_path = package_link.source_path(shared_data)
             if not package_link.delete_linked_file:
-                shutil.copy(cached_file, new_file)
+                shutil.copy(
+                    source_path,
+                    pkg_subdir / package_link.filename,
+                )
             # (3.3) Write a metadata file, if applicable.
             if package_link.metadata != MetadataKind.NoFile:
                 with open(pkg_subdir / package_link.metadata_filename(), "wb") as f:
@@ -1028,6 +1170,7 @@ class OneTimeDownloadHandler(http.server.SimpleHTTPRequestHandler):
     """Serve files from the current directory, but error if a file is downloaded more
     than once."""
 
+    # NB: Needs to be set on per-function subclass.
     _seen_paths: ClassVar[Set[str]] = set()
 
     def do_GET(self) -> None:
@@ -1070,3 +1213,200 @@ def html_index_with_onetime_server(
         finally:
             httpd.shutdown()
             server_thread.join()
+
+
+class RangeHandler(Enum):
+    """All the modes of handling range requests we want pip to handle."""
+
+    Always200OK = "always-200-ok"
+    NoNegativeRange = "no-negative-range"
+    SupportsNegativeRange = "supports-negative-range"
+
+    def supports_range(self) -> bool:
+        return self in [type(self).NoNegativeRange, type(self).SupportsNegativeRange]
+
+    def supports_negative_range(self) -> bool:
+        return self == type(self).SupportsNegativeRange
+
+
+class ContentRangeDownloadHandler(
+    http.server.SimpleHTTPRequestHandler, metaclass=abc.ABCMeta
+):
+    """Extend the basic ``http.server`` to support content ranges."""
+
+    @abc.abstractproperty
+    def range_handler(self) -> RangeHandler:
+        ...
+
+    # NB: Needs to be set on per-function subclasses.
+    get_request_counts: ClassVar[Dict[str, int]] = {}
+    positive_range_request_paths: ClassVar[Set[str]] = set()
+    negative_range_request_paths: ClassVar[Set[str]] = set()
+    head_request_paths: ClassVar[Set[str]] = set()
+
+    @contextmanager
+    def _translate_path(self) -> Iterator[Optional[Tuple[BinaryIO, str, int]]]:
+        # Only test fast-deps, not PEP 658.
+        if self.path.endswith(".metadata"):
+            self.send_error(http.HTTPStatus.NOT_FOUND, "File not found")
+            yield None
+            return
+
+        path = self.translate_path(self.path)
+        if os.path.isdir(path):
+            path = os.path.join(path, "index.html")
+
+        ctype = self.guess_type(path)
+        try:
+            with open(path, "rb") as f:
+                fs = os.fstat(f.fileno())
+                full_file_length = fs[6]
+
+                yield (f, ctype, full_file_length)
+        except OSError:
+            self.send_error(http.HTTPStatus.NOT_FOUND, "File not found")
+            yield None
+            return
+
+    def _send_basic_headers(self, ctype: str) -> None:
+        self.send_header("Content-Type", ctype)
+        if self.range_handler.supports_range():
+            self.send_header("Accept-Ranges", "bytes")
+        # NB: callers must call self.end_headers()!
+
+    def _send_full_file_headers(self, ctype: str, full_file_length: int) -> None:
+        self.send_response(http.HTTPStatus.OK)
+        self._send_basic_headers(ctype)
+        self.send_header("Content-Length", str(full_file_length))
+        self.end_headers()
+
+    def do_HEAD(self) -> None:
+        self.head_request_paths.add(self.path)
+
+        with self._translate_path() as x:
+            if x is None:
+                return
+            (_, ctype, full_file_length) = x
+            self._send_full_file_headers(ctype, full_file_length)
+
+    def do_GET(self) -> None:
+        self.get_request_counts.setdefault(self.path, 0)
+        self.get_request_counts[self.path] += 1
+
+        with self._translate_path() as x:
+            if x is None:
+                return
+            (f, ctype, full_file_length) = x
+            range_arg = self.headers.get("Range", None)
+            if range_arg is not None:
+                m = re.match(r"bytes=([0-9]+)?-([0-9]+)", range_arg)
+                if m is not None:
+                    if m.group(1) is None:
+                        self.negative_range_request_paths.add(self.path)
+                    else:
+                        self.positive_range_request_paths.add(self.path)
+            # If no range given, return the whole file.
+            if range_arg is None or not self.range_handler.supports_range():
+                self._send_full_file_headers(ctype, full_file_length)
+                self.copyfile(f, self.wfile)
+                return
+            # Otherwise, return the requested contents.
+            assert m is not None
+            # This is a "start-end" range.
+            if m.group(1) is not None:
+                start = int(m.group(1))
+                end = int(m.group(2))
+                assert start <= end
+                was_out_of_bounds = (end + 1) > full_file_length
+            else:
+                # This is a "-end" range.
+                if not self.range_handler.supports_negative_range():
+                    self.send_response(http.HTTPStatus.NOT_IMPLEMENTED)
+                    self._send_basic_headers(ctype)
+                    self.end_headers()
+                    return
+                end = full_file_length - 1
+                start = end - int(m.group(2)) + 1
+                was_out_of_bounds = start < 0
+            if was_out_of_bounds:
+                self.send_response(http.HTTPStatus.REQUESTED_RANGE_NOT_SATISFIABLE)
+                self._send_basic_headers(ctype)
+                self.send_header("Content-Range", f"bytes */{full_file_length}")
+                self.end_headers()
+                return
+            sent_length = end - start + 1
+            self.send_response(http.HTTPStatus.PARTIAL_CONTENT)
+            self._send_basic_headers(ctype)
+            self.send_header("Content-Length", str(sent_length))
+            self.send_header("Content-Range", f"bytes {start}-{end}/{full_file_length}")
+            self.end_headers()
+            f.seek(start)
+            self.wfile.write(f.read(sent_length))
+
+
+@pytest.fixture(scope="session")
+def html_index_no_metadata(
+    html_index_for_packages: Path,
+    tmpdir_factory: pytest.TempPathFactory,
+) -> Path:
+    """Return an index like ``html_index_for_packages`` without any PEP 658 metadata.
+
+    While we already return a 404 in ``ContentRangeDownloadHandler`` for ``.metadata``
+    paths, we need to also remove ``data-dist-info-metadata`` attrs on ``<a>`` tags,
+    otherwise pip will error after attempting to retrieve the metadata files."""
+    new_html_dir = tmpdir_factory.mktemp("fake_index_html_content_no_metadata")
+    new_html_dir.rmdir()
+    shutil.copytree(html_index_for_packages, new_html_dir)
+    for index_page in new_html_dir.rglob("index.html"):
+        prev_index = index_page.read_text()
+        no_metadata_index = re.sub(r'data-dist-info-metadata="[^"]+"', "", prev_index)
+        index_page.write_text(no_metadata_index)
+    return new_html_dir
+
+
+HTMLIndexWithRangeServer = Callable[
+    [RangeHandler],
+    "AbstractContextManager[Type[ContentRangeDownloadHandler]]",
+]
+
+
+@pytest.fixture(scope="function")
+def html_index_with_range_server(
+    html_index_no_metadata: Path,
+) -> HTMLIndexWithRangeServer:
+    """Serve files from a generated pypi index, with support for range requests.
+
+    Provide `-i http://localhost:8000` to pip invocations to point them at this server.
+    """
+
+    class InDirectoryServer(http.server.ThreadingHTTPServer):
+        def finish_request(self, request: Any, client_address: Any) -> None:
+            self.RequestHandlerClass(
+                request, client_address, self, directory=str(html_index_no_metadata)  # type: ignore[call-arg] # noqa: E501
+            )
+
+    @contextmanager
+    def inner(
+        range_handler: RangeHandler,
+    ) -> Iterator[Type[ContentRangeDownloadHandler]]:
+        class Handler(ContentRangeDownloadHandler):
+            @property
+            def range_handler(self) -> RangeHandler:
+                return range_handler
+
+            get_request_counts: ClassVar[Dict[str, int]] = {}
+            positive_range_request_paths: ClassVar[Set[str]] = set()
+            negative_range_request_paths: ClassVar[Set[str]] = set()
+            head_request_paths: ClassVar[Set[str]] = set()
+
+        with InDirectoryServer(("", 8000), Handler) as httpd:
+            server_thread = threading.Thread(target=httpd.serve_forever)
+            server_thread.start()
+
+            try:
+                yield Handler
+            finally:
+                httpd.shutdown()
+                server_thread.join()
+
+    return inner

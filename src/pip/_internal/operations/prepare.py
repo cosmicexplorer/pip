@@ -324,6 +324,9 @@ class RequirementPreparer:
 
         self._metadata_cache = metadata_cache
 
+        # Whether an HTTPRangeRequestUnsupported was already thrown for this domain.
+        self._domains_without_http_range: set[str] = set()
+
     def _log_preparing_link(self, req: InstallRequirement) -> None:
         """Provide context for the requirement being prepared."""
         if req.link.is_file and not req.is_wheel_from_cache:
@@ -551,6 +554,9 @@ class RequirementPreparer:
             )
             return None
 
+        if req.link.netloc in self._domains_without_http_range:
+            return None
+
         wheel = Wheel(req.link.filename)
         name = canonicalize_name(wheel.name)
         logger.info(
@@ -558,13 +564,18 @@ class RequirementPreparer:
             name,
             wheel.version,
         )
-
         try:
             lazy_wheel_dist = dist_from_wheel_url(
                 name, req.link.url_without_fragment, self._session
             )
-        except HTTPRangeRequestUnsupported:
-            logger.debug("%s does not support range requests", req.link)
+        except HTTPRangeRequestUnsupported as e:
+            logger.debug(
+                "domain '%s' does not support range requests (%s): "
+                "not attempting lazy wheel further",
+                req.link.netloc,
+                str(e),
+            )
+            self._domains_without_http_range.add(req.link.netloc)
             return None
 
         # If we've used the lazy wheel approach, then PEP 658 metadata is not available.
