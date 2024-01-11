@@ -1,0 +1,1 @@
+Fix tests broken by Setuptools 69.0.3 which now preserves underscores in egg_info
