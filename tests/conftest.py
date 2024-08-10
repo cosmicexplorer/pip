@@ -1333,13 +1333,20 @@ HTMLIndexWithRangeServer = Callable[
 @pytest.fixture
 def html_index_with_range_server(
     html_index_no_metadata: Path,
+    port: int = 8000,
 ) -> HTMLIndexWithRangeServer:
     """Serve files from a generated pypi index, with support for range requests.
 
-    Provide `-i http://localhost:8000` to pip invocations to point them at this server.
+    Provide `-i http://localhost:<port>` to pip invocations to point them at
+    this server.
     """
 
     class InDirectoryServer(http.server.ThreadingHTTPServer):
+        # Avoid blocking on any (non-daemon) spawned threads upon server shutdown. We
+        # retain the default of daemon_threads=False, which should mean that threads get
+        # stopped and killed upon server shutdown with .shutdown().
+        block_on_close = False
+
         def finish_request(self, request: Any, client_address: Any) -> None:
             self.RequestHandlerClass(
                 request, client_address, self, directory=str(html_index_no_metadata)  # type: ignore[call-arg,arg-type]
@@ -1360,7 +1367,7 @@ def html_index_with_range_server(
             head_request_paths: ClassVar[Set[str]] = set()
             ok_response_counts: ClassVar[Dict[str, int]] = {}
 
-        with InDirectoryServer(("", 8000), Handler) as httpd:
+        with InDirectoryServer(("", port), Handler) as httpd:
             server_thread = threading.Thread(target=httpd.serve_forever)
             server_thread.start()
 
