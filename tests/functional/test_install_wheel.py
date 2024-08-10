@@ -751,6 +751,7 @@ def test_wheel_install_fails_with_badly_encoded_metadata(
         "simple",
         "0.1.0",
         extra_files={"simple-0.1.0.dist-info/METADATA": b"\xff"},
+        generate_metadata_file=False,
     )
     result = script.pip(
         "install", "--no-cache-dir", "--no-index", package, expect_error=True

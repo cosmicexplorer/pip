@@ -45,7 +45,7 @@ from pip._internal.models.target_python import TargetPython
 from pip._internal.network.session import PipSession
 from pip._internal.utils.egg_link import _egg_link_names
 from tests.lib.venv import VirtualEnvironment
-from tests.lib.wheel import make_wheel
+from tests.lib.wheel import _default, make_wheel
 
 ResolverVariant = Literal["resolvelib", "legacy"]
 
@@ -1179,6 +1179,7 @@ def create_basic_wheel_for_package(
     requires_python: Optional[str] = None,
     extra_files: Optional[Dict[str, Union[bytes, str]]] = None,
     metadata_first: bool = True,
+    generate_metadata_file: bool = True,
 ) -> pathlib.Path:
     if depends is None:
         depends = []
@@ -1220,6 +1221,7 @@ def create_basic_wheel_for_package(
         name=name,
         version=version,
         wheel_metadata_updates={"Tag": ["py2-none-any", "py3-none-any"]},
+        metadata=(_default if generate_metadata_file else None),
         metadata_updates=metadata_updates,
         extra_metadata_files={"top_level.txt": name},
         extra_files=extra_files,

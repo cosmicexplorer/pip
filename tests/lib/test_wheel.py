@@ -141,11 +141,6 @@ def test_make_wheel_metadata_file_custom_contents() -> None:
     assert f.contents == value
 
 
-def test_make_wheel_metadata_file_no_contents() -> None:
-    f = default_make_wheel_metadata(value=None)
-    assert f is None
-
-
 def test_make_wheel_basics(tmpdir: Path) -> None:
     make_wheel(name="simple", version="0.1.0").save_to_dir(tmpdir)
 

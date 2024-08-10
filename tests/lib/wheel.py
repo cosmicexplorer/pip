@@ -16,6 +16,7 @@ from typing import (
     AnyStr,
     Dict,
     Iterable,
+    Iterator,
     List,
     Optional,
     Sequence,
@@ -77,13 +78,10 @@ def dist_info_path(name: str, version: str, path: str) -> str:
 def make_metadata_file(
     name: str,
     version: str,
-    value: Defaulted[Optional[AnyStr]],
+    value: Defaulted[AnyStr],
     updates: Defaulted[Dict[str, HeaderValue]],
     body: Defaulted[AnyStr],
-) -> Optional[File]:
-    if value is None:
-        return None
-
+) -> File:
     path = dist_info_path(name, version, "METADATA")
 
     if value is not _default:
@@ -109,13 +107,10 @@ def make_metadata_file(
 def make_wheel_metadata_file(
     name: str,
     version: str,
-    value: Defaulted[Optional[AnyStr]],
+    value: Defaulted[AnyStr],
     tags: Sequence[Tuple[str, str, str]],
     updates: Defaulted[Dict[str, HeaderValue]],
-) -> Optional[File]:
-    if value is None:
-        return None
-
+) -> File:
     path = dist_info_path(name, version, "WHEEL")
 
     if value is not _default:
@@ -164,26 +159,27 @@ def make_entry_points_file(
     )
 
 
-def make_files(files: Dict[str, Union[bytes, str]]) -> List[File]:
-    return [File(name, ensure_binary(contents)) for name, contents in files.items()]
+def make_files(files: Dict[str, Union[bytes, str]]) -> Iterator[File]:
+    for name, contents in files.items():
+        yield File(name, ensure_binary(contents))
 
 
 def make_metadata_files(
     name: str, version: str, files: Dict[str, AnyStr]
-) -> List[File]:
+) -> Iterator[File]:
     get_path = partial(dist_info_path, name, version)
-    return [
-        File(get_path(name), ensure_binary(contents))
-        for name, contents in files.items()
-    ]
+    for name, contents in files.items():
+        yield File(get_path(name), ensure_binary(contents))
 
 
-def make_data_files(name: str, version: str, files: Dict[str, AnyStr]) -> List[File]:
+def make_data_files(
+    name: str,
+    version: str,
+    files: Dict[str, AnyStr],
+) -> Iterator[File]:
     data_dir = f"{name}-{version}.data"
-    return [
-        File(f"{data_dir}/{name}", ensure_binary(contents))
-        for name, contents in files.items()
-    ]
+    for name, contents in files.items():
+        yield File(f"{data_dir}/{name}", ensure_binary(contents))
 
 
 def urlsafe_b64encode_nopad(data: bytes) -> str:
@@ -198,21 +194,17 @@ def record_file_maker_wrapper(
     name: str,
     version: str,
     files: Iterable[File],
-    record: Defaulted[Optional[AnyStr]],
-) -> Optional[File]:
-    records: List[Record] = [
-        Record(file.name, digest(file.contents), str(len(file.contents)))
-        for file in files
-    ]
-
-    if record is None:
-        return None
-
+    record: Defaulted[AnyStr],
+) -> File:
     record_path = dist_info_path(name, version, "RECORD")
 
     if record is not _default:
         return File(record_path, ensure_binary(record))
 
+    records: List[Record] = [
+        Record(file.name, digest(file.contents), str(len(file.contents)))
+        for file in files
+    ]
     records.append(Record(record_path, "", ""))
 
     with StringIO(newline="") as buf:
@@ -365,41 +357,52 @@ def make_wheel(
     pythons = ["py2", "py3"]
     abis = ["none"]
     platforms = ["any"]
-    tags = list(itertools.product(pythons, abis, platforms))
+    tags: List[Tuple[str, str, str]] = list(itertools.product(pythons, abis, platforms))
+    wheel_file_name = wheel_name(name, version, pythons, abis, platforms)
 
-    metadata_files = [
-        make_metadata_file(name, version, metadata, metadata_updates, metadata_body),
-        make_wheel_metadata_file(
-            name, version, wheel_metadata, tags, wheel_metadata_updates
-        ),
-        make_entry_points_file(name, version, entry_points, console_scripts),
-    ]
-
-    non_metadata_files = []
-
-    if extra_files is not _default:
-        non_metadata_files.extend(make_files(extra_files))
-
+    metadata_files: List[File] = []
+    if metadata is not None:
+        metadata_files.append(
+            make_metadata_file(
+                name,
+                version,
+                metadata,
+                metadata_updates,
+                metadata_body,
+            )
+        )
+    if wheel_metadata is not None:
+        metadata_files.append(
+            make_wheel_metadata_file(
+                name, version, wheel_metadata, tags, wheel_metadata_updates
+            )
+        )
+    if entry_points_file := make_entry_points_file(
+        name, version, entry_points, console_scripts
+    ):
+        metadata_files.append(entry_points_file)
     if extra_metadata_files is not _default:
         metadata_files.extend(make_metadata_files(name, version, extra_metadata_files))
 
+    non_metadata_files: List[File] = []
+    if extra_files is not _default:
+        non_metadata_files.extend(make_files(extra_files))
     if extra_data_files is not _default:
         non_metadata_files.extend(make_data_files(name, version, extra_data_files))
 
-    actual_metadata_files = list(filter(None, metadata_files))
-
+    all_files: List[File] = []
     if metadata_first:
-        actual_files = actual_metadata_files + non_metadata_files
+        all_files.extend(metadata_files)
+        all_files.extend(non_metadata_files)
     else:
-        actual_files = non_metadata_files + actual_metadata_files
+        all_files.extend(non_metadata_files)
+        all_files.extend(metadata_files)
 
-    record_file = record_file_maker_wrapper(name, version, actual_files, record)
-    if record_file:
+    if record is not None:
+        record_file = record_file_maker_wrapper(name, version, all_files, record)
         if metadata_first:
-            actual_files.insert(0, record_file)
+            all_files.insert(0, record_file)
         else:
-            actual_files.append(record_file)
+            all_files.append(record_file)
 
-    wheel_file_name = wheel_name(name, version, pythons, abis, platforms)
-
-    return WheelBuilder(wheel_file_name, actual_files)
+    return WheelBuilder(wheel_file_name, all_files)
