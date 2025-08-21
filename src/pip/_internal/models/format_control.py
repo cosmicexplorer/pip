@@ -1,11 +1,23 @@
 from __future__ import annotations
 
-from pip._vendor.packaging.utils import canonicalize_name
+import enum
+from collections.abc import Iterable, Iterator
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, cast
+
+from pip._vendor.packaging.utils import (
+    NormalizedName,
+    canonicalize_name,
+    is_normalized_name,
+)
 
 from pip._internal.exceptions import CommandError
 
+if TYPE_CHECKING:
+    pass
 
-class FormatControl:
+
+class FormatControlBuilder:
     """Helper for managing formats from which a package can be installed."""
 
     __slots__ = ["no_binary", "only_binary"]
@@ -58,21 +70,63 @@ class FormatControl:
             other.discard(name)
             target.add(name)
 
-    def get_allowed_formats(self, canonical_name: str) -> frozenset[str]:
-        result = {"binary", "source"}
-        if canonical_name in self.only_binary:
-            result.discard("source")
-        elif canonical_name in self.no_binary:
-            result.discard("binary")
-        elif ":all:" in self.only_binary:
-            result.discard("source")
-        elif ":all:" in self.no_binary:
-            result.discard("binary")
-        return frozenset(result)
-
     def disallow_binaries(self) -> None:
         self.handle_mutual_excludes(
             ":all:",
             self.no_binary,
             self.only_binary,
         )
+
+    @staticmethod
+    def _canonical_names_only(names: Iterable[str]) -> Iterator[NormalizedName]:
+        for name in names:
+            if name == ":all:":
+                continue
+            assert is_normalized_name(
+                name
+            ), "all project names should already have been normalized"
+            yield cast(NormalizedName, name)
+
+    def build(self) -> FormatControl:
+        default_binary = ":all:" in self.only_binary
+        default_source = ":all:" in self.no_binary
+        no_binary = frozenset(self._canonical_names_only(self.no_binary))
+        only_binary = frozenset(self._canonical_names_only(self.only_binary))
+        return FormatControl(
+            no_binary=no_binary,
+            only_binary=only_binary,
+            default_binary=default_binary,
+            default_source=default_source,
+        )
+
+
+class AllowedFormats(enum.Enum):
+    SourceOnly = enum.auto()
+    BinaryOnly = enum.auto()
+    AnyFormat = enum.auto()
+
+    def allows_binary(self) -> bool:
+        return self != type(self).SourceOnly
+
+    def allows_source(self) -> bool:
+        return self != type(self).BinaryOnly
+
+
+@dataclass(frozen=True, slots=True)
+class FormatControl:
+    no_binary: frozenset[NormalizedName]
+    only_binary: frozenset[NormalizedName]
+    default_binary: bool
+    default_source: bool
+
+    def get_allowed_formats(self, project_name: str) -> AllowedFormats:
+        canonical_name = canonicalize_name(project_name)
+        if canonical_name in self.only_binary:
+            return AllowedFormats.BinaryOnly
+        if canonical_name in self.no_binary:
+            return AllowedFormats.SourceOnly
+        if self.default_binary:
+            return AllowedFormats.BinaryOnly
+        if self.default_source:
+            return AllowedFormats.SourceOnly
+        return AllowedFormats.AnyFormat

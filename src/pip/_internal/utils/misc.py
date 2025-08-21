@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import errno
+import functools
 import getpass
 import hashlib
 import logging
@@ -13,7 +14,6 @@ import sysconfig
 import urllib.parse
 from collections.abc import Generator, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
-from functools import partial
 from io import StringIO
 from itertools import filterfalse, tee, zip_longest
 from pathlib import Path
@@ -74,6 +74,7 @@ def get_pip_version() -> str:
     return f"pip {__version__} from {pip_pkg_dir} (python {get_major_minor_version()})"
 
 
+@functools.cache
 def normalize_version_info(py_version_info: tuple[int, ...]) -> tuple[int, int, int]:
     """
     Convert a tuple of ints representing a Python version to one of length
@@ -122,7 +123,7 @@ def rmtree(dir: str, ignore_errors: bool = False, onexc: OnExc | None = None) ->
         onexc = _onerror_ignore
     if onexc is None:
         onexc = _onerror_reraise
-    handler: OnErr = partial(rmtree_errorhandler, onexc=onexc)
+    handler: OnErr = functools.partial(rmtree_errorhandler, onexc=onexc)
     if sys.version_info >= (3, 12):
         # See https://docs.python.org/3.12/whatsnew/3.12.html#shutil.
         shutil.rmtree(dir, onexc=handler)  # type: ignore

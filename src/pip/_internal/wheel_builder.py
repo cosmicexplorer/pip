@@ -15,7 +15,7 @@ from pip._internal.cache import WheelCache
 from pip._internal.exceptions import InvalidWheelFilename, UnsupportedWheel
 from pip._internal.metadata import FilesystemWheel, get_wheel_distribution
 from pip._internal.models.link import Link
-from pip._internal.models.wheel import Wheel
+from pip._internal.models.wheel import WheelInfo
 from pip._internal.operations.build.wheel import build_wheel_pep517
 from pip._internal.operations.build.wheel_editable import build_wheel_editable
 from pip._internal.operations.build.wheel_legacy import build_wheel_legacy
@@ -117,7 +117,7 @@ def _get_cache_dir(
 
 def _verify_one(req: InstallRequirement, wheel_path: str) -> None:
     canonical_name = canonicalize_name(req.name or "")
-    w = Wheel(os.path.basename(wheel_path))
+    w = WheelInfo.parse_filename(os.path.basename(wheel_path))
     if canonicalize_name(w.name) != canonical_name:
         raise InvalidWheelFilename(
             f"Wheel has unexpected file name: expected {canonical_name!r}, "

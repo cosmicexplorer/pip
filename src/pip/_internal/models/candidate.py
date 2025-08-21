@@ -1,3 +1,4 @@
+import functools
 from dataclasses import dataclass
 
 from pip._vendor.packaging.version import Version
@@ -10,7 +11,7 @@ from pip._internal.models.link import Link
 class InstallationCandidate:
     """Represents a potential "candidate" for installation."""
 
-    __slots__ = ["name", "version", "link"]
+    __slots__ = ["name", "version", "link", "__dict__"]
 
     name: str
     version: Version
@@ -21,5 +22,9 @@ class InstallationCandidate:
         object.__setattr__(self, "version", parse_version(version))
         object.__setattr__(self, "link", link)
 
-    def __str__(self) -> str:
+    @functools.cached_property
+    def _description(self) -> str:
         return f"{self.name!r} candidate (version {self.version} at {self.link})"
+
+    def __str__(self) -> str:
+        return self._description

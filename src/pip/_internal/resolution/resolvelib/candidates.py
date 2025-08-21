@@ -18,7 +18,7 @@ from pip._internal.exceptions import (
 )
 from pip._internal.metadata import BaseDistribution
 from pip._internal.models.link import Link, links_equivalent
-from pip._internal.models.wheel import Wheel
+from pip._internal.models.wheel import WheelInfo
 from pip._internal.req.constructors import (
     install_req_from_editable,
     install_req_from_line,
@@ -282,7 +282,8 @@ class LinkCandidate(_InstallRequirementBackedCandidate):
         ireq = make_install_req_from_link(link, template)
         assert ireq.link == link
         if ireq.link.is_wheel and not ireq.link.is_file:
-            wheel = Wheel(ireq.link.filename)
+            # TODO: optimize this!
+            wheel = WheelInfo.parse_filename(ireq.link.filename)
             wheel_name = canonicalize_name(wheel.name)
             assert name == wheel_name, f"{name!r} != {wheel_name!r} for wheel"
             # Version may not be present for PEP 508 direct URLs

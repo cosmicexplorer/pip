@@ -35,7 +35,7 @@ from pip._internal.exceptions import (
 from pip._internal.index.package_finder import PackageFinder
 from pip._internal.metadata import BaseDistribution
 from pip._internal.models.link import Link
-from pip._internal.models.wheel import Wheel
+from pip._internal.models.wheel import WheelInfo
 from pip._internal.operations.prepare import RequirementPreparer
 from pip._internal.req.req_install import (
     InstallRequirement,
@@ -226,11 +226,12 @@ class Resolver(BaseResolver):
         # allow specifying different wheels based on the environment/OS, in a
         # single requirements file.
         if install_req.link and install_req.link.is_wheel:
-            wheel = Wheel(install_req.link.filename)
+            filename = install_req.link.filename
+            wheel = WheelInfo.parse_filename(filename)
             tags = compatibility_tags.get_supported()
             if requirement_set.check_supported_wheels and not wheel.supported(tags):
                 raise InstallationError(
-                    f"{wheel.filename} is not a supported wheel on this platform."
+                    f"{filename} is not a supported wheel on this platform."
                 )
 
         # This next bit is really a sanity check.

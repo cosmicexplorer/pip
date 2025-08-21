@@ -17,7 +17,7 @@ import pytest
 import pip._internal.req.req_file  # this will be monkeypatched
 from pip._internal.exceptions import InstallationError, RequirementsFileParseError
 from pip._internal.index.package_finder import PackageFinder
-from pip._internal.models.format_control import FormatControl
+from pip._internal.models.format_control import FormatControlBuilder
 from pip._internal.network.session import PipSession
 from pip._internal.req.constructors import (
     install_req_from_editable,
@@ -51,7 +51,7 @@ def options(session: PipSession) -> mock.Mock:
     return mock.Mock(
         isolated_mode=False,
         index_url="default_url",
-        format_control=FormatControl(set(), set()),
+        format_control=FormatControlBuilder(set(), set()),
         features_enabled=[],
     )
 
@@ -849,7 +849,7 @@ class TestParseRequirements:
                 session=PipSession(),
             )
         )
-        expected = FormatControl({"fred"}, {"wilma"})
+        expected = FormatControlBuilder({"fred"}, {"wilma"})
         assert finder.format_control == expected
 
     def test_req_file_parse_comment_start_of_line(

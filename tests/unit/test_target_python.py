@@ -79,7 +79,7 @@ class TestTargetPython:
     )
     def test_format_given(self, kwargs: dict[str, Any], expected: str) -> None:
         target_python = TargetPython(**kwargs)
-        actual = target_python.format_given()
+        actual = target_python.format_given
         assert actual == expected
 
     @pytest.mark.parametrize(
@@ -90,9 +90,7 @@ class TestTargetPython:
             ((3,), "3"),
             ((3, 7), "37"),
             ((3, 7, 3), "37"),
-            # Check a minor version with two digits.
             ((3, 10, 1), "310"),
-            # Check that versions=None is passed to get_sorted_tags().
             (None, None),
         ],
     )
@@ -103,26 +101,28 @@ class TestTargetPython:
         py_version_info: tuple[int, ...] | None,
         expected_version: str | None,
     ) -> None:
-        dummy_tags = [Tag("py4", "none", "any"), Tag("py5", "none", "any")]
+        dummy_tags = (Tag("py4", "none", "any"), Tag("py5", "none", "any"))
         mock_get_supported.return_value = dummy_tags
 
         target_python = TargetPython(py_version_info=py_version_info)
-        actual = target_python.get_sorted_tags()
+        actual = target_python.sorted_tags
         assert actual == dummy_tags
 
         assert mock_get_supported.call_args[1]["version"] == expected_version
 
         # Check that the value was cached.
-        assert target_python._valid_tags == dummy_tags
+        assert target_python.sorted_tags == dummy_tags
 
-    def test_get_unsorted_tags__uses_cached_value(self) -> None:
+    @mock.patch("pip._internal.models.target_python.get_supported")
+    def test_get_unsorted_tags__uses_cached_value(
+        self, mock_get_supported: mock.Mock
+    ) -> None:
         """
-        Test that get_unsorted_tags() uses the cached value.
+        Test that .unsorted_tags pulls from get_supported() until cached.
         """
+        dummy_tags = (Tag("py2", "none", "any"), Tag("py3", "none", "any"))
+        mock_get_supported.return_value = dummy_tags
+
         target_python = TargetPython(py_version_info=None)
-        target_python._valid_tags_set = {
-            Tag("py2", "none", "any"),
-            Tag("py3", "none", "any"),
-        }
-        actual = target_python.get_unsorted_tags()
+        actual = target_python.unsorted_tags
         assert actual == {Tag("py2", "none", "any"), Tag("py3", "none", "any")}

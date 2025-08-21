@@ -1,5 +1,4 @@
 import logging
-from collections.abc import Iterable
 from unittest.mock import Mock, patch
 
 import pytest
@@ -17,6 +16,7 @@ from pip._internal.index.package_finder import (
     LinkEvaluator,
     LinkType,
 )
+from pip._internal.models.format_control import AllowedFormats
 from pip._internal.models.target_python import TargetPython
 from pip._internal.req.constructors import install_req_from_line
 
@@ -140,7 +140,7 @@ class TestWheel:
         req = install_req_from_line("simple.dist")
         target_python = TargetPython()
         # Make sure no tags will match.
-        target_python._valid_tags = []
+        target_python.__dict__["sorted_tags"] = ()
         finder = make_test_finder(
             find_links=[data.find_links],
             target_python=target_python,
@@ -224,16 +224,16 @@ class TestCandidateEvaluator:
                 Link("simple-1.0.tar.gz"),
             ),
         ]
-        valid_tags = [
+        valid_tags = (
             Tag("pyT", "none", "TEST"),
             Tag("pyT", "TEST", "any"),
             Tag("pyT", "none", "any"),
-        ]
+        )
         specifier = SpecifierSet()
         evaluator = CandidateEvaluator(
             "my-project",
-            supported_tags=valid_tags,
-            specifier=specifier,
+            _supported_tags=valid_tags,
+            _specifier=specifier,
         )
         sort_key = evaluator._sort_key
         results = sorted(links, key=sort_key, reverse=True)
@@ -292,15 +292,15 @@ class TestCandidateEvaluator:
                 Link("simple-1.0.tar.gz"),
             ),
         ]
-        valid_tags = [
+        valid_tags = (
             Tag("py3", "abi3", "linux_x86_64"),
             Tag("py3", "abi3", "linux_i386"),
             Tag("py3", "any", "none"),
-        ]
+        )
         evaluator = CandidateEvaluator(
             "my-project",
-            supported_tags=valid_tags,
-            specifier=SpecifierSet(),
+            _supported_tags=valid_tags,
+            _specifier=SpecifierSet(),
         )
         sort_key = evaluator._sort_key
         results = sorted(links, key=sort_key, reverse=True)
@@ -477,12 +477,11 @@ def test_finder_installs_pre_releases_with_version_spec() -> None:
 
 
 class TestLinkEvaluator:
-    def make_test_link_evaluator(self, formats: Iterable[str]) -> LinkEvaluator:
+    def make_test_link_evaluator(self, formats: AllowedFormats) -> LinkEvaluator:
         target_python = TargetPython()
         return LinkEvaluator(
             project_name="pytest",
-            canonical_name="pytest",
-            formats=frozenset(formats),
+            formats=formats,
             target_python=target_python,
             allow_yanked=True,
         )
@@ -497,7 +496,7 @@ class TestLinkEvaluator:
     def test_evaluate_link__match(self, url: str, expected_version: str) -> None:
         """Test that 'pytest' archives match for 'pytest'"""
         link = Link(url)
-        evaluator = self.make_test_link_evaluator(formats=["source", "binary"])
+        evaluator = self.make_test_link_evaluator(formats=AllowedFormats.AnyFormat)
         actual = evaluator.evaluate_link(link)
         assert actual == (LinkType.candidate, expected_version)
 
@@ -526,7 +525,7 @@ class TestLinkEvaluator:
     ) -> None:
         """Test that 'pytest<something> archives won't match for 'pytest'."""
         link = Link(url)
-        evaluator = self.make_test_link_evaluator(formats=["source", "binary"])
+        evaluator = self.make_test_link_evaluator(formats=AllowedFormats.AnyFormat)
         actual = evaluator.evaluate_link(link)
         assert actual == (link_type, fail_reason)
 
