@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import functools
 import re
+from collections.abc import Iterable
 
 from pip._vendor.packaging.tags import (
     PythonVersion,
@@ -20,17 +22,17 @@ from pip._vendor.packaging.tags import (
 _apple_arch_pat = re.compile(r"(.+)_(\d+)_(\d+)_(.+)")
 
 
+@functools.cache
 def version_info_to_nodot(version_info: tuple[int, ...]) -> str:
     # Only use up to the first two numbers.
     return "".join(map(str, version_info[:2]))
 
 
-def _mac_platforms(arch: str) -> list[str]:
-    match = _apple_arch_pat.match(arch)
-    if match:
+def _mac_platforms(arch: str) -> tuple[str, ...]:
+    if match := _apple_arch_pat.match(arch):
         name, major, minor, actual_arch = match.groups()
         mac_version = (int(major), int(minor))
-        arches = [
+        return tuple(
             # Since we have always only checked that the platform starts
             # with "macosx", for backwards-compatibility we extract the
             # actual prefix provided by the user in case they provided
@@ -38,19 +40,16 @@ def _mac_platforms(arch: str) -> list[str]:
             # this as undocumented or deprecate it in the future.
             "{}_{}".format(name, arch[len("macosx_") :])
             for arch in mac_platforms(mac_version, actual_arch)
-        ]
-    else:
-        # arch pattern didn't match (?!)
-        arches = [arch]
-    return arches
+        )
+    # arch pattern didn't match (?!)
+    return (arch,)
 
 
-def _ios_platforms(arch: str) -> list[str]:
-    match = _apple_arch_pat.match(arch)
-    if match:
+def _ios_platforms(arch: str) -> tuple[str, ...]:
+    if match := _apple_arch_pat.match(arch):
         name, major, minor, actual_multiarch = match.groups()
         ios_version = (int(major), int(minor))
-        arches = [
+        return tuple(
             # Since we have always only checked that the platform starts
             # with "ios", for backwards-compatibility we extract the
             # actual prefix provided by the user in case they provided
@@ -58,24 +57,24 @@ def _ios_platforms(arch: str) -> list[str]:
             # this as undocumented or deprecate it in the future.
             "{}_{}".format(name, arch[len("ios_") :])
             for arch in ios_platforms(ios_version, actual_multiarch)
-        ]
-    else:
-        # arch pattern didn't match (?!)
-        arches = [arch]
-    return arches
+        )
+    # arch pattern didn't match (?!)
+    return (arch,)
 
 
-def _android_platforms(arch: str) -> list[str]:
-    match = re.fullmatch(r"android_(\d+)_(.+)", arch)
-    if match:
+_android_arch_pat = re.compile(r"android_(\d+)_(.+)")
+
+
+def _android_platforms(arch: str) -> tuple[str, ...]:
+    if match := _android_arch_pat.fullmatch(arch):
         api_level, abi = match.groups()
-        return list(android_platforms(int(api_level), abi))
-    else:
-        # arch pattern didn't match (?!)
-        return [arch]
+        return tuple(android_platforms(int(api_level), abi))
+    # arch pattern didn't match (?!)
+    return (arch,)
 
 
-def _custom_manylinux_platforms(arch: str) -> list[str]:
+@functools.cache
+def _custom_manylinux_platforms(arch: str) -> tuple[str, ...]:
     arches = [arch]
     arch_prefix, arch_sep, arch_suffix = arch.partition("_")
     if arch_prefix == "manylinux2014":
@@ -93,25 +92,25 @@ def _custom_manylinux_platforms(arch: str) -> list[str]:
         # manylinux1 wheels should be considered manylinux2010 wheels:
         # https://www.python.org/dev/peps/pep-0571/#backwards-compatibility-with-manylinux1-wheels
         arches.append("manylinux1" + arch_sep + arch_suffix)
-    return arches
+    return tuple(arches)
 
 
-def _get_custom_platforms(arch: str) -> list[str]:
+def _get_custom_platforms(arch: str) -> tuple[str, ...]:
     arch_prefix, arch_sep, arch_suffix = arch.partition("_")
     if arch.startswith("macosx"):
-        arches = _mac_platforms(arch)
-    elif arch.startswith("ios"):
-        arches = _ios_platforms(arch)
-    elif arch_prefix == "android":
-        arches = _android_platforms(arch)
-    elif arch_prefix in ["manylinux2014", "manylinux2010"]:
-        arches = _custom_manylinux_platforms(arch)
-    else:
-        arches = [arch]
-    return arches
+        return _mac_platforms(arch)
+    if arch.startswith("ios"):
+        return _ios_platforms(arch)
+    if arch_prefix == "android":
+        return _android_platforms(arch)
+    if arch_prefix in ["manylinux2014", "manylinux2010"]:
+        return _custom_manylinux_platforms(arch)
+    return (arch,)
 
 
-def _expand_allowed_platforms(platforms: list[str] | None) -> list[str] | None:
+def _expand_allowed_platforms(
+    platforms: Iterable[str] | None,
+) -> tuple[str, ...] | None:
     if not platforms:
         return None
 
@@ -125,9 +124,10 @@ def _expand_allowed_platforms(platforms: list[str] | None) -> list[str] | None:
         seen.update(additions)
         result.extend(additions)
 
-    return result
+    return tuple(result)
 
 
+@functools.cache
 def _get_python_version(version: str) -> PythonVersion:
     if len(version) > 1:
         return int(version[0]), int(version[1:])
@@ -147,20 +147,20 @@ def _get_custom_interpreter(
 
 def get_supported(
     version: str | None = None,
-    platforms: list[str] | None = None,
+    platforms: Iterable[str] | None = None,
     impl: str | None = None,
-    abis: list[str] | None = None,
-) -> list[Tag]:
-    """Return a list of supported tags for each version specified in
+    abis: Iterable[str] | None = None,
+) -> tuple[Tag, ...]:
+    """Return a tuple of supported tags for each version specified in
     `versions`.
 
     :param version: a string version, of the form "33" or "32",
         or None. The version will be assumed to support our ABI.
-    :param platform: specify a list of platforms you want valid
+    :param platform: specify an iterable of platforms you want valid
         tags for, or None. If None, use the local system platform.
     :param impl: specify the exact implementation you want valid
         tags for, or None. If None, use the local interpreter impl.
-    :param abis: specify a list of abis you want valid
+    :param abis: specify an iterable of abis you want valid
         tags for, or None. If None, use the local interpreter abi.
     """
     supported: list[Tag] = []
@@ -198,4 +198,4 @@ def get_supported(
         )
     )
 
-    return supported
+    return tuple(supported)

@@ -15,6 +15,7 @@ from typing import (
 
 from pip._vendor.packaging.requirements import InvalidRequirement
 from pip._vendor.packaging.specifiers import SpecifierSet
+from pip._vendor.packaging.tags import Tag
 from pip._vendor.packaging.utils import NormalizedName, canonicalize_name
 from pip._vendor.packaging.version import InvalidVersion, Version
 from pip._vendor.resolvelib import ResolutionImpossible
@@ -32,7 +33,7 @@ from pip._internal.exceptions import (
 from pip._internal.index.package_finder import PackageFinder
 from pip._internal.metadata import BaseDistribution, get_default_environment
 from pip._internal.models.link import Link
-from pip._internal.models.wheel import Wheel
+from pip._internal.models.wheel import WheelInfo
 from pip._internal.operations.prepare import RequirementPreparer
 from pip._internal.req.constructors import (
     install_req_drop_extras,
@@ -115,7 +116,6 @@ class Factory:
         self._extras_candidate_cache: dict[
             tuple[int, frozenset[NormalizedName]], ExtrasCandidate
         ] = {}
-        self._supported_tags_cache = get_supported()
 
         if not ignore_installed:
             env = get_default_environment()
@@ -126,6 +126,10 @@ class Factory:
         else:
             self._installed_dists = {}
 
+    @functools.cached_property
+    def _supported_tags(self) -> tuple[Tag, ...]:
+        return get_supported()
+
     @property
     def force_reinstall(self) -> bool:
         return self._force_reinstall
@@ -133,8 +137,8 @@ class Factory:
     def _fail_if_link_is_unsupported_wheel(self, link: Link) -> None:
         if not link.is_wheel:
             return
-        wheel = Wheel(link.filename)
-        if wheel.supported(self._finder.target_python.get_unsorted_tags()):
+        wheel = WheelInfo.parse_filename(link.filename)
+        if wheel.supported(self._finder.target_python.unsorted_tags):
             return
         msg = f"{link.filename} is not a supported wheel on this platform."
         raise UnsupportedWheel(msg)
@@ -606,7 +610,7 @@ class Factory:
         return self._wheel_cache.get_cache_entry(
             link=link,
             package_name=name,
-            supported_tags=self._supported_tags_cache,
+            supported_tags=self._supported_tags,
         )
 
     def get_dist_to_uninstall(self, candidate: Candidate) -> BaseDistribution | None:

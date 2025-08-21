@@ -259,9 +259,10 @@ class ListCommand(IndexGroupCommand):
                 evaluator = finder.make_candidate_evaluator(
                     project_name=dist.canonical_name,
                 )
-                best_candidate = evaluator.sort_best_candidate(all_candidates)
-                if best_candidate is None:
+                sorted_candidates = evaluator.get_applicable_candidates(all_candidates)
+                if not sorted_candidates:
                     return None
+                best_candidate = sorted_candidates[-1]
 
                 remote_version = best_candidate.version
                 if best_candidate.link.is_wheel:

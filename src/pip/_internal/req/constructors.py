@@ -24,7 +24,7 @@ from pip._vendor.packaging.specifiers import Specifier
 from pip._internal.exceptions import InstallationError
 from pip._internal.models.index import PyPI, TestPyPI
 from pip._internal.models.link import Link
-from pip._internal.models.wheel import Wheel
+from pip._internal.models.wheel import WheelInfo
 from pip._internal.req.req_file import ParsedRequirement
 from pip._internal.req.req_install import InstallRequirement
 from pip._internal.utils.filetypes import is_archive_file
@@ -341,7 +341,9 @@ def parse_req_from_line(name: str, line_source: str | None) -> RequirementParts:
             link = Link(path_to_url(os.path.normpath(os.path.abspath(link.path))))
         # wheel file
         if link.is_wheel:
-            wheel = Wheel(link.filename)  # can raise InvalidWheelFilename
+            wheel = WheelInfo.parse_filename(
+                link.filename
+            )  # can raise InvalidWheelFilename
             req_as_string = f"{wheel.name}=={wheel.version}"
         else:
             # set the req to the egg fragment.  when it's not there, this

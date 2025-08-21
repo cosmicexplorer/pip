@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import contextlib
 import functools
 import logging
 import os
@@ -120,13 +119,12 @@ class Resolver(BaseResolver):
             if ireq is None:
                 if candidate.name != candidate.project_name:
                     # extend existing req's extras
-                    with contextlib.suppress(KeyError):
-                        req = req_set.get_requirement(candidate.project_name)
-                        req_set.add_named_requirement(
-                            install_req_extend_extras(
-                                req, get_requirement(candidate.name).extras
-                            )
+                    req = req_set.get_requirement(candidate.project_name)
+                    req_set.add_named_requirement(
+                        install_req_extend_extras(
+                            req, get_requirement(candidate.name).extras
                         )
+                    )
                 continue
 
             # Check if there is already an installation under the same name,

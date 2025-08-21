@@ -7,16 +7,16 @@ import functools
 import itertools
 import logging
 import re
+from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import (
     TYPE_CHECKING,
-    Optional,
-    Union,
+    ClassVar,
 )
 
 from pip._vendor.packaging import specifiers
-from pip._vendor.packaging.tags import Tag
+from pip._vendor.packaging.tags import Tag, parse_tag
 from pip._vendor.packaging.utils import canonicalize_name
 from pip._vendor.packaging.version import InvalidVersion, _BaseVersion
 from pip._vendor.packaging.version import parse as parse_version
@@ -29,78 +29,35 @@ from pip._internal.exceptions import (
 )
 from pip._internal.index.collector import LinkCollector, parse_links
 from pip._internal.models.candidate import InstallationCandidate
-from pip._internal.models.format_control import FormatControl
+from pip._internal.models.format_control import (
+    AllowedFormats,
+    FormatControlBuilder,
+)
 from pip._internal.models.link import Link
 from pip._internal.models.search_scope import SearchScope
 from pip._internal.models.selection_prefs import SelectionPreferences
 from pip._internal.models.target_python import TargetPython
-from pip._internal.models.wheel import Wheel
+from pip._internal.models.wheel import WheelInfo
 from pip._internal.req import InstallRequirement
 from pip._internal.utils._log import getLogger
 from pip._internal.utils.filetypes import WHEEL_EXTENSION
 from pip._internal.utils.hashes import Hashes
 from pip._internal.utils.logging import indent_log
 from pip._internal.utils.misc import build_netloc
-from pip._internal.utils.packaging import check_requires_python
+from pip._internal.utils.predicates import FragmentMatcher, RequiresPython
 from pip._internal.utils.unpacking import SUPPORTED_EXTENSIONS
 
 if TYPE_CHECKING:
     from typing_extensions import TypeGuard
 
-__all__ = ["FormatControl", "BestCandidateResult", "PackageFinder"]
+    from pip._vendor.packaging.utils import BuildTag, NormalizedName
+
+    CandidateSortingKey = tuple[int, int, int, _BaseVersion, int | None, BuildTag, int]
+
+__all__ = ["BestCandidateResult", "PackageFinder"]
 
 
 logger = getLogger(__name__)
-
-BuildTag = Union[tuple[()], tuple[int, str]]
-CandidateSortingKey = tuple[int, int, int, _BaseVersion, Optional[int], BuildTag]
-
-
-def _check_link_requires_python(
-    link: Link,
-    version_info: tuple[int, int, int],
-    ignore_requires_python: bool = False,
-) -> bool:
-    """
-    Return whether the given Python version is compatible with a link's
-    "Requires-Python" value.
-
-    :param version_info: A 3-tuple of ints representing the Python
-        major-minor-micro version to check.
-    :param ignore_requires_python: Whether to ignore the "Requires-Python"
-        value if the given Python version isn't compatible.
-    """
-    try:
-        is_compatible = check_requires_python(
-            link.requires_python,
-            version_info=version_info,
-        )
-    except specifiers.InvalidSpecifier:
-        logger.debug(
-            "Ignoring invalid Requires-Python (%r) for link: %s",
-            link.requires_python,
-            link,
-        )
-    else:
-        if not is_compatible:
-            version = ".".join(map(str, version_info))
-            if not ignore_requires_python:
-                logger.verbose(
-                    "Link requires a different Python (%s not in: %r): %s",
-                    version,
-                    link.requires_python,
-                    link,
-                )
-                return False
-
-            logger.debug(
-                "Ignoring failed Requires-Python check (%s not in: %r) for link: %s",
-                version,
-                link.requires_python,
-                link,
-            )
-
-    return True
 
 
 class LinkType(enum.Enum):
@@ -113,12 +70,26 @@ class LinkType(enum.Enum):
     requires_python_mismatch = enum.auto()
 
 
+@dataclass(frozen=True)
 class LinkEvaluator:
     """
     Responsible for evaluating links for a particular project.
     """
 
-    _py_version_re = re.compile(r"-py([123]\.?[0-9]?)$")
+    project_name: str
+    formats: AllowedFormats
+    target_python: TargetPython
+    allow_yanked: bool
+    ignore_requires_python: bool
+
+    __slots__ = [
+        "project_name",
+        "formats",
+        "target_python",
+        "allow_yanked",
+        "ignore_requires_python",
+        "__dict__",
+    ]
 
     # Don't include an allow_yanked default value to make sure each call
     # site considers whether yanked releases are allowed. This also causes
@@ -127,17 +98,14 @@ class LinkEvaluator:
     def __init__(
         self,
         project_name: str,
-        canonical_name: str,
-        formats: frozenset[str],
+        formats: AllowedFormats,
         target_python: TargetPython,
         allow_yanked: bool,
         ignore_requires_python: bool | None = None,
     ) -> None:
         """
         :param project_name: The user supplied package name.
-        :param canonical_name: The canonical package name.
-        :param formats: The formats allowed for this package. Should be a set
-            with 'binary' or 'source' or both in it.
+        :param formats: The formats allowed for this package.
         :param target_python: The target Python interpreter to use when
             evaluating link compatibility. This is used, for example, to
             check wheel compatibility, as well as when checking the Python
@@ -150,18 +118,173 @@ class LinkEvaluator:
             PEP 503 "data-requires-python" values in HTML links. Defaults
             to False.
         """
-        if ignore_requires_python is None:
-            ignore_requires_python = False
+        object.__setattr__(self, "project_name", project_name)
+        object.__setattr__(self, "formats", formats)
+        object.__setattr__(self, "target_python", target_python)
+        object.__setattr__(self, "allow_yanked", allow_yanked)
+        object.__setattr__(
+            self,
+            "ignore_requires_python",
+            False if ignore_requires_python is None else ignore_requires_python,
+        )
 
-        self._allow_yanked = allow_yanked
-        self._canonical_name = canonical_name
-        self._ignore_requires_python = ignore_requires_python
-        self._formats = formats
-        self._target_python = target_python
+    _py_version_re: ClassVar[re.Pattern[str]] = re.compile(r"-py(?:.+)$")
+    _single_py_version: ClassVar[re.Pattern[str]] = re.compile(r"py([1-3](?:\.[0-9])?)")
 
-        self.project_name = project_name
+    @functools.cached_property
+    def _canonical_name(self) -> NormalizedName:
+        return canonicalize_name(self.project_name)
+
+    def _parse_wheel(
+        self, filename: str
+    ) -> tuple[str | None, tuple[LinkType, str] | None]:
+        try:
+            wheel = WheelInfo.parse_filename(filename)
+        except InvalidWheelFilename:
+            return None, (
+                LinkType.format_invalid,
+                "invalid wheel filename",
+            )
+        if wheel.name != self._canonical_name:
+            reason = f"wrong project name (not {self.project_name})"
+            return None, (LinkType.different_project, reason)
+
+        # FIXME: optimize this!
+        if not wheel.supported(self.target_python.unsorted_tags):
+            # Include the wheel's tags in the reason string to
+            # simplify troubleshooting compatibility issues.
+            file_tags = ", ".join(wheel.sorted_tag_strings)
+            reason = (
+                f"none of the wheel's tags ({file_tags}) are compatible "
+                f"(run pip debug --verbose to show compatible tags)"
+            )
+            return None, (LinkType.platform_mismatch, reason)
+        return wheel.version, None
+
+    def _split_version_and_py(
+        self, version: str
+    ) -> tuple[str | None, tuple[LinkType, str] | None]:
+        py_ver_match = self._py_version_re.search(version)
+        if not py_ver_match:
+            return version, None
+        version = version[: py_ver_match.start()]
+        py_tag_string = py_ver_match.group(0)[1:]
+
+        if single_version := self._single_py_version.match(py_tag_string):
+            if single_version.group(1) != self.target_python.py_version:
+                return None, (
+                    LinkType.platform_mismatch,
+                    "Python version is incorrect",
+                )
+            return version, None
+
+        try:
+            py_tag = parse_tag(py_tag_string)
+        except ValueError:
+            return None, (
+                LinkType.platform_mismatch,
+                f"Could not parse python tags: {py_tag_string!r}",
+            )
+        raise ValueError(f"unexpected tag string: {py_tag!r} from version {version!r}")
+
+    @functools.cached_property
+    def _fragment_matcher(self) -> FragmentMatcher:
+        return FragmentMatcher(self._canonical_name)
+
+    def _parse_version(
+        self, link: Link
+    ) -> tuple[str | None, tuple[LinkType, str] | None]:
+        version: str | None = None
+
+        if link.egg_fragment:
+            egg_info = link.egg_fragment
+            ext = link.ext
+        else:
+            egg_info, ext = link.splitext()
+            if not ext:
+                return None, (LinkType.format_unsupported, "not a file")
+            if ext not in SUPPORTED_EXTENSIONS:
+                return None, (
+                    LinkType.format_unsupported,
+                    f"unsupported archive format: {ext}",
+                )
+            if not self.formats.allows_binary() and ext == WHEEL_EXTENSION:
+                reason = f"No binaries permitted for {self.project_name}"
+                return None, (LinkType.format_unsupported, reason)
+            if "macosx10" in link.path and ext == ".zip":
+                return None, (LinkType.format_unsupported, "macosx10 one")
+            if ext == WHEEL_EXTENSION:
+                version, result = self._parse_wheel(link.filename)
+                if result is not None:
+                    return None, result
+
+        # This should be up by the self.ok_binary check, but see issue 2700.
+        if not self.formats.allows_source() and ext != WHEEL_EXTENSION:
+            reason = f"No sources permitted for {self.project_name}"
+            return None, (LinkType.format_unsupported, reason)
+
+        if version is None:
+            version = self._fragment_matcher.extract_version_from_fragment(
+                egg_info,
+            )
+        if version is None:
+            reason = f"Missing project version for {self.project_name}"
+            return None, (LinkType.format_invalid, reason)
+
+        version, result = self._split_version_and_py(version)
+        if result is not None:
+            return None, result
+        assert version is not None
+        # FIXME: optimize the version canonicalization--do it only once!
+        return version, None
+
+    @functools.cached_property
+    def _evaluations(self) -> dict[Link, tuple[LinkType, str]]:
+        return {}
 
     def evaluate_link(self, link: Link) -> tuple[LinkType, str]:
+        if (result := self._evaluations.get(link)) is not None:
+            return result
+        new_result = self._do_evaluate_link(link)
+        self._evaluations[link] = new_result
+        return new_result
+
+    @staticmethod
+    def _requires_python_is_compatible(
+        target_python: TargetPython, ignore_requires_python: bool, link: Link
+    ) -> tuple[bool, RequiresPython | None]:
+        if link.requires_python is None:
+            return True, None
+        try:
+            predicate = RequiresPython.parse(link.requires_python)
+        except specifiers.InvalidSpecifier:
+            logger.debug(
+                "Ignoring invalid Requires-Python (%r) for link: %s",
+                link.requires_python,
+                link,
+            )
+            return True, None
+        if predicate.is_compatible(target_python):
+            return True, None
+
+        if ignore_requires_python:
+            logger.debug(
+                "Ignoring failed Requires-Python check (%s not in: %r) for link: %s",
+                target_python.full_py_version,
+                link.requires_python,
+                link,
+            )
+            return True, None
+
+        logger.verbose(
+            "Link requires a different Python (%s not in: %r): %s",
+            target_python.full_py_version,
+            link.requires_python,
+            link,
+        )
+        return False, predicate
+
+    def _do_evaluate_link(self, link: Link) -> tuple[LinkType, str]:
         """
         Determine whether a link is a candidate for installation.
 
@@ -171,96 +294,23 @@ class LinkEvaluator:
             candidate's version string; if one is not found, it contains the
             reason the link fails to qualify.
         """
-        version = None
-        if link.is_yanked and not self._allow_yanked:
+        version: str | None = None
+        if link.is_yanked and not self.allow_yanked:
             reason = link.yanked_reason or "<none given>"
             return (LinkType.yanked, f"yanked for reason: {reason}")
 
-        if link.egg_fragment:
-            egg_info = link.egg_fragment
-            ext = link.ext
-        else:
-            egg_info, ext = link.splitext()
-            if not ext:
-                return (LinkType.format_unsupported, "not a file")
-            if ext not in SUPPORTED_EXTENSIONS:
-                return (
-                    LinkType.format_unsupported,
-                    f"unsupported archive format: {ext}",
-                )
-            if "binary" not in self._formats and ext == WHEEL_EXTENSION:
-                reason = f"No binaries permitted for {self.project_name}"
-                return (LinkType.format_unsupported, reason)
-            if "macosx10" in link.path and ext == ".zip":
-                return (LinkType.format_unsupported, "macosx10 one")
-            if ext == WHEEL_EXTENSION:
-                try:
-                    wheel = Wheel(link.filename)
-                except InvalidWheelFilename:
-                    return (
-                        LinkType.format_invalid,
-                        "invalid wheel filename",
-                    )
-                if canonicalize_name(wheel.name) != self._canonical_name:
-                    reason = f"wrong project name (not {self.project_name})"
-                    return (LinkType.different_project, reason)
+        version, result = self._parse_version(link)
+        if result is not None:
+            return result
+        assert version is not None
 
-                supported_tags = self._target_python.get_unsorted_tags()
-                if not wheel.supported(supported_tags):
-                    # Include the wheel's tags in the reason string to
-                    # simplify troubleshooting compatibility issues.
-                    file_tags = ", ".join(wheel.get_formatted_file_tags())
-                    reason = (
-                        f"none of the wheel's tags ({file_tags}) are compatible "
-                        f"(run pip debug --verbose to show compatible tags)"
-                    )
-                    return (LinkType.platform_mismatch, reason)
-
-                version = wheel.version
-
-        # This should be up by the self.ok_binary check, but see issue 2700.
-        if "source" not in self._formats and ext != WHEEL_EXTENSION:
-            reason = f"No sources permitted for {self.project_name}"
-            return (LinkType.format_unsupported, reason)
-
-        if not version:
-            version = _extract_version_from_fragment(
-                egg_info,
-                self._canonical_name,
-            )
-        if not version:
-            reason = f"Missing project version for {self.project_name}"
-            return (LinkType.format_invalid, reason)
-
-        match = self._py_version_re.search(version)
-        if match:
-            version = version[: match.start()]
-            py_version = match.group(1)
-            if py_version != self._target_python.py_version:
-                return (
-                    LinkType.platform_mismatch,
-                    "Python version is incorrect",
-                )
-
-        supports_python = _check_link_requires_python(
-            link,
-            version_info=self._target_python.py_version_info,
-            ignore_requires_python=self._ignore_requires_python,
+        is_compatible, predicate = LinkEvaluator._requires_python_is_compatible(
+            self.target_python, self.ignore_requires_python, link
         )
-        if not supports_python:
-            requires_python = link.requires_python
-            if requires_python:
-
-                def get_version_sort_key(v: str) -> tuple[int, ...]:
-                    return tuple(int(s) for s in v.split(".") if s.isdigit())
-
-                requires_python = ",".join(
-                    sorted(
-                        (str(s) for s in specifiers.SpecifierSet(requires_python)),
-                        key=get_version_sort_key,
-                    )
-                )
-            reason = f"{version} Requires-Python {requires_python}"
+        if not is_compatible:
+            assert predicate is not None
+            descriptor = predicate.to_sorted_string()
+            reason = f"{version} Requires-Python {descriptor}"
             return (LinkType.requires_python_mismatch, reason)
 
         logger.debug("Found link %s, version: %s", link, version)
@@ -366,24 +416,27 @@ class BestCandidateResult:
         if no applicable candidates were found.
     """
 
-    all_candidates: list[InstallationCandidate]
-    applicable_candidates: list[InstallationCandidate]
+    all_candidates: tuple[InstallationCandidate, ...]
+    applicable_candidates: tuple[InstallationCandidate, ...]
     best_candidate: InstallationCandidate | None
 
-    def __post_init__(self) -> None:
-        assert set(self.applicable_candidates) <= set(self.all_candidates)
 
-        if self.best_candidate is None:
-            assert not self.applicable_candidates
-        else:
-            assert self.best_candidate in self.applicable_candidates
-
-
+@dataclass(frozen=True)
 class CandidateEvaluator:
     """
     Responsible for filtering and sorting candidates for installation based
     on what tags are valid.
+
+    :param _supported_tags: The PEP 425 tags supported by the target
+        Python in order of preference (most preferred first).
     """
+
+    _project_name: str
+    _supported_tags: tuple[Tag, ...]
+    _specifier: specifiers.BaseSpecifier
+    _prefer_binary: bool = False
+    _allow_all_prereleases: bool = False
+    _hashes: Hashes | None = None
 
     @classmethod
     def create(
@@ -410,47 +463,30 @@ class CandidateEvaluator:
         if specifier is None:
             specifier = specifiers.SpecifierSet()
 
-        supported_tags = target_python.get_sorted_tags()
+        supported_tags = target_python.sorted_tags
 
         return cls(
-            project_name=project_name,
-            supported_tags=supported_tags,
-            specifier=specifier,
-            prefer_binary=prefer_binary,
-            allow_all_prereleases=allow_all_prereleases,
-            hashes=hashes,
+            _project_name=project_name,
+            _supported_tags=tuple(supported_tags),
+            _specifier=specifier,
+            _prefer_binary=prefer_binary,
+            _allow_all_prereleases=allow_all_prereleases,
+            _hashes=hashes,
         )
 
-    def __init__(
-        self,
-        project_name: str,
-        supported_tags: list[Tag],
-        specifier: specifiers.BaseSpecifier,
-        prefer_binary: bool = False,
-        allow_all_prereleases: bool = False,
-        hashes: Hashes | None = None,
-    ) -> None:
+    @functools.cached_property
+    def _wheel_tag_preferences(self) -> dict[Tag, int]:
         """
-        :param supported_tags: The PEP 425 tags supported by the target
-            Python in order of preference (most preferred first).
+        Since the index of the tag in the _supported_tags list is used
+        as a priority, precompute a map from tag to index/priority to be
+        used in wheel.find_most_preferred_tag.
         """
-        self._allow_all_prereleases = allow_all_prereleases
-        self._hashes = hashes
-        self._prefer_binary = prefer_binary
-        self._project_name = project_name
-        self._specifier = specifier
-        self._supported_tags = supported_tags
-        # Since the index of the tag in the _supported_tags list is used
-        # as a priority, precompute a map from tag to index/priority to be
-        # used in wheel.find_most_preferred_tag.
-        self._wheel_tag_preferences = {
-            tag: idx for idx, tag in enumerate(supported_tags)
-        }
+        return {tag: idx for idx, tag in enumerate(self._supported_tags)}
 
     def get_applicable_candidates(
         self,
-        candidates: list[InstallationCandidate],
-    ) -> list[InstallationCandidate]:
+        candidates: Iterable[InstallationCandidate],
+    ) -> tuple[InstallationCandidate, ...]:
         """
         Return the applicable candidates from a list of candidates.
         """
@@ -480,9 +516,25 @@ class CandidateEvaluator:
             project_name=self._project_name,
         )
 
-        return sorted(filtered_applicable_candidates, key=self._sort_key)
+        return tuple(
+            sorted(
+                filtered_applicable_candidates,
+                key=self._sort_key,
+            )
+        )
+
+    @functools.cached_property
+    def _cur_key_cache(self) -> dict[InstallationCandidate, CandidateSortingKey]:
+        return {}
 
     def _sort_key(self, candidate: InstallationCandidate) -> CandidateSortingKey:
+        if (result := self._cur_key_cache.get(candidate)) is not None:
+            return result
+        new_result = self._do_sort_key(candidate)
+        self._cur_key_cache[candidate] = new_result
+        return new_result
+
+    def _do_sort_key(self, candidate: InstallationCandidate) -> CandidateSortingKey:
         """
         Function to pass as the `key` argument to a call to sorted() to sort
         InstallationCandidates by preference.
@@ -507,37 +559,37 @@ class CandidateEvaluator:
           2. wheels ordered via Wheel.support_index_min(self._supported_tags)
           3. source archives
         If prefer_binary was set, then all wheels are sorted above sources.
+        Egg fragments are sorted below links without them.
 
         Note: it was considered to embed this logic into the Link
               comparison operators, but then different sdist links
               with the same version, would have to be considered equal
         """
-        valid_tags = self._supported_tags
-        support_num = len(valid_tags)
         build_tag: BuildTag = ()
         binary_preference = 0
         link = candidate.link
         if link.is_wheel:
             # can raise InvalidWheelFilename
-            wheel = Wheel(link.filename)
+            wheel = WheelInfo.parse_filename(link.filename)
             try:
                 pri = -(
                     wheel.find_most_preferred_tag(
-                        valid_tags, self._wheel_tag_preferences
+                        self._supported_tags, self._wheel_tag_preferences
                     )
                 )
             except ValueError:
                 raise UnsupportedWheel(
-                    f"{wheel.filename} is not a supported wheel for this platform. It "
+                    f"{link.filename} is not a supported wheel for this platform. It "
                     "can't be sorted."
                 )
             if self._prefer_binary:
                 binary_preference = 1
             build_tag = wheel.build_tag
         else:  # sdist
-            pri = -(support_num)
+            pri = -len(self._supported_tags)
         has_allowed_hash = int(link.is_hash_allowed(self._hashes))
         yank_value = -1 * int(link.is_yanked)  # -1 for yanked.
+        egg_value = -1 * int(link.egg_fragment is not None)
         return (
             has_allowed_hash,
             yank_value,
@@ -545,31 +597,23 @@ class CandidateEvaluator:
             candidate.version,
             pri,
             build_tag,
+            egg_value,
         )
-
-    def sort_best_candidate(
-        self,
-        candidates: list[InstallationCandidate],
-    ) -> InstallationCandidate | None:
-        """
-        Return the best candidate per the instance's sort order, or None if
-        no candidate is acceptable.
-        """
-        if not candidates:
-            return None
-        best_candidate = max(candidates, key=self._sort_key)
-        return best_candidate
 
     def compute_best_candidate(
         self,
-        candidates: list[InstallationCandidate],
+        candidates: Iterable[InstallationCandidate],
     ) -> BestCandidateResult:
         """
         Compute and return a `BestCandidateResult` instance.
         """
+        candidates = tuple(candidates)
         applicable_candidates = self.get_applicable_candidates(candidates)
 
-        best_candidate = self.sort_best_candidate(applicable_candidates)
+        if applicable_candidates:
+            best_candidate = applicable_candidates[-1]
+        else:
+            best_candidate = None
 
         return BestCandidateResult(
             candidates,
@@ -590,7 +634,7 @@ class PackageFinder:
         link_collector: LinkCollector,
         target_python: TargetPython,
         allow_yanked: bool,
-        format_control: FormatControl | None = None,
+        format_control: FormatControlBuilder | None = None,
         candidate_prefs: CandidatePreferences | None = None,
         ignore_requires_python: bool | None = None,
     ) -> None:
@@ -607,7 +651,7 @@ class PackageFinder:
         if candidate_prefs is None:
             candidate_prefs = CandidatePreferences()
 
-        format_control = format_control or FormatControl(set(), set())
+        format_control = format_control or FormatControlBuilder(set(), set())
 
         self._allow_yanked = allow_yanked
         self._candidate_prefs = candidate_prefs
@@ -615,17 +659,10 @@ class PackageFinder:
         self._link_collector = link_collector
         self._target_python = target_python
 
-        self.format_control = format_control
+        self.format_control = format_control.build()
 
         # These are boring links that have already been logged somehow.
         self._logged_links: set[tuple[Link, LinkType, str]] = set()
-
-        # Cache of the result of finding candidates
-        self._all_candidates: dict[str, list[InstallationCandidate]] = {}
-        self._best_candidates: dict[
-            tuple[str, specifiers.BaseSpecifier | None, Hashes | None],
-            BestCandidateResult,
-        ] = {}
 
     # Don't include an allow_yanked default value to make sure each call
     # site considers whether yanked releases are allowed. This also causes
@@ -729,19 +766,15 @@ class PackageFinder:
         return sorted(reasons)
 
     def make_link_evaluator(self, project_name: str) -> LinkEvaluator:
-        canonical_name = canonicalize_name(project_name)
-        formats = self.format_control.get_allowed_formats(canonical_name)
-
         return LinkEvaluator(
             project_name=project_name,
-            canonical_name=canonical_name,
-            formats=formats,
+            formats=self.format_control.get_allowed_formats(project_name),
             target_python=self._target_python,
             allow_yanked=self._allow_yanked,
             ignore_requires_python=self._ignore_requires_python,
         )
 
-    def _sort_links(self, links: Iterable[Link]) -> list[Link]:
+    def _sort_links(self, links: Iterable[Link]) -> tuple[Link, ...]:
         """
         Returns elements of links in order, non-egg links first, egg links
         second, while eliminating duplicates
@@ -755,7 +788,7 @@ class PackageFinder:
                     eggs.append(link)
                 else:
                     no_eggs.append(link)
-        return no_eggs + eggs
+        return tuple(no_eggs) + tuple(eggs)
 
     def _log_skipped_link(self, link: Link, result: LinkType, detail: str) -> None:
         entry = (link, result, detail)
@@ -786,7 +819,7 @@ class PackageFinder:
         except InvalidVersion:
             return None
 
-    def evaluate_links(
+    def _evaluate_links(
         self, link_evaluator: LinkEvaluator, links: Iterable[Link]
     ) -> list[InstallationCandidate]:
         """
@@ -814,14 +847,25 @@ class PackageFinder:
         page_links = list(parse_links(index_response))
 
         with indent_log():
-            package_links = self.evaluate_links(
+            package_links = self._evaluate_links(
                 link_evaluator,
                 links=page_links,
             )
 
         return package_links
 
+    @functools.cached_property
+    def _all_candidates(self) -> dict[str, list[InstallationCandidate]]:
+        return {}
+
     def find_all_candidates(self, project_name: str) -> list[InstallationCandidate]:
+        if (result := self._all_candidates.get(project_name)) is not None:
+            return result
+        new_result = self._do_find_all_candidates(project_name)
+        self._all_candidates[project_name] = new_result
+        return new_result
+
+    def _do_find_all_candidates(self, project_name: str) -> list[InstallationCandidate]:
         """Find all available InstallationCandidate for project_name
 
         This checks index_urls and find_links.
@@ -830,9 +874,6 @@ class PackageFinder:
         See LinkEvaluator.evaluate_link() for details on which files
         are accepted.
         """
-        if project_name in self._all_candidates:
-            return self._all_candidates[project_name]
-
         link_evaluator = self.make_link_evaluator(project_name)
 
         collected_sources = self._link_collector.collect_sources(
@@ -857,7 +898,7 @@ class PackageFinder:
             for source in sources
             if source is not None
         )
-        file_candidates = self.evaluate_links(
+        file_candidates = self._evaluate_links(
             link_evaluator,
             sorted(file_links_it, reverse=True),
         )
@@ -874,9 +915,7 @@ class PackageFinder:
             logger.debug("Local files found: %s", ", ".join(paths))
 
         # This is an intentional priority ordering
-        self._all_candidates[project_name] = file_candidates + page_candidates
-
-        return self._all_candidates[project_name]
+        return file_candidates + page_candidates
 
     def make_candidate_evaluator(
         self,
@@ -895,7 +934,31 @@ class PackageFinder:
             hashes=hashes,
         )
 
+    @functools.cached_property
+    def _best_candidates(
+        self,
+    ) -> defaultdict[
+        str,
+        dict[
+            tuple[specifiers.BaseSpecifier | None, Hashes | None], BestCandidateResult
+        ],
+    ]:
+        return defaultdict(dict)
+
     def find_best_candidate(
+        self,
+        project_name: str,
+        specifier: specifiers.BaseSpecifier | None = None,
+        hashes: Hashes | None = None,
+    ) -> BestCandidateResult:
+        sub_cache = self._best_candidates[project_name]
+        if (result := sub_cache.get((specifier, hashes))) is not None:
+            return result
+        new_result = self._do_find_best_candidate(project_name, specifier, hashes)
+        sub_cache[(specifier, hashes)] = new_result
+        return new_result
+
+    def _do_find_best_candidate(
         self,
         project_name: str,
         specifier: specifiers.BaseSpecifier | None = None,
@@ -909,20 +972,13 @@ class PackageFinder:
 
         :return: A `BestCandidateResult` instance.
         """
-        if (project_name, specifier, hashes) in self._best_candidates:
-            return self._best_candidates[project_name, specifier, hashes]
-
         candidates = self.find_all_candidates(project_name)
         candidate_evaluator = self.make_candidate_evaluator(
             project_name=project_name,
             specifier=specifier,
             hashes=hashes,
         )
-        self._best_candidates[project_name, specifier, hashes] = (
-            candidate_evaluator.compute_best_candidate(candidates)
-        )
-
-        return self._best_candidates[project_name, specifier, hashes]
+        return candidate_evaluator.compute_best_candidate(candidates)
 
     def find_requirement(
         self, req: InstallRequirement, upgrade: bool
@@ -1013,47 +1069,3 @@ class PackageFinder:
             _format_versions(best_candidate_result.applicable_candidates),
         )
         raise BestVersionAlreadyInstalled
-
-
-def _find_name_version_sep(fragment: str, canonical_name: str) -> int:
-    """Find the separator's index based on the package's canonical name.
-
-    :param fragment: A <package>+<version> filename "fragment" (stem) or
-        egg fragment.
-    :param canonical_name: The package's canonical name.
-
-    This function is needed since the canonicalized name does not necessarily
-    have the same length as the egg info's name part. An example::
-
-    >>> fragment = 'foo__bar-1.0'
-    >>> canonical_name = 'foo-bar'
-    >>> _find_name_version_sep(fragment, canonical_name)
-    8
-    """
-    # Project name and version must be separated by one single dash. Find all
-    # occurrences of dashes; if the string in front of it matches the canonical
-    # name, this is the one separating the name and version parts.
-    for i, c in enumerate(fragment):
-        if c != "-":
-            continue
-        if canonicalize_name(fragment[:i]) == canonical_name:
-            return i
-    raise ValueError(f"{fragment} does not match {canonical_name}")
-
-
-def _extract_version_from_fragment(fragment: str, canonical_name: str) -> str | None:
-    """Parse the version string from a <package>+<version> filename
-    "fragment" (stem) or egg fragment.
-
-    :param fragment: The string to parse. E.g. foo-2.1
-    :param canonical_name: The canonicalized name of the package this
-        belongs to.
-    """
-    try:
-        version_start = _find_name_version_sep(fragment, canonical_name) + 1
-    except ValueError:
-        return None
-    version = fragment[version_start:]
-    if not version:
-        return None
-    return version

@@ -30,7 +30,7 @@ from pip._internal.index.package_finder import PackageFinder
 from pip._internal.metadata import BaseDistribution, get_metadata_distribution
 from pip._internal.models.direct_url import ArchiveInfo
 from pip._internal.models.link import Link
-from pip._internal.models.wheel import Wheel
+from pip._internal.models.wheel import WheelInfo
 from pip._internal.network.download import Downloader
 from pip._internal.network.lazy_wheel import (
     HTTPRangeRequestUnsupported,
@@ -443,7 +443,7 @@ class RequirementPreparer:
             )
             return None
 
-        wheel = Wheel(link.filename)
+        wheel = WheelInfo.parse_filename(link.filename)
         name = canonicalize_name(wheel.name)
         logger.info(
             "Obtaining dependency information from %s %s",
@@ -502,6 +502,7 @@ class RequirementPreparer:
         self, req: InstallRequirement, parallel_builds: bool = False
     ) -> BaseDistribution:
         """Prepare a requirement to be obtained from req.link."""
+        # TODO: optimize here!
         assert req.link
         self._log_preparing_link(req)
         with indent_log():

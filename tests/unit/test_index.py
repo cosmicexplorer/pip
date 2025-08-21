@@ -6,20 +6,18 @@ import pytest
 
 from pip._vendor.packaging.specifiers import SpecifierSet
 from pip._vendor.packaging.tags import Tag
+from pip._vendor.packaging.utils import canonicalize_name
 
 from pip._internal.index.collector import LinkCollector
 from pip._internal.index.package_finder import (
     CandidateEvaluator,
     CandidatePreferences,
-    FormatControl,
     LinkEvaluator,
     LinkType,
     PackageFinder,
-    _check_link_requires_python,
-    _extract_version_from_fragment,
-    _find_name_version_sep,
     filter_unallowed_hashes,
 )
+from pip._internal.models.format_control import AllowedFormats, FormatControlBuilder
 from pip._internal.models.link import Link
 from pip._internal.models.search_scope import SearchScope
 from pip._internal.models.selection_prefs import SelectionPreferences
@@ -27,6 +25,7 @@ from pip._internal.models.target_python import TargetPython
 from pip._internal.network.session import PipSession
 from pip._internal.utils.compatibility_tags import get_supported
 from pip._internal.utils.hashes import Hashes
+from pip._internal.utils.predicates import FragmentMatcher
 
 from tests.lib import CURRENT_PY_VERSION_INFO
 from tests.lib.index import make_mock_candidate
@@ -42,9 +41,9 @@ from tests.lib.index import make_mock_candidate
     ],
 )
 def test_check_link_requires_python(requires_python: str, expected: bool) -> None:
-    version_info = (3, 6, 5)
+    target = TargetPython(py_version_info=(3, 6, 5))
     link = Link("https://example.com", requires_python=requires_python)
-    actual = _check_link_requires_python(link, version_info)
+    actual, _ = LinkEvaluator._requires_python_is_compatible(target, False, link)
     assert actual == expected
 
 
@@ -91,10 +90,9 @@ def test_check_link_requires_python__incompatible_python(
     expected_return, expected_level, expected_message = expected
     link = Link("https://example.com", requires_python="== 3.6.4")
     caplog.set_level(logging.DEBUG)
-    actual = _check_link_requires_python(
-        link,
-        version_info=(3, 6, 5),
-        ignore_requires_python=ignore_requires_python,
+    target = TargetPython(py_version_info=(3, 6, 5))
+    actual, _ = LinkEvaluator._requires_python_is_compatible(
+        target, ignore_requires_python, link
     )
     assert actual == expected_return
 
@@ -109,7 +107,8 @@ def test_check_link_requires_python__invalid_requires(
     """
     link = Link("https://example.com", requires_python="invalid")
     caplog.set_level(logging.DEBUG)
-    actual = _check_link_requires_python(link, version_info=(3, 6, 5))
+    target = TargetPython(py_version_info=(3, 6, 5))
+    actual, _ = LinkEvaluator._requires_python_is_compatible(target, False, link)
     assert actual
 
     expected_message = (
@@ -154,8 +153,7 @@ class TestLinkEvaluator:
         target_python = TargetPython(py_version_info=py_version_info)
         evaluator = LinkEvaluator(
             project_name="twine",
-            canonical_name="twine",
-            formats=frozenset(["source"]),
+            formats=AllowedFormats.SourceOnly,
             target_python=target_python,
             allow_yanked=True,
             ignore_requires_python=ignore_requires_python,
@@ -205,8 +203,7 @@ class TestLinkEvaluator:
         target_python = TargetPython(py_version_info=(3, 6, 4))
         evaluator = LinkEvaluator(
             project_name="twine",
-            canonical_name="twine",
-            formats=frozenset(["source"]),
+            formats=AllowedFormats.SourceOnly,
             target_python=target_python,
             allow_yanked=allow_yanked,
         )
@@ -222,12 +219,11 @@ class TestLinkEvaluator:
         Test an incompatible wheel.
         """
         target_python = TargetPython(py_version_info=(3, 6, 4))
-        # Set the valid tags to an empty list to make sure nothing matches.
-        target_python._valid_tags = []
+        # Set the valid tags to an empty tuple to make sure nothing matches.
+        target_python.__dict__["sorted_tags"] = ()
         evaluator = LinkEvaluator(
             project_name="sample",
-            canonical_name="sample",
-            formats=frozenset(["binary"]),
+            formats=AllowedFormats.BinaryOnly,
             target_python=target_python,
             allow_yanked=True,
         )
@@ -376,7 +372,7 @@ class TestCandidateEvaluator:
     )
     def test_create(self, allow_all_prereleases: bool, prefer_binary: bool) -> None:
         target_python = TargetPython()
-        target_python._valid_tags = [Tag("py36", "none", "any")]
+        target_python.__dict__["sorted_tags"] = (Tag("py36", "none", "any"),)
         specifier = SpecifierSet()
         evaluator = CandidateEvaluator.create(
             project_name="my-project",
@@ -388,7 +384,7 @@ class TestCandidateEvaluator:
         assert evaluator._allow_all_prereleases == allow_all_prereleases
         assert evaluator._prefer_binary == prefer_binary
         assert evaluator._specifier is specifier
-        assert evaluator._supported_tags == [Tag("py36", "none", "any")]
+        assert evaluator._supported_tags == (Tag("py36", "none", "any"),)
 
     def test_create__target_python_none(self) -> None:
         """
@@ -409,7 +405,7 @@ class TestCandidateEvaluator:
     def test_get_applicable_candidates(self) -> None:
         specifier = SpecifierSet("<= 1.11")
         versions = ["1.10", "1.11", "1.12"]
-        candidates = [make_mock_candidate(version) for version in versions]
+        candidates = tuple(make_mock_candidate(version) for version in versions)
         evaluator = CandidateEvaluator.create(
             "my-project",
             specifier=specifier,
@@ -461,7 +457,7 @@ class TestCandidateEvaluator:
     def test_compute_best_candidate(self) -> None:
         specifier = SpecifierSet("<= 1.11")
         versions = ["1.10", "1.11", "1.12"]
-        candidates = [make_mock_candidate(version) for version in versions]
+        candidates = tuple(make_mock_candidate(version) for version in versions)
         evaluator = CandidateEvaluator.create(
             "my-project",
             specifier=specifier,
@@ -484,7 +480,7 @@ class TestCandidateEvaluator:
         """
         specifier = SpecifierSet("<= 1.10")
         versions = ["1.11", "1.12"]
-        candidates = [make_mock_candidate(version) for version in versions]
+        candidates = tuple(make_mock_candidate(version) for version in versions)
         evaluator = CandidateEvaluator.create(
             "my-project",
             specifier=specifier,
@@ -492,7 +488,7 @@ class TestCandidateEvaluator:
         result = evaluator.compute_best_candidate(candidates)
 
         assert result.all_candidates == candidates
-        assert result.applicable_candidates == []
+        assert result.applicable_candidates == ()
         assert result.best_candidate is None
 
     @pytest.mark.parametrize(
@@ -548,8 +544,8 @@ class TestCandidateEvaluator:
         Test passing an empty list.
         """
         evaluator = CandidateEvaluator.create("my-project")
-        actual = evaluator.sort_best_candidate([])
-        assert actual is None
+        actual = evaluator.get_applicable_candidates([])
+        assert len(actual) == 0
 
     def test_sort_best_candidate__best_yanked_but_not_all(
         self,
@@ -568,7 +564,7 @@ class TestCandidateEvaluator:
         ]
         expected_best = candidates[1]
         evaluator = CandidateEvaluator.create("my-project")
-        actual = evaluator.sort_best_candidate(candidates)
+        actual = evaluator.get_applicable_candidates(candidates)[-1]
         assert actual is expected_best
         assert str(actual.version) == "2.0"
 
@@ -707,7 +703,7 @@ class TestPackageFinder:
             session=PipSession(),
             search_scope=SearchScope([], [], False),
         )
-        format_control = FormatControl(set(), {":all:"})
+        format_control = FormatControlBuilder(set(), {":all:"})
         selection_prefs = SelectionPreferences(
             allow_yanked=True,
             format_control=format_control,
@@ -717,20 +713,20 @@ class TestPackageFinder:
             selection_prefs=selection_prefs,
         )
         actual_format_control = finder.format_control
-        assert actual_format_control is format_control
+        assert actual_format_control == format_control.build()
         # Check that the attributes weren't reset.
-        assert actual_format_control.only_binary == {":all:"}
+        assert actual_format_control.default_binary
 
     @pytest.mark.parametrize(
         "allow_yanked, ignore_requires_python, only_binary, expected_formats",
         [
-            (False, False, {}, frozenset({"binary", "source"})),
+            (False, False, {}, AllowedFormats.AnyFormat),
             # Test allow_yanked=True.
-            (True, False, {}, frozenset({"binary", "source"})),
+            (True, False, {}, AllowedFormats.AnyFormat),
             # Test ignore_requires_python=True.
-            (False, True, {}, frozenset({"binary", "source"})),
+            (False, True, {}, AllowedFormats.AnyFormat),
             # Test a non-trivial only_binary.
-            (False, False, {"twine"}, frozenset({"binary"})),
+            (False, False, {"twine"}, AllowedFormats.BinaryOnly),
         ],
     )
     def test_make_link_evaluator(
@@ -738,11 +734,11 @@ class TestPackageFinder:
         allow_yanked: bool,
         ignore_requires_python: bool,
         only_binary: set[str],
-        expected_formats: frozenset[str],
+        expected_formats: AllowedFormats,
     ) -> None:
         # Create a test TargetPython that we can check for.
         target_python = TargetPython(py_version_info=(3, 7))
-        format_control = FormatControl(set(), only_binary)
+        format_control = FormatControlBuilder(set(), only_binary)
 
         link_collector = LinkCollector(
             session=PipSession(),
@@ -762,12 +758,12 @@ class TestPackageFinder:
 
         assert link_evaluator.project_name == "Twine"
         assert link_evaluator._canonical_name == "twine"
-        assert link_evaluator._allow_yanked == allow_yanked
-        assert link_evaluator._ignore_requires_python == ignore_requires_python
-        assert link_evaluator._formats == expected_formats
+        assert link_evaluator.allow_yanked == allow_yanked
+        assert link_evaluator.ignore_requires_python == ignore_requires_python
+        assert link_evaluator.formats == expected_formats
 
         # Test the _target_python attribute.
-        actual_target_python = link_evaluator._target_python
+        actual_target_python = link_evaluator.target_python
         # The target_python attribute should be set as is.
         assert actual_target_python is target_python
         # For good measure, check that the attributes weren't reset.
@@ -789,7 +785,7 @@ class TestPackageFinder:
         prefer_binary: bool,
     ) -> None:
         target_python = TargetPython()
-        target_python._valid_tags = [Tag("py36", "none", "any")]
+        target_python.__dict__["sorted_tags"] = (Tag("py36", "none", "any"),)
         candidate_prefs = CandidatePreferences(
             prefer_binary=prefer_binary,
             allow_all_prereleases=allow_all_prereleases,
@@ -818,7 +814,7 @@ class TestPackageFinder:
         assert evaluator._prefer_binary == prefer_binary
         assert evaluator._project_name == "my-project"
         assert evaluator._specifier is specifier
-        assert evaluator._supported_tags == [Tag("py36", "none", "any")]
+        assert evaluator._supported_tags == (Tag("py36", "none", "any"),)
 
 
 @pytest.mark.parametrize(
@@ -849,7 +845,8 @@ class TestPackageFinder:
 def test_find_name_version_sep(
     fragment: str, canonical_name: str, expected: int
 ) -> None:
-    index = _find_name_version_sep(fragment, canonical_name)
+    parser = FragmentMatcher(canonicalize_name(canonical_name))
+    index = parser.find_name_version_sep(fragment)
     assert index == expected
 
 
@@ -864,10 +861,8 @@ def test_find_name_version_sep(
     ],
 )
 def test_find_name_version_sep_failure(fragment: str, canonical_name: str) -> None:
-    with pytest.raises(ValueError) as ctx:
-        _find_name_version_sep(fragment, canonical_name)
-    message = f"{fragment} does not match {canonical_name}"
-    assert str(ctx.value) == message
+    parser = FragmentMatcher(canonicalize_name(canonical_name))
+    assert parser.find_name_version_sep(fragment) is None
 
 
 @pytest.mark.parametrize(
@@ -902,5 +897,6 @@ def test_find_name_version_sep_failure(fragment: str, canonical_name: str) -> No
 def test_extract_version_from_fragment(
     fragment: str, canonical_name: str, expected: str | None
 ) -> None:
-    version = _extract_version_from_fragment(fragment, canonical_name)
+    parser = FragmentMatcher(canonicalize_name(canonical_name))
+    version = parser.extract_version_from_fragment(fragment)
     assert version == expected

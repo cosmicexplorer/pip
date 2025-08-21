@@ -6,6 +6,7 @@ import hashlib
 import json
 import logging
 import os
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -15,7 +16,7 @@ from pip._vendor.packaging.utils import canonicalize_name
 from pip._internal.exceptions import InvalidWheelFilename
 from pip._internal.models.direct_url import DirectUrl
 from pip._internal.models.link import Link
-from pip._internal.models.wheel import Wheel
+from pip._internal.models.wheel import WheelInfo
 from pip._internal.utils.temp_dir import TempDirectory, tempdir_kinds
 from pip._internal.utils.urls import path_to_url
 
@@ -92,7 +93,7 @@ class Cache:
         self,
         link: Link,
         package_name: str | None,
-        supported_tags: list[Tag],
+        supported_tags: Iterable[Tag],
     ) -> Link:
         """Returns a link to a cached item if it exists, otherwise returns the
         passed link.
@@ -130,7 +131,7 @@ class SimpleWheelCache(Cache):
         self,
         link: Link,
         package_name: str | None,
-        supported_tags: list[Tag],
+        supported_tags: Iterable[Tag],
     ) -> Link:
         candidates = []
 
@@ -140,7 +141,7 @@ class SimpleWheelCache(Cache):
         canonical_package_name = canonicalize_name(package_name)
         for wheel_name, wheel_dir in self._get_candidates(link, canonical_package_name):
             try:
-                wheel = Wheel(wheel_name)
+                wheel = WheelInfo.parse_filename(wheel_name)
             except InvalidWheelFilename:
                 continue
             if canonicalize_name(wheel.name) != canonical_package_name:
@@ -228,7 +229,7 @@ class WheelCache(Cache):
         self,
         link: Link,
         package_name: str | None,
-        supported_tags: list[Tag],
+        supported_tags: Iterable[Tag],
     ) -> Link:
         cache_entry = self.get_cache_entry(link, package_name, supported_tags)
         if cache_entry is None:
@@ -239,7 +240,7 @@ class WheelCache(Cache):
         self,
         link: Link,
         package_name: str | None,
-        supported_tags: list[Tag],
+        supported_tags: Iterable[Tag],
     ) -> CacheEntry | None:
         """Returns a CacheEntry with a link to a cached item if it exists or
         None. The cache entry indicates if the item was found in the persistent

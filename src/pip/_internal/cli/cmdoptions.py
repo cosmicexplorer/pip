@@ -26,7 +26,7 @@ from pip._vendor.packaging.utils import canonicalize_name
 from pip._internal.cli.parser import ConfigOptionParser
 from pip._internal.exceptions import CommandError
 from pip._internal.locations import USER_CACHE_DIR, get_src_prefix
-from pip._internal.models.format_control import FormatControl
+from pip._internal.models.format_control import FormatControlBuilder
 from pip._internal.models.index import PyPI
 from pip._internal.models.target_python import TargetPython
 from pip._internal.utils.hashes import STRONG_HASHES
@@ -76,7 +76,7 @@ def check_dist_restriction(options: Values, check_target: bool = False) -> None:
         ]
     )
 
-    binary_only = FormatControl(set(), {":all:"})
+    binary_only = FormatControlBuilder(set(), {":all:"})
     sdist_dependencies_allowed = (
         options.format_control != binary_only and not options.ignore_dependencies
     )
@@ -490,7 +490,7 @@ def _handle_no_binary(
     option: Option, opt_str: str, value: str, parser: OptionParser
 ) -> None:
     existing = _get_format_control(parser.values, option)
-    FormatControl.handle_mutual_excludes(
+    FormatControlBuilder.handle_mutual_excludes(
         value,
         existing.no_binary,
         existing.only_binary,
@@ -501,7 +501,7 @@ def _handle_only_binary(
     option: Option, opt_str: str, value: str, parser: OptionParser
 ) -> None:
     existing = _get_format_control(parser.values, option)
-    FormatControl.handle_mutual_excludes(
+    FormatControlBuilder.handle_mutual_excludes(
         value,
         existing.only_binary,
         existing.no_binary,
@@ -509,7 +509,7 @@ def _handle_only_binary(
 
 
 def no_binary() -> Option:
-    format_control = FormatControl(set(), set())
+    format_control = FormatControlBuilder(set(), set())
     return Option(
         "--no-binary",
         dest="format_control",
@@ -527,7 +527,7 @@ def no_binary() -> Option:
 
 
 def only_binary() -> Option:
-    format_control = FormatControl(set(), set())
+    format_control = FormatControlBuilder(set(), set())
     return Option(
         "--only-binary",
         dest="format_control",
