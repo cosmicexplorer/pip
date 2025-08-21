@@ -16,22 +16,24 @@ import os
 import re
 from collections.abc import Collection
 from dataclasses import dataclass
+from typing import ClassVar
 
-from pip._vendor.packaging.markers import Marker
-from pip._vendor.packaging.requirements import InvalidRequirement, Requirement
-from pip._vendor.packaging.specifiers import Specifier
+from pip._vendor.packaging.requirements import InvalidRequirement
 
 from pip._internal.exceptions import InstallationError
 from pip._internal.models.index import PyPI, TestPyPI
 from pip._internal.models.link import Link
-from pip._internal.models.wheel import Wheel
+from pip._internal.models.wheel import WheelInfo
 from pip._internal.req.req_file import ParsedRequirement
 from pip._internal.req.req_install import InstallRequirement
-from pip._internal.utils.filetypes import is_archive_file
+from pip._internal.utils.filetypes import FileExtensions
 from pip._internal.utils.misc import is_installable_dir
-from pip._internal.utils.packaging import get_requirement
-from pip._internal.utils.urls import path_to_url
-from pip._internal.vcs import is_url, vcs
+from pip._internal.utils.packaging.markers import Marker
+from pip._internal.utils.packaging.requirements import Requirement
+from pip._internal.utils.packaging.specifiers import Operator
+from pip._internal.utils.packaging_utils import get_requirement
+from pip._internal.utils.urls import ParsedUrl, coerce_file_uri_to_path, path_to_url
+from pip._internal.vcs import has_vcs_url_scheme, vcs
 
 __all__ = [
     "install_req_from_editable",
@@ -40,7 +42,6 @@ __all__ = [
 ]
 
 logger = logging.getLogger(__name__)
-operators = Specifier._operators.keys()
 
 
 def _strip_extras(path: str) -> tuple[str, str | None]:
@@ -55,10 +56,11 @@ def _strip_extras(path: str) -> tuple[str, str | None]:
     return path_no_extras, extras
 
 
-def convert_extras(extras: str | None) -> set[str]:
+# TODO: what is "placeholder" and why does it work?
+def convert_extras(extras: str | None) -> frozenset[str]:
     if not extras:
-        return set()
-    return get_requirement("placeholder" + extras.lower()).extras
+        return frozenset()
+    return frozenset(get_requirement("placeholder" + extras.lower()).extras)
 
 
 def _set_requirement_extras(req: Requirement, new_extras: set[str]) -> Requirement:
@@ -86,7 +88,7 @@ def _set_requirement_extras(req: Requirement, new_extras: set[str]) -> Requireme
     return get_requirement(f"{pre}{extras}{post}")
 
 
-def parse_editable(editable_req: str) -> tuple[str | None, str, set[str]]:
+def parse_editable(editable_req: str) -> tuple[Link, frozenset[str]]:
     """Parses an editable requirement into:
         - a requirement name
         - an URL
@@ -97,48 +99,33 @@ def parse_editable(editable_req: str) -> tuple[str | None, str, set[str]]:
         .[some_extra]
     """
 
-    url = editable_req
-
     # If a file path is specified with extras, strip off the extras.
-    url_no_extras, extras = _strip_extras(url)
+    url_no_extras, extras = _strip_extras(editable_req)
 
+    parsed_url = None
+    url_no_extras = coerce_file_uri_to_path(url_no_extras)
+    # TODO: consider _looks_like_path()????
     if os.path.isdir(url_no_extras):
         # Treating it as code that has already been checked out
-        url_no_extras = path_to_url(url_no_extras)
+        parsed_url = path_to_url(url_no_extras)
+        return Link(parsed_url), convert_extras(extras)
+    if _ResourcePathMatcher.looks_like_path(url_no_extras):
+        logger.debug(
+            "editable requirement '%s' was converted to file-like URL '%s', "
+            "but it did not point to an existing directory path",
+            editable_req,
+            url_no_extras,
+        )
 
-    if url_no_extras.lower().startswith("file:"):
-        package_name = Link(url_no_extras).egg_fragment
-        if extras:
-            return (
-                package_name,
-                url_no_extras,
-                get_requirement("placeholder" + extras.lower()).extras,
-            )
-        else:
-            return package_name, url_no_extras, set()
-
-    for version_control in vcs:
-        if url.lower().startswith(f"{version_control}:"):
-            url = f"{version_control}+{url}"
-            break
-
-    link = Link(url)
-
-    if not link.is_vcs:
+    if not has_vcs_url_scheme(url_no_extras):
         backends = ", ".join(vcs.all_schemes)
         raise InstallationError(
             f"{editable_req} is not a valid editable requirement. "
             f"It should either be a path to a local project or a VCS URL "
             f"(beginning with {backends})."
         )
-
-    package_name = link.egg_fragment
-    if not package_name:
-        raise InstallationError(
-            f"Could not detect requirement name for '{editable_req}', "
-            "please specify one with #egg=your_package_name"
-        )
-    return package_name, url, set()
+    # TODO: why no extras here? why is the egg fragment correct?
+    return Link(editable_req), frozenset()
 
 
 def check_first_requirement_in_file(filename: str) -> None:
@@ -199,12 +186,13 @@ class RequirementParts:
     requirement: Requirement | None
     link: Link | None
     markers: Marker | None
-    extras: set[str]
+    extras: frozenset[str]
 
 
 def parse_req_from_editable(editable_req: str) -> RequirementParts:
-    name, url, extras_override = parse_editable(editable_req)
+    link, extras_override = parse_editable(editable_req)
 
+    name = link.egg_fragment
     if name is not None:
         try:
             req: Requirement | None = get_requirement(name)
@@ -212,8 +200,6 @@ def parse_req_from_editable(editable_req: str) -> RequirementParts:
             raise InstallationError(f"Invalid requirement: {name!r}: {exc}")
     else:
         req = None
-
-    link = Link(url)
 
     return RequirementParts(req, link, None, extras_override)
 
@@ -253,61 +239,96 @@ def install_req_from_editable(
     )
 
 
-def _looks_like_path(name: str) -> bool:
-    """Checks whether the string "looks like" a path on the filesystem.
-
-    This does not check whether the target actually exists, only judge from the
-    appearance.
-
-    Returns true if any of the following conditions is true:
-    * a path separator is found (either os.path.sep or os.path.altsep);
-    * a dot is found (which represents the current directory).
-    """
-    if os.path.sep in name:
-        return True
-    if os.path.altsep is not None and os.path.altsep in name:
-        return True
-    if name.startswith("."):
-        return True
-    return False
-
-
-def _get_url_from_path(path: str, name: str) -> str | None:
-    """
-    First, it checks whether a provided path is an installable directory. If it
-    is, returns the path.
-
-    If false, check if the path is an archive file (such as a .whl).
-    The function checks if the path is a file. If false, if the path has
-    an @, it will treat it as a PEP 440 URL requirement and return the path.
-    """
-    if _looks_like_path(name) and os.path.isdir(path):
-        if is_installable_dir(path):
-            return path_to_url(path)
-        # TODO: The is_installable_dir test here might not be necessary
-        #       now that it is done in load_pyproject_toml too.
-        raise InstallationError(
-            f"Directory {name!r} is not installable. Neither 'setup.py' "
-            "nor 'pyproject.toml' found."
+class _ResourcePathMatcher:
+    _path_like_regex: ClassVar[re.Pattern[str]] = re.compile(
+        "|".join(
+            [
+                r"^\.",
+                re.escape(os.path.sep),
+                *([re.escape(os.path.altsep)] if os.path.altsep is not None else []),
+            ]
         )
-    if not is_archive_file(path):
-        return None
-    if os.path.isfile(path):
-        return path_to_url(path)
-    urlreq_parts = name.split("@", 1)
-    if len(urlreq_parts) >= 2 and not _looks_like_path(urlreq_parts[0]):
-        # If the path contains '@' and the part before it does not look
-        # like a path, try to treat it as a PEP 440 URL req instead.
-        return None
-    logger.warning(
-        "Requirement %r looks like a filename, but the file does not exist",
-        name,
     )
-    return path_to_url(path)
+
+    @staticmethod
+    def looks_like_path(name: str) -> bool:
+        """Checks whether the string "looks like" a path on the filesystem.
+
+        This does not check whether the target actually exists, only judge from the
+        appearance.
+
+        Returns true if any of the following conditions is true:
+        * a path separator is found (either os.path.sep or os.path.altsep);
+        * a dot is found (which represents the current directory).
+        """
+        return _ResourcePathMatcher._path_like_regex.search(name) is not None
+
+    _pep_440_url_heuristic_regex: ClassVar[re.Pattern[str]] = re.compile(
+        r"^.*(?=@)",
+        flags=re.DOTALL,
+    )
+
+    # NB: This commit 16af35c61345866d582b43abfc649a0d79b16c9c inverted all of the logic
+    #     in this method and and made it extremely difficult to follow.
+    #     See 5b93c0919912efc548caa3e71df5e8bdf9706d2d which introduces the original
+    #     version of this logic which the below implementation attempts to revert to.
+    @staticmethod
+    def get_path_or_url(path: str, name: str) -> ParsedUrl | None:
+        """
+        First, it checks whether a provided path is an installable directory. If it
+        is, returns the path.
+
+        If false, check if the path is an archive file (such as a .whl).
+        The function checks if the path is a file. If false, if the path has
+        an @, it will treat it as a PEP 440 URL requirement and return the path.
+        """
+        if _ResourcePathMatcher.looks_like_path(name) and os.path.isdir(path):
+            if not is_installable_dir(path):
+                raise InstallationError(
+                    f"Requirement string {name!r} points to a readable directory "
+                    f"at {path!r}, but that directory is not installable. "
+                    "For example, neither 'setup.py' nor 'pyproject.toml' were found."
+                )
+            return path_to_url(path)
+
+        if FileExtensions.archive_file_extension(path):
+            # The file ends in an archive-like file extension.
+
+            if os.path.isfile(path):
+                # It was a real file!
+                return path_to_url(path)
+
+            if pre_at := _ResourcePathMatcher._pep_440_url_heuristic_regex.match(name):
+                if _ResourcePathMatcher.looks_like_path(pre_at.group(0)):
+                    url_path = path_to_url(path)
+                    logger.warning(
+                        "Requirement %r looks like an archive filename "
+                        "(before the @: %r), but the file at path %r does not exist. "
+                        "Interpreting it as a url: %r.",
+                        name,
+                        pre_at,
+                        path,
+                        url_path,
+                    )
+                    return url_path
+            else:
+                url_path = path_to_url(path)
+                logger.warning(
+                    "Requirement %r looks like an archive filename, "
+                    "but the file at path %r does not exist. "
+                    "Interpreting it as a url: %r.",
+                    name,
+                    path,
+                    url_path,
+                )
+                return url_path
+
+        # No such luck!
+        return None
 
 
 def parse_req_from_line(name: str, line_source: str | None) -> RequirementParts:
-    if is_url(name):
+    if has_vcs_url_scheme(name):
         marker_sep = "; "
     else:
         marker_sep = ";"
@@ -317,31 +338,34 @@ def parse_req_from_line(name: str, line_source: str | None) -> RequirementParts:
         if not markers_as_string:
             markers = None
         else:
-            markers = Marker(markers_as_string)
+            markers = Marker.parse(markers_as_string)
     else:
         markers = None
     name = name.strip()
     req_as_string = None
-    path = os.path.normpath(os.path.abspath(name))
     link = None
     extras_as_string = None
 
-    if is_url(name):
+    if has_vcs_url_scheme(name):
+        name, extras_as_string = _strip_extras(name)
         link = Link(name)
     else:
-        p, extras_as_string = _strip_extras(path)
-        url = _get_url_from_path(p, name)
+        p, extras_as_string = _strip_extras(name)
+        url = _ResourcePathMatcher.get_path_or_url(p, name)
         if url is not None:
             link = Link(url)
 
     # it's a local file, dir, or url
     if link:
         # Handle relative file URLs
+        # FIXME: optimize the reparsing here too!
         if link.scheme == "file" and re.search(r"\.\./", link.url):
-            link = Link(path_to_url(os.path.normpath(os.path.abspath(link.path))))
+            link = Link(path_to_url(link.path))
         # wheel file
         if link.is_wheel:
-            wheel = Wheel(link.filename)  # can raise InvalidWheelFilename
+            wheel = WheelInfo.parse_filename(
+                link.filename
+            )  # can raise InvalidWheelFilename
             req_as_string = f"{wheel.name}=={wheel.version}"
         else:
             # set the req to the egg fragment.  when it's not there, this
@@ -367,7 +391,7 @@ def parse_req_from_line(name: str, line_source: str | None) -> RequirementParts:
                 add_msg = "It looks like a path."
                 add_msg += deduce_helpful_msg(req_as_string)
             elif "=" in req_as_string and not any(
-                op in req_as_string for op in operators
+                op.value in req_as_string for op in Operator
             ):
                 add_msg = "= is not a valid operator. Did you mean == ?"
             else:

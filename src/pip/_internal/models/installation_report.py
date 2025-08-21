@@ -1,10 +1,9 @@
 from collections.abc import Sequence
 from typing import Any
 
-from pip._vendor.packaging.markers import default_environment
-
 from pip import __version__
 from pip._internal.req.req_install import InstallRequirement
+from pip._internal.utils.packaging.markers import EnvConfigure
 
 
 class InstallationReport:
@@ -53,5 +52,5 @@ class InstallationReport:
             # should also take into account options such as --python-version or
             # --platform, perhaps under the form of an environment_override field?
             # https://github.com/pypa/pip/issues/11198
-            "environment": default_environment(),
+            "environment": EnvConfigure.json_safe(EnvConfigure.default()),
         }

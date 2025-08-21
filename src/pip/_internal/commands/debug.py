@@ -114,10 +114,10 @@ def show_tags(options: Values) -> None:
     tag_limit = 10
 
     target_python = make_target_python(options)
-    tags = target_python.get_sorted_tags()
+    tags = target_python.sorted_tags
 
     # Display the target options that were explicitly provided.
-    formatted_target = target_python.format_given()
+    formatted_target = target_python.format_given
     suffix = ""
     if formatted_target:
         suffix = f" (target: {formatted_target})"

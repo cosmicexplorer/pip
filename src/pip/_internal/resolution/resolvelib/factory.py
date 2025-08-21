@@ -14,9 +14,8 @@ from typing import (
 )
 
 from pip._vendor.packaging.requirements import InvalidRequirement
-from pip._vendor.packaging.specifiers import SpecifierSet
 from pip._vendor.packaging.utils import NormalizedName, canonicalize_name
-from pip._vendor.packaging.version import InvalidVersion, Version
+from pip._vendor.packaging.version import InvalidVersion
 from pip._vendor.resolvelib import ResolutionImpossible
 
 from pip._internal.cache import CacheEntry, WheelCache
@@ -32,7 +31,8 @@ from pip._internal.exceptions import (
 from pip._internal.index.package_finder import PackageFinder
 from pip._internal.metadata import BaseDistribution, get_default_environment
 from pip._internal.models.link import Link
-from pip._internal.models.wheel import Wheel
+from pip._internal.models.target_python import TargetPython
+from pip._internal.models.wheel import WheelInfo
 from pip._internal.operations.prepare import RequirementPreparer
 from pip._internal.req.constructors import (
     install_req_drop_extras,
@@ -43,9 +43,10 @@ from pip._internal.req.req_install import (
     check_invalid_constraint_type,
 )
 from pip._internal.resolution.base import InstallRequirementProvider
-from pip._internal.utils.compatibility_tags import get_supported
 from pip._internal.utils.hashes import Hashes
-from pip._internal.utils.packaging import get_requirement
+from pip._internal.utils.packaging.specifiers import Operator, SpecifierSet
+from pip._internal.utils.packaging.version import ParsedVersion
+from pip._internal.utils.packaging_utils import get_requirement
 from pip._internal.utils.virtualenv import running_under_virtualenv
 
 from .base import Candidate, Constraint, Requirement
@@ -115,7 +116,6 @@ class Factory:
         self._extras_candidate_cache: dict[
             tuple[int, frozenset[NormalizedName]], ExtrasCandidate
         ] = {}
-        self._supported_tags_cache = get_supported()
 
         if not ignore_installed:
             env = get_default_environment()
@@ -126,6 +126,10 @@ class Factory:
         else:
             self._installed_dists = {}
 
+    @functools.cached_property
+    def _target_python(self) -> TargetPython:
+        return TargetPython.create()
+
     @property
     def force_reinstall(self) -> bool:
         return self._force_reinstall
@@ -133,8 +137,8 @@ class Factory:
     def _fail_if_link_is_unsupported_wheel(self, link: Link) -> None:
         if not link.is_wheel:
             return
-        wheel = Wheel(link.filename)
-        if wheel.supported(self._finder.target_python.get_unsorted_tags()):
+        wheel = WheelInfo.parse_filename(link.filename)
+        if wheel.supported(self._finder.target_python):
             return
         msg = f"{link.filename} is not a supported wheel on this platform."
         raise UnsupportedWheel(msg)
@@ -175,7 +179,7 @@ class Factory:
         extras: frozenset[str],
         template: InstallRequirement,
         name: NormalizedName | None,
-        version: Version | None,
+        version: ParsedVersion | None,
     ) -> Candidate | None:
         base: BaseCandidate | None = self._make_base_candidate_from_link(
             link, template, name, version
@@ -189,7 +193,7 @@ class Factory:
         link: Link,
         template: InstallRequirement,
         name: NormalizedName | None,
-        version: Version | None,
+        version: ParsedVersion | None,
     ) -> BaseCandidate | None:
         # TODO: Check already installed candidate, and use it if the link and
         # editable flag match.
@@ -311,11 +315,11 @@ class Factory:
 
             def is_pinned(specifier: SpecifierSet) -> bool:
                 for sp in specifier:
-                    if sp.operator == "===":
+                    if sp.operator == Operator.ARBITRARY:
                         return True
-                    if sp.operator != "==":
+                    if sp.operator != Operator.EQUAL:
                         continue
-                    if sp.version.endswith(".*"):
+                    if sp.trailing_dot_star:
                         continue
                     return True
                 return False
@@ -606,7 +610,7 @@ class Factory:
         return self._wheel_cache.get_cache_entry(
             link=link,
             package_name=name,
-            supported_tags=self._supported_tags_cache,
+            py=self._target_python,
         )
 
     def get_dist_to_uninstall(self, candidate: Candidate) -> BaseDistribution | None:
@@ -670,8 +674,8 @@ class Factory:
         cands = self._finder.find_all_candidates(req.project_name)
         skipped_by_requires_python = self._finder.requires_python_skipped_reasons()
 
-        versions_set: set[Version] = set()
-        yanked_versions_set: set[Version] = set()
+        versions_set: set[ParsedVersion] = set()
+        yanked_versions_set: set[ParsedVersion] = set()
         for c in cands:
             is_yanked = c.link.is_yanked if c.link else False
             if is_yanked:
@@ -693,7 +697,7 @@ class Factory:
             logger.critical(
                 "Ignored the following versions that require a different python "
                 "version: %s",
-                "; ".join(skipped_by_requires_python) or "none",
+                skipped_by_requires_python,
             )
         logger.critical(
             "Could not find a version that satisfies the requirement %s "

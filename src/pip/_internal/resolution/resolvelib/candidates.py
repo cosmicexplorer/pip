@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, Any, Union, cast
 
 from pip._vendor.packaging.requirements import InvalidRequirement
 from pip._vendor.packaging.utils import NormalizedName, canonicalize_name
-from pip._vendor.packaging.version import Version
 
 from pip._internal.exceptions import (
     HashError,
@@ -18,7 +17,7 @@ from pip._internal.exceptions import (
 )
 from pip._internal.metadata import BaseDistribution
 from pip._internal.models.link import Link, links_equivalent
-from pip._internal.models.wheel import Wheel
+from pip._internal.models.wheel import WheelInfo
 from pip._internal.req.constructors import (
     install_req_from_editable,
     install_req_from_line,
@@ -26,6 +25,7 @@ from pip._internal.req.constructors import (
 from pip._internal.req.req_install import InstallRequirement
 from pip._internal.utils.direct_url_helpers import direct_url_from_link
 from pip._internal.utils.misc import normalize_version_info
+from pip._internal.utils.packaging.version import ParsedVersion
 
 from .base import Candidate, Requirement, format_name
 
@@ -151,7 +151,7 @@ class _InstallRequirementBackedCandidate(Candidate):
         ireq: InstallRequirement,
         factory: Factory,
         name: NormalizedName | None = None,
-        version: Version | None = None,
+        version: ParsedVersion | None = None,
     ) -> None:
         self._link = link
         self._source_link = source_link
@@ -196,7 +196,7 @@ class _InstallRequirementBackedCandidate(Candidate):
         return self.project_name
 
     @property
-    def version(self) -> Version:
+    def version(self) -> ParsedVersion:
         if self._version is None:
             self._version = self.dist.version
         return self._version
@@ -272,7 +272,7 @@ class LinkCandidate(_InstallRequirementBackedCandidate):
         template: InstallRequirement,
         factory: Factory,
         name: NormalizedName | None = None,
-        version: Version | None = None,
+        version: ParsedVersion | None = None,
     ) -> None:
         source_link = link
         cache_entry = factory.get_wheel_cache_entry(source_link, name)
@@ -282,12 +282,13 @@ class LinkCandidate(_InstallRequirementBackedCandidate):
         ireq = make_install_req_from_link(link, template)
         assert ireq.link == link
         if ireq.link.is_wheel and not ireq.link.is_file:
-            wheel = Wheel(ireq.link.filename)
+            # TODO: optimize this!
+            wheel = WheelInfo.parse_filename(ireq.link.filename)
             wheel_name = canonicalize_name(wheel.name)
             assert name == wheel_name, f"{name!r} != {wheel_name!r} for wheel"
             # Version may not be present for PEP 508 direct URLs
             if version is not None:
-                wheel_version = Version(wheel.version)
+                wheel_version = ParsedVersion.parse(wheel.version)
                 assert (
                     version == wheel_version
                 ), f"{version!r} != {wheel_version!r} for wheel {name}"
@@ -329,7 +330,7 @@ class EditableCandidate(_InstallRequirementBackedCandidate):
         template: InstallRequirement,
         factory: Factory,
         name: NormalizedName | None = None,
-        version: Version | None = None,
+        version: ParsedVersion | None = None,
     ) -> None:
         super().__init__(
             link=link,
@@ -389,7 +390,7 @@ class AlreadyInstalledCandidate(Candidate):
         return self.project_name
 
     @property
-    def version(self) -> Version:
+    def version(self) -> ParsedVersion:
         if self._version is None:
             self._version = self.dist.version
         return self._version
@@ -484,7 +485,7 @@ class ExtrasCandidate(Candidate):
         return format_name(self.base.project_name, self.extras)
 
     @property
-    def version(self) -> Version:
+    def version(self) -> ParsedVersion:
         return self.base.version
 
     def format_for_error(self) -> str:
@@ -548,7 +549,7 @@ class RequiresPythonCandidate(Candidate):
             version_info = normalize_version_info(py_version_info)
         else:
             version_info = sys.version_info[:3]
-        self._version = Version(".".join(str(c) for c in version_info))
+        self._version = ParsedVersion.parse(".".join(str(c) for c in version_info))
 
     # We don't need to implement __eq__() and __ne__() since there is always
     # only one RequiresPythonCandidate in a resolution, i.e. the host Python.
@@ -569,7 +570,7 @@ class RequiresPythonCandidate(Candidate):
         return REQUIRES_PYTHON_IDENTIFIER
 
     @property
-    def version(self) -> Version:
+    def version(self) -> ParsedVersion:
         return self._version
 
     def format_for_error(self) -> str:

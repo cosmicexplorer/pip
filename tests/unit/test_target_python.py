@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from typing import Any
 from unittest import mock
 
@@ -16,7 +17,7 @@ class TestTargetPython:
     @pytest.mark.parametrize(
         "py_version_info, expected",
         [
-            ((), ((0, 0, 0), "0.0")),
+            (None, (sys.version_info[:3], ".".join(map(str, sys.version_info[:2])))),
             ((2,), ((2, 0, 0), "2.0")),
             ((3,), ((3, 0, 0), "3.0")),
             ((3, 7), ((3, 7, 0), "3.7")),
@@ -35,24 +36,26 @@ class TestTargetPython:
         """
         expected_py_version_info, expected_py_version = expected
 
-        target_python = TargetPython(py_version_info=py_version_info)
+        TargetPython._cached_create.cache_clear()
+        target_python = TargetPython.create(py_version_info=py_version_info)
 
         # The _given_py_version_info attribute should be set as is.
         assert target_python._given_py_version_info == py_version_info
 
         assert target_python.py_version_info == expected_py_version_info
-        assert target_python.py_version == expected_py_version
+        assert str(target_python.py_version) == expected_py_version
 
     def test_init__py_version_info_none(self) -> None:
         """
         Test passing py_version_info=None.
         """
-        target_python = TargetPython(py_version_info=None)
+        TargetPython._cached_create.cache_clear()
+        target_python = TargetPython.create(py_version_info=None)
 
         assert target_python._given_py_version_info is None
 
         assert target_python.py_version_info == CURRENT_PY_VERSION_INFO
-        assert target_python.py_version == pyversion
+        assert str(target_python.py_version) == pyversion
 
     @pytest.mark.parametrize(
         "kwargs, expected",
@@ -61,7 +64,7 @@ class TestTargetPython:
             ({"py_version_info": (3, 6)}, "version_info='3.6'"),
             (
                 {"platforms": ["darwin"], "py_version_info": (3, 6)},
-                "platforms=['darwin'] version_info='3.6'",
+                "platforms=('darwin',) version_info='3.6'",
             ),
             (
                 {
@@ -71,28 +74,27 @@ class TestTargetPython:
                     "implementation": "cp",
                 },
                 (
-                    "platforms=['darwin'] version_info='3.6' abis=['cp36m'] "
+                    "platforms=('darwin',) version_info='3.6' abis=('cp36m',) "
                     "implementation='cp'"
                 ),
             ),
         ],
     )
     def test_format_given(self, kwargs: dict[str, Any], expected: str) -> None:
-        target_python = TargetPython(**kwargs)
-        actual = target_python.format_given()
+        TargetPython._cached_create.cache_clear()
+        target_python = TargetPython.create(**kwargs)
+        actual = target_python.format_given
         assert actual == expected
 
     @pytest.mark.parametrize(
         "py_version_info, expected_version",
         [
-            ((), ""),
+            ((), None),
             ((2,), "2"),
             ((3,), "3"),
             ((3, 7), "37"),
             ((3, 7, 3), "37"),
-            # Check a minor version with two digits.
             ((3, 10, 1), "310"),
-            # Check that versions=None is passed to get_sorted_tags().
             (None, None),
         ],
     )
@@ -103,26 +105,30 @@ class TestTargetPython:
         py_version_info: tuple[int, ...] | None,
         expected_version: str | None,
     ) -> None:
-        dummy_tags = [Tag("py4", "none", "any"), Tag("py5", "none", "any")]
+        dummy_tags = (Tag("py4", "none", "any"), Tag("py5", "none", "any"))
         mock_get_supported.return_value = dummy_tags
 
-        target_python = TargetPython(py_version_info=py_version_info)
-        actual = target_python.get_sorted_tags()
+        TargetPython._cached_create.cache_clear()
+        target_python = TargetPython.create(py_version_info=py_version_info)
+        actual = target_python.sorted_tags
         assert actual == dummy_tags
 
         assert mock_get_supported.call_args[1]["version"] == expected_version
 
         # Check that the value was cached.
-        assert target_python._valid_tags == dummy_tags
+        assert target_python.sorted_tags == dummy_tags
 
-    def test_get_unsorted_tags__uses_cached_value(self) -> None:
+    @mock.patch("pip._internal.models.target_python.get_supported")
+    def test_get_unsorted_tags__uses_cached_value(
+        self, mock_get_supported: mock.Mock
+    ) -> None:
         """
-        Test that get_unsorted_tags() uses the cached value.
+        Test that .unsorted_tags pulls from get_supported() until cached.
         """
-        target_python = TargetPython(py_version_info=None)
-        target_python._valid_tags_set = {
-            Tag("py2", "none", "any"),
-            Tag("py3", "none", "any"),
-        }
-        actual = target_python.get_unsorted_tags()
+        dummy_tags = (Tag("py2", "none", "any"), Tag("py3", "none", "any"))
+        mock_get_supported.return_value = dummy_tags
+
+        TargetPython._cached_create.cache_clear()
+        target_python = TargetPython.create(py_version_info=None)
+        actual = target_python.unsorted_tags
         assert actual == {Tag("py2", "none", "any"), Tag("py3", "none", "any")}

@@ -14,9 +14,6 @@ from unittest import mock
 
 import pytest
 
-from pip._vendor.packaging.markers import Marker
-from pip._vendor.packaging.requirements import Requirement
-
 from pip._internal.build_env import SubprocessBuildEnvironmentInstaller
 from pip._internal.cache import WheelCache
 from pip._internal.commands import create_command
@@ -35,8 +32,7 @@ from pip._internal.operations.build.build_tracker import get_build_tracker
 from pip._internal.operations.prepare import RequirementPreparer
 from pip._internal.req import InstallRequirement, RequirementSet
 from pip._internal.req.constructors import (
-    _get_url_from_path,
-    _looks_like_path,
+    _ResourcePathMatcher,
     install_req_drop_extras,
     install_req_extend_extras,
     install_req_from_editable,
@@ -51,9 +47,19 @@ from pip._internal.req.req_file import (
     handle_requirement_line,
 )
 from pip._internal.resolution.legacy.resolver import Resolver
-from pip._internal.utils.urls import path_to_url
+from pip._internal.utils.packaging.markers import Marker
+from pip._internal.utils.packaging.requirements import Requirement
+from pip._internal.utils.urls import ParsedUrl, path_to_url
 
 from tests.lib import TestData, make_test_finder, requirements_file, wheel
+
+
+def _get_url_from_path(path: str, name: str) -> ParsedUrl | None:
+    return _ResourcePathMatcher.get_path_or_url(path, name)
+
+
+def _looks_like_path(name: str) -> bool:
+    return _ResourcePathMatcher.looks_like_path(name)
 
 
 def get_processed_req_from_line(
@@ -225,7 +231,7 @@ class TestRequirementSet:
         dir_path = data.packages.joinpath("FSPkg")
         reqset.add_unnamed_requirement(
             get_processed_req_from_line(
-                path_to_url(str(dir_path)),
+                str(path_to_url(str(dir_path))),
                 lineno=2,
             )
         )
@@ -657,7 +663,7 @@ class TestInstallRequirement:
         ):
             line = "name; " + markers
             req = install_req_from_line(line)
-            assert str(req.markers) == str(Marker(markers))
+            assert str(req.markers) == str(Marker.parse(markers))
             assert req.match_markers()
 
         # don't match
@@ -667,7 +673,7 @@ class TestInstallRequirement:
         ):
             line = "name; " + markers
             req = install_req_from_line(line)
-            assert str(req.markers) == str(Marker(markers))
+            assert str(req.markers) == str(Marker.parse(markers))
             assert not req.match_markers()
 
     def test_markers_match(self) -> None:
@@ -678,7 +684,7 @@ class TestInstallRequirement:
         ):
             line = "name; " + markers
             req = install_req_from_line(line, comes_from="")
-            assert str(req.markers) == str(Marker(markers))
+            assert str(req.markers) == str(Marker.parse(markers))
             assert req.match_markers()
 
         # don't match
@@ -688,7 +694,7 @@ class TestInstallRequirement:
         ):
             line = "name; " + markers
             req = install_req_from_line(line, comes_from="")
-            assert str(req.markers) == str(Marker(markers))
+            assert str(req.markers) == str(Marker.parse(markers))
             assert not req.match_markers()
 
     def test_extras_for_line_path_requirement(self) -> None:
@@ -700,7 +706,7 @@ class TestInstallRequirement:
         assert req.extras == {"ex1", "ex2"}
 
     def test_extras_for_line_url_requirement(self) -> None:
-        line = "git+https://url#egg=SomeProject[ex1,ex2]"
+        line = "git+https://url.org#egg=SomeProject[ex1,ex2]"
         filename = "filename"
         comes_from = f"-r {filename} (line 1)"
         req = install_req_from_line(line, comes_from=comes_from)
@@ -716,7 +722,7 @@ class TestInstallRequirement:
         assert req.extras == {"ex1", "ex2"}
 
     def test_extras_for_editable_url_requirement(self) -> None:
-        url = "git+https://url#egg=SomeProject[ex1,ex2]"
+        url = "git+https://url.org#egg=SomeProject[ex1,ex2]"
         filename = "filename"
         comes_from = f"-r {filename} (line 1)"
         req = install_req_from_editable(url, comes_from=comes_from)
@@ -850,64 +856,65 @@ class TestInstallRequirement:
         assert extended.permit_editable_wheels == req.permit_editable_wheels
 
 
+@mock.patch("pip._internal.req.req_install.os.path.normpath")
 @mock.patch("pip._internal.req.req_install.os.path.abspath")
-@mock.patch("pip._internal.req.req_install.os.path.exists")
 @mock.patch("pip._internal.req.req_install.os.path.isdir")
 def test_parse_editable_local(
-    isdir_mock: mock.Mock, exists_mock: mock.Mock, abspath_mock: mock.Mock
+    isdir_mock: mock.Mock,
+    abspath_mock: mock.Mock,
+    normpath_mock: mock.Mock,
 ) -> None:
-    exists_mock.return_value = isdir_mock.return_value = True
+    isdir_mock.return_value = True
     # mocks needed to support path operations on windows tests
-    abspath_mock.return_value = "/some/path"
-    assert parse_editable(".") == (None, "file:///some/path", set())
-    abspath_mock.return_value = "/some/path/foo"
+    normpath_mock.return_value = abspath_mock.return_value = "/some/path"
+    assert parse_editable(".") == (Link("file:///some/path"), frozenset())
+    normpath_mock.return_value = abspath_mock.return_value = "/some/path/foo"
     assert parse_editable("foo") == (
-        None,
-        "file:///some/path/foo",
-        set(),
+        Link("file:///some/path/foo"),
+        frozenset(),
     )
 
 
 def test_parse_editable_explicit_vcs() -> None:
     assert parse_editable("svn+https://foo#egg=foo") == (
-        "foo",
-        "svn+https://foo#egg=foo",
-        set(),
+        Link("svn+https://foo#egg=foo"),
+        frozenset(),
     )
+    assert Link("svn+https://foo#egg=foo").egg_fragment == "foo"
 
 
 def test_parse_editable_vcs_extras() -> None:
     assert parse_editable("svn+https://foo#egg=foo[extras]") == (
-        "foo[extras]",
-        "svn+https://foo#egg=foo[extras]",
-        set(),
+        Link("svn+https://foo#egg=foo[extras]"),
+        frozenset(),
     )
+    assert Link("svn+https://foo#egg=foo[extras]").egg_fragment == "foo[extras]"
 
 
+@mock.patch("pip._internal.req.req_install.os.path.normpath")
 @mock.patch("pip._internal.req.req_install.os.path.abspath")
-@mock.patch("pip._internal.req.req_install.os.path.exists")
 @mock.patch("pip._internal.req.req_install.os.path.isdir")
 def test_parse_editable_local_extras(
-    isdir_mock: mock.Mock, exists_mock: mock.Mock, abspath_mock: mock.Mock
+    isdir_mock: mock.Mock,
+    abspath_mock: mock.Mock,
+    normpath_mock: mock.Mock,
 ) -> None:
-    exists_mock.return_value = isdir_mock.return_value = True
-    abspath_mock.return_value = "/some/path"
+    isdir_mock.return_value = True
+    normpath_mock.return_value = abspath_mock.return_value = "/some/path"
     assert parse_editable(".[extras]") == (
-        None,
-        "file:///some/path",
-        {"extras"},
+        Link("file:///some/path"),
+        frozenset({"extras"}),
     )
-    abspath_mock.return_value = "/some/path/foo"
+    normpath_mock.return_value = abspath_mock.return_value = "/some/path/foo"
     assert parse_editable("foo[bar,baz]") == (
-        None,
-        "file:///some/path/foo",
-        {"bar", "baz"},
+        Link("file:///some/path/foo"),
+        frozenset({"bar", "baz"}),
     )
 
 
 def test_mismatched_versions(caplog: pytest.LogCaptureFixture) -> None:
     req = InstallRequirement(
-        req=Requirement("simplewheel==2.0"),
+        req=Requirement.parse("simplewheel==2.0"),
         comes_from=None,
     )
     req.source_dir = "/tmp/somewhere"  # make req believe it has been unpacked
@@ -1017,7 +1024,7 @@ def test_get_url_from_path__archive_file(
     isdir_mock.return_value = False
     isfile_mock.return_value = True
     name = "simple-0.1-py2.py3-none-any.whl"
-    url = Path(f"/path/to/{name}").resolve(strict=False).as_uri()
+    url = ParsedUrl.parse(Path(f"/path/to/{name}").resolve(strict=False).as_uri())
     assert _get_url_from_path(f"/path/to/{name}", name) == url
 
 
@@ -1029,7 +1036,7 @@ def test_get_url_from_path__installable_dir(
     isdir_mock.return_value = True
     isfile_mock.return_value = True
     name = "some/setuptools/project"
-    url = Path(f"/path/to/{name}").resolve(strict=False).as_uri()
+    url = ParsedUrl.parse(Path(f"/path/to/{name}").resolve(strict=False).as_uri())
     assert _get_url_from_path(f"/path/to/{name}", name) == url
 
 

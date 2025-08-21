@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from html.parser import HTMLParser
 from optparse import Values
 from typing import (
+    TYPE_CHECKING,
     Callable,
     NamedTuple,
     Protocol,
@@ -32,11 +33,15 @@ from pip._internal.models.link import Link
 from pip._internal.models.search_scope import SearchScope
 from pip._internal.network.session import PipSession
 from pip._internal.network.utils import raise_for_status
-from pip._internal.utils.filetypes import is_archive_file
+from pip._internal.utils.filetypes import FileExtensions
 from pip._internal.utils.misc import redact_auth_from_url
+from pip._internal.utils.urls import ParsedUrl
 from pip._internal.vcs import vcs
 
 from .sources import CandidatesFromPage, LinkSource, build_source
+
+if TYPE_CHECKING:
+    from typing_extensions import Self
 
 logger = logging.getLogger(__name__)
 
@@ -118,7 +123,7 @@ def _get_simple_response(url: str, session: PipSession) -> Response:
     3. Check the Content-Type header to make sure we got a Simple API response,
        and raise `_NotAPIContent` otherwise.
     """
-    if is_archive_file(Link(url).filename):
+    if FileExtensions.archive_file_extension(Link(url).filename):
         _ensure_api_response(url, session=session)
 
     logger.debug("Getting page %s", redact_auth_from_url(url))
@@ -244,25 +249,45 @@ def parse_links(page: IndexContent) -> Iterable[Link]:
         yield link
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class IndexContent:
-    """Represents one response (or page), along with its URL.
-
-    :param encoding: the encoding to decode the given content.
-    :param url: the URL from which the HTML was downloaded.
-    :param cache_link_parsing: whether links parsed from this page's url
-                               should be cached. PyPI index urls should
-                               have this set to False, for example.
-    """
+    """Represents one response (or page), along with its URL."""
 
     content: bytes
     content_type: str
     encoding: str | None
-    url: str
-    cache_link_parsing: bool = True
+    url: ParsedUrl
+    cache_link_parsing: bool
+
+    @classmethod
+    def create(
+        cls,
+        content: bytes,
+        content_type: str,
+        encoding: str | None,
+        url: str | ParsedUrl,
+        cache_link_parsing: bool = True,
+    ) -> Self:
+        """
+        :param encoding: the encoding to decode the given content.
+        :param url: the URL from which the HTML was downloaded.
+        :param cache_link_parsing: whether links parsed from this page's url
+                                   should be cached. PyPI index urls should
+                                   have this set to False, for example.
+        """
+        if isinstance(url, str):
+            url = ParsedUrl.parse(url)
+        url = url.with_quoted_path()
+        return cls(
+            content=content,
+            content_type=content_type,
+            encoding=encoding,
+            url=url,
+            cache_link_parsing=cache_link_parsing,
+        )
 
     def __str__(self) -> str:
-        return redact_auth_from_url(self.url)
+        return str(self.url.with_redacted_auth_info())
 
 
 class HTMLLinkParser(HTMLParser):
@@ -271,18 +296,18 @@ class HTMLLinkParser(HTMLParser):
     elements' attributes.
     """
 
-    def __init__(self, url: str) -> None:
+    def __init__(self, url: ParsedUrl) -> None:
         super().__init__(convert_charrefs=True)
 
-        self.url: str = url
-        self.base_url: str | None = None
+        self.url: ParsedUrl = url
+        self.base_url: ParsedUrl | None = None
         self.anchors: list[dict[str, str | None]] = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         if tag == "base" and self.base_url is None:
             href = self.get_href(attrs)
             if href is not None:
-                self.base_url = href
+                self.base_url = ParsedUrl.parse(href).with_quoted_path()
         elif tag == "a":
             self.anchors.append(dict(attrs))
 
@@ -307,9 +332,9 @@ def _make_index_content(
     response: Response, cache_link_parsing: bool = True
 ) -> IndexContent:
     encoding = _get_encoding_from_headers(response.headers)
-    return IndexContent(
-        response.content,
-        response.headers["Content-Type"],
+    return IndexContent.create(
+        content=response.content,
+        content_type=response.headers["Content-Type"],
         encoding=encoding,
         url=response.url,
         cache_link_parsing=cache_link_parsing,

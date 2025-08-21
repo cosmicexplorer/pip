@@ -3,9 +3,9 @@ from __future__ import annotations
 import pytest
 
 from pip._vendor.packaging import specifiers
-from pip._vendor.packaging.requirements import Requirement
 
-from pip._internal.utils.packaging import check_requires_python, get_requirement
+from pip._internal.utils.packaging.requirements import Requirement
+from pip._internal.utils.packaging_utils import check_requires_python, get_requirement
 
 
 @pytest.mark.parametrize(
@@ -35,11 +35,10 @@ def test_get_or_create_caching() -> None:
     """test caching of get_or_create requirement"""
     teststr = "affinegap==1.10"
     from_helper = get_requirement(teststr)
-    freshly_made = Requirement(teststr)
+    freshly_made = Requirement.parse(teststr)
 
     # Requirement doesn't have an equality operator (yet) so test
     # equality of attribute for list of attributes
     for iattr in ["name", "url", "extras", "specifier", "marker"]:
         assert getattr(from_helper, iattr) == getattr(freshly_made, iattr)
-    assert get_requirement(teststr) is not Requirement(teststr)
     assert get_requirement(teststr) is get_requirement(teststr)

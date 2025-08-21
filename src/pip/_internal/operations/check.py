@@ -12,28 +12,28 @@ from typing import (
     NamedTuple,
 )
 
-from pip._vendor.packaging.requirements import Requirement
 from pip._vendor.packaging.tags import Tag, parse_tag
 from pip._vendor.packaging.utils import NormalizedName, canonicalize_name
-from pip._vendor.packaging.version import Version
 
 from pip._internal.distributions import make_distribution_for_install_requirement
 from pip._internal.metadata import get_default_environment
 from pip._internal.metadata.base import BaseDistribution
 from pip._internal.req.req_install import InstallRequirement
+from pip._internal.utils.packaging.requirements import Requirement
+from pip._internal.utils.packaging.version import ParsedVersion
 
 logger = logging.getLogger(__name__)
 
 
 class PackageDetails(NamedTuple):
-    version: Version
+    version: ParsedVersion
     dependencies: list[Requirement]
 
 
 # Shorthands
 PackageSet = dict[NormalizedName, PackageDetails]
 Missing = tuple[NormalizedName, Requirement]
-Conflicting = tuple[NormalizedName, Version, Requirement]
+Conflicting = tuple[NormalizedName, ParsedVersion, Requirement]
 
 MissingDict = dict[NormalizedName, list[Missing]]
 ConflictingDict = dict[NormalizedName, list[Conflicting]]

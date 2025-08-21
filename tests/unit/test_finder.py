@@ -1,12 +1,9 @@
 import logging
-from collections.abc import Iterable
 from unittest.mock import Mock, patch
 
 import pytest
 
-from pip._vendor.packaging.specifiers import SpecifierSet
 from pip._vendor.packaging.tags import Tag
-from pip._vendor.packaging.version import parse as parse_version
 
 import pip._internal.utils.compatibility_tags
 from pip._internal.exceptions import BestVersionAlreadyInstalled, DistributionNotFound
@@ -16,9 +13,13 @@ from pip._internal.index.package_finder import (
     Link,
     LinkEvaluator,
     LinkType,
+    _FoundCandidate,
 )
+from pip._internal.models.format_control import AllowedFormats
 from pip._internal.models.target_python import TargetPython
 from pip._internal.req.constructors import install_req_from_line
+from pip._internal.utils.packaging.specifiers import SpecifierSet
+from pip._internal.utils.packaging.version import ParsedVersion
 
 from tests.lib import TestData, make_test_finder
 
@@ -88,7 +89,7 @@ def test_finder_detects_latest_already_satisfied_find_links(data: TestData) -> N
     latest_version = "3.0"
     satisfied_by = Mock(
         location="/path",
-        version=parse_version(latest_version),
+        version=ParsedVersion.parse(latest_version),
     )
     req.satisfied_by = satisfied_by
     finder = make_test_finder(find_links=[data.find_links])
@@ -104,7 +105,7 @@ def test_finder_detects_latest_already_satisfied_pypi_links() -> None:
     latest_version = "0.3.1"
     satisfied_by = Mock(
         location="/path",
-        version=parse_version(latest_version),
+        version=ParsedVersion.parse(latest_version),
     )
     req.satisfied_by = satisfied_by
     finder = make_test_finder(index_urls=["http://pypi.org/simple/"])
@@ -138,9 +139,9 @@ class TestWheel:
         Test not finding an unsupported wheel.
         """
         req = install_req_from_line("simple.dist")
-        target_python = TargetPython()
+        target_python = TargetPython.create()
         # Make sure no tags will match.
-        target_python._valid_tags = []
+        target_python.__dict__["sorted_tags"] = ()
         finder = make_test_finder(
             find_links=[data.find_links],
             target_python=target_python,
@@ -187,7 +188,7 @@ class TestWheel:
         latest_version = "1.0"
         satisfied_by = Mock(
             location="/path",
-            version=parse_version(latest_version),
+            version=ParsedVersion.parse(latest_version),
         )
         req.satisfied_by = satisfied_by
         finder = make_test_finder(find_links=[data.find_links])
@@ -202,38 +203,42 @@ class TestCandidateEvaluator:
         Test link sorting
         """
         links = [
-            InstallationCandidate("simple", "2.0", Link("simple-2.0.tar.gz")),
+            InstallationCandidate(
+                "simple", ParsedVersion.parse("2.0"), Link("simple-2.0.tar.gz")
+            ),
             InstallationCandidate(
                 "simple",
-                "1.0",
+                ParsedVersion.parse("1.0"),
                 Link("simple-1.0-pyT-none-TEST.whl"),
             ),
             InstallationCandidate(
                 "simple",
-                "1.0",
+                ParsedVersion.parse("1.0"),
                 Link("simple-1.0-pyT-TEST-any.whl"),
             ),
             InstallationCandidate(
                 "simple",
-                "1.0",
+                ParsedVersion.parse("1.0"),
                 Link("simple-1.0-pyT-none-any.whl"),
             ),
             InstallationCandidate(
                 "simple",
-                "1.0",
+                ParsedVersion.parse("1.0"),
                 Link("simple-1.0.tar.gz"),
             ),
         ]
-        valid_tags = [
+        valid_tags = (
             Tag("pyT", "none", "TEST"),
             Tag("pyT", "TEST", "any"),
             Tag("pyT", "none", "any"),
-        ]
-        specifier = SpecifierSet()
+        )
         evaluator = CandidateEvaluator(
             "my-project",
-            supported_tags=valid_tags,
-            specifier=specifier,
+            _target_python=Mock(
+                sorted_tags=valid_tags,
+                tag_preferences={tag: idx for idx, tag in enumerate(valid_tags)},
+            ),
+            _specifier=SpecifierSet.empty(),
         )
         sort_key = evaluator._sort_key
         results = sorted(links, key=sort_key, reverse=True)
@@ -247,17 +252,17 @@ class TestCandidateEvaluator:
         links = [
             InstallationCandidate(
                 "simplewheel",
-                "2.0",
+                ParsedVersion.parse("2.0"),
                 Link("simplewheel-2.0-1-py2.py3-none-any.whl"),
             ),
             InstallationCandidate(
                 "simplewheel",
-                "2.0",
+                ParsedVersion.parse("2.0"),
                 Link("simplewheel-2.0-py2.py3-none-any.whl"),
             ),
             InstallationCandidate(
                 "simplewheel",
-                "1.0",
+                ParsedVersion.parse("1.0"),
                 Link("simplewheel-1.0-py2.py3-none-any.whl"),
             ),
         ]
@@ -273,34 +278,37 @@ class TestCandidateEvaluator:
         links = [
             InstallationCandidate(
                 "simple",
-                "1.0",
+                ParsedVersion.parse("1.0"),
                 Link("simple-1.0-1-py3-abi3-linux_x86_64.whl"),
             ),
             InstallationCandidate(
                 "simple",
-                "1.0",
+                ParsedVersion.parse("1.0"),
                 Link("simple-1.0-2-py3-abi3-linux_i386.whl"),
             ),
             InstallationCandidate(
                 "simple",
-                "1.0",
+                ParsedVersion.parse("1.0"),
                 Link("simple-1.0-2-py3-any-none.whl"),
             ),
             InstallationCandidate(
                 "simple",
-                "1.0",
+                ParsedVersion.parse("1.0"),
                 Link("simple-1.0.tar.gz"),
             ),
         ]
-        valid_tags = [
+        valid_tags = (
             Tag("py3", "abi3", "linux_x86_64"),
             Tag("py3", "abi3", "linux_i386"),
             Tag("py3", "any", "none"),
-        ]
+        )
         evaluator = CandidateEvaluator(
             "my-project",
-            supported_tags=valid_tags,
-            specifier=SpecifierSet(),
+            _target_python=Mock(
+                sorted_tags=valid_tags,
+                tag_preferences={tag: idx for idx, tag in enumerate(valid_tags)},
+            ),
+            _specifier=SpecifierSet.empty(),
         )
         sort_key = evaluator._sort_key
         results = sorted(links, key=sort_key, reverse=True)
@@ -477,12 +485,11 @@ def test_finder_installs_pre_releases_with_version_spec() -> None:
 
 
 class TestLinkEvaluator:
-    def make_test_link_evaluator(self, formats: Iterable[str]) -> LinkEvaluator:
-        target_python = TargetPython()
-        return LinkEvaluator(
+    def make_test_link_evaluator(self, formats: AllowedFormats) -> LinkEvaluator:
+        target_python = TargetPython.create()
+        return LinkEvaluator.create(
             project_name="pytest",
-            canonical_name="pytest",
-            formats=frozenset(formats),
+            formats=formats,
             target_python=target_python,
             allow_yanked=True,
         )
@@ -497,9 +504,9 @@ class TestLinkEvaluator:
     def test_evaluate_link__match(self, url: str, expected_version: str) -> None:
         """Test that 'pytest' archives match for 'pytest'"""
         link = Link(url)
-        evaluator = self.make_test_link_evaluator(formats=["source", "binary"])
+        evaluator = self.make_test_link_evaluator(formats=AllowedFormats.AnyFormat)
         actual = evaluator.evaluate_link(link)
-        assert actual == (LinkType.candidate, expected_version)
+        assert actual == _FoundCandidate(expected_version)
 
     @pytest.mark.parametrize(
         "url, link_type, fail_reason",
@@ -526,9 +533,10 @@ class TestLinkEvaluator:
     ) -> None:
         """Test that 'pytest<something> archives won't match for 'pytest'."""
         link = Link(url)
-        evaluator = self.make_test_link_evaluator(formats=["source", "binary"])
+        evaluator = self.make_test_link_evaluator(formats=AllowedFormats.AnyFormat)
         actual = evaluator.evaluate_link(link)
-        assert actual == (link_type, fail_reason)
+        assert actual.kind == link_type
+        assert str(actual) == fail_reason
 
 
 def test_process_project_url(data: TestData) -> None:

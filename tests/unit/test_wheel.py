@@ -15,8 +15,6 @@ from unittest.mock import patch
 
 import pytest
 
-from pip._vendor.packaging.requirements import Requirement
-
 from pip._internal.exceptions import InstallationError
 from pip._internal.locations import get_scheme
 from pip._internal.models.direct_url import (
@@ -34,6 +32,7 @@ from pip._internal.operations.install.wheel import (
 )
 from pip._internal.utils.compat import WINDOWS
 from pip._internal.utils.misc import hash_file
+from pip._internal.utils.packaging.requirements import Requirement
 from pip._internal.utils.unpacking import unpack_file
 
 from tests.lib import DATA_DIR, TestData, assert_paths_equal
@@ -334,7 +333,7 @@ class TestInstallUnpackedWheel:
                 "gui_scripts": ["sample2 = sample:main"],
             },
         ).save_to_dir(tmpdir)
-        self.req = Requirement("sample")
+        self.req = Requirement.parse("sample")
         self.src = os.path.join(tmpdir, "src")
         self.dest = os.path.join(tmpdir, "dest")
         self.scheme = Scheme(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import logging
 import os
 import shutil
@@ -33,6 +34,7 @@ from pip._internal.utils.subprocess import (
     format_command_args,
     make_command,
 )
+from pip._internal.utils.urls import ParsedUrl
 
 __all__ = ["vcs"]
 
@@ -42,14 +44,29 @@ logger = logging.getLogger(__name__)
 AuthInfo = tuple[Optional[str], Optional[str]]
 
 
-def is_url(name: str) -> bool:
+@functools.cache
+def _vcs_url_schemes() -> frozenset[str]:
+    return frozenset(["http", "https", "file", "ftp"] + vcs.all_schemes)
+
+
+@functools.cache
+def _scheme_prefixes() -> tuple[str, ...]:
+    return tuple(f"{scheme}://" for scheme in _vcs_url_schemes())
+
+
+def has_vcs_url_scheme(name: str) -> bool:
+    name = name.lower()
+    return any(name.startswith(pfx) for pfx in _scheme_prefixes())
+
+
+def try_parse_url(name: str) -> ParsedUrl | None:
     """
     Return true if the name looks like a URL.
     """
-    scheme = urllib.parse.urlsplit(name).scheme
-    if not scheme:
-        return False
-    return scheme in ["http", "https", "file", "ftp"] + vcs.all_schemes
+    url = ParsedUrl.parse(name)
+    if url.scheme and url.scheme in _vcs_url_schemes():
+        return url
+    return None
 
 
 def make_vcs_requirement_url(

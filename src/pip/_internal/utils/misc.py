@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import errno
+import functools
 import getpass
 import hashlib
 import logging
@@ -13,7 +14,6 @@ import sysconfig
 import urllib.parse
 from collections.abc import Generator, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
-from functools import partial
 from io import StringIO
 from itertools import filterfalse, tee, zip_longest
 from pathlib import Path
@@ -28,13 +28,13 @@ from typing import (
     cast,
 )
 
-from pip._vendor.packaging.requirements import Requirement
 from pip._vendor.pyproject_hooks import BuildBackendHookCaller
 
 from pip import __version__
 from pip._internal.exceptions import CommandError, ExternallyManagedEnvironment
 from pip._internal.locations import get_major_minor_version
 from pip._internal.utils.compat import WINDOWS
+from pip._internal.utils.packaging.requirements import Requirement
 from pip._internal.utils.retry import retry
 from pip._internal.utils.virtualenv import running_under_virtualenv
 
@@ -74,6 +74,7 @@ def get_pip_version() -> str:
     return f"pip {__version__} from {pip_pkg_dir} (python {get_major_minor_version()})"
 
 
+@functools.cache
 def normalize_version_info(py_version_info: tuple[int, ...]) -> tuple[int, int, int]:
     """
     Convert a tuple of ints representing a Python version to one of length
@@ -122,7 +123,7 @@ def rmtree(dir: str, ignore_errors: bool = False, onexc: OnExc | None = None) ->
         onexc = _onerror_ignore
     if onexc is None:
         onexc = _onerror_reraise
-    handler: OnErr = partial(rmtree_errorhandler, onexc=onexc)
+    handler: OnErr = functools.partial(rmtree_errorhandler, onexc=onexc)
     if sys.version_info >= (3, 12):
         # See https://docs.python.org/3.12/whatsnew/3.12.html#shutil.
         shutil.rmtree(dir, onexc=handler)  # type: ignore
@@ -413,6 +414,7 @@ def build_url_from_netloc(netloc: str, scheme: str = "https") -> str:
     return f"{scheme}://{netloc}"
 
 
+@functools.cache
 def parse_netloc(netloc: str) -> tuple[str | None, int | None]:
     """
     Return the host-port pair from a netloc.
@@ -422,6 +424,7 @@ def parse_netloc(netloc: str) -> tuple[str | None, int | None]:
     return parsed.hostname, parsed.port
 
 
+@functools.cache
 def split_auth_from_netloc(netloc: str) -> NetlocTuple:
     """
     Parse out and remove the auth information from a netloc.
@@ -451,6 +454,7 @@ def split_auth_from_netloc(netloc: str) -> NetlocTuple:
     return netloc, (user, pw)
 
 
+@functools.cache
 def redact_netloc(netloc: str) -> str:
     """
     Replace the sensitive data in a netloc with "****", if it exists.
@@ -499,6 +503,7 @@ def _redact_netloc(netloc: str) -> tuple[str]:
     return (redact_netloc(netloc),)
 
 
+@functools.cache
 def split_auth_netloc_from_url(
     url: str,
 ) -> tuple[str, str, tuple[str | None, str | None]]:
@@ -511,6 +516,7 @@ def split_auth_netloc_from_url(
     return url_without_auth, netloc, auth
 
 
+@functools.cache
 def remove_auth_from_url(url: str) -> str:
     """Return a copy of url with 'username:password@' removed."""
     # username/pass params are passed to subversion through flags
@@ -518,6 +524,7 @@ def remove_auth_from_url(url: str) -> str:
     return _transform_url(url, _get_netloc)[0]
 
 
+@functools.cache
 def redact_auth_from_url(url: str) -> str:
     """Replace the password in a given url with ****."""
     return _transform_url(url, _redact_netloc)[0]

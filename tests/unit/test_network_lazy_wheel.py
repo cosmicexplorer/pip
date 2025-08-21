@@ -2,14 +2,13 @@ from collections.abc import Iterator
 
 import pytest
 
-from pip._vendor.packaging.version import Version
-
 from pip._internal.exceptions import InvalidWheel
 from pip._internal.network.lazy_wheel import (
     HTTPRangeRequestUnsupported,
     dist_from_wheel_url,
 )
 from pip._internal.network.session import PipSession
+from pip._internal.utils.packaging.version import ParsedVersion
 
 from tests.lib import TestData
 from tests.lib.server import MockServer, file_response
@@ -47,7 +46,7 @@ def test_dist_from_wheel_url(session: PipSession) -> None:
     """Test if the acquired distribution contain correct information."""
     dist = dist_from_wheel_url("mypy", MYPY_0_782_WHL, session)
     assert dist.canonical_name == "mypy"
-    assert dist.version == Version("0.782")
+    assert dist.version == ParsedVersion.parse("0.782")
     extras = list(dist.iter_provided_extras())
     assert extras == ["dmypy"]
     assert {str(d) for d in dist.iter_dependencies(extras)} == MYPY_0_782_REQS

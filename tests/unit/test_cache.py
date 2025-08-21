@@ -1,11 +1,36 @@
+from __future__ import annotations
+
 import os
+from collections.abc import Iterable
 from pathlib import Path
+from unittest.mock import Mock
 
 from pip._vendor.packaging.tags import Tag, interpreter_name, interpreter_version
 
-from pip._internal.cache import WheelCache, _hash_dict
+from pip._internal.cache import CacheEntry, WheelCache, _hash_dict
 from pip._internal.models.link import Link
 from pip._internal.utils.misc import ensure_dir
+from pip._internal.utils.urls import ParsedUrl
+
+
+def _get(
+    cache: WheelCache, link: Link, name: str | None = None, tags: Iterable[Tag] = ()
+) -> Link:
+    tags = tuple(tags)
+    mock = Mock(
+        sorted_tags=tags, tag_preferences={tag: idx for idx, tag in enumerate(tags)}
+    )
+    return cache.get(link, name, mock)
+
+
+def _get_cache_entry(
+    cache: WheelCache, link: Link, name: str | None = None, tags: Iterable[Tag] = ()
+) -> CacheEntry | None:
+    tags = tuple(tags)
+    mock = Mock(
+        sorted_tags=tags, tag_preferences={tag: idx for idx, tag in enumerate(tags)}
+    )
+    return cache.get_cache_entry(link, name, mock)
 
 
 def test_falsey_path_none() -> None:
@@ -35,11 +60,11 @@ def test_wheel_name_filter(tmpdir: Path) -> None:
     with open(os.path.join(cache_path, "package-1.0-py3-none-any.whl"), "w"):
         pass
     # package matches wheel name
-    cached_link = wc.get(link, "package", [Tag("py3", "none", "any")])
+    cached_link = _get(wc, link, "package", [Tag("py3", "none", "any")])
     assert cached_link is not link
     assert os.path.exists(cached_link.file_path)
     # package2 does not match wheel name
-    assert wc.get(link, "package2", [Tag("py3", "none", "any")]) is link
+    assert _get(wc, link, "package2", [Tag("py3", "none", "any")]) is link
 
 
 def test_cache_hash() -> None:
@@ -86,7 +111,7 @@ def test_link_to_cache(tmpdir: Path) -> None:
         "url": key_parts["url"],
         "yanked": False,
     }
-    page_url = "https://pypi.org/simple/netifaces/"
+    page_url = ParsedUrl.parse("https://pypi.org/simple/netifaces/")
     link = Link.from_json(file_data=file_data, page_url=page_url)
     assert link
     path = wc.get_path_for_link(link)
@@ -107,12 +132,12 @@ def test_get_cache_entry(tmpdir: Path) -> None:
         pass
     other_link = Link("https://g.c/o/r/other")
     supported_tags = [Tag("py3", "none", "any")]
-    entry = wc.get_cache_entry(persi_link, "persi", supported_tags)
+    entry = _get_cache_entry(wc, persi_link, "persi", supported_tags)
     assert entry is not None
     assert entry.persistent
 
-    entry = wc.get_cache_entry(ephem_link, "ephem", supported_tags)
+    entry = _get_cache_entry(wc, ephem_link, "ephem", supported_tags)
     assert entry is not None
     assert not entry.persistent
 
-    assert wc.get_cache_entry(other_link, "other", supported_tags) is None
+    assert _get_cache_entry(wc, other_link, "other", supported_tags) is None

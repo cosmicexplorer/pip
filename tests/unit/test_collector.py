@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import re
+import urllib.parse
 import uuid
 from pathlib import Path
 from textwrap import dedent
@@ -13,7 +14,6 @@ from unittest import mock
 import pytest
 
 from pip._vendor import requests
-from pip._vendor.packaging.requirements import Requirement
 
 from pip._internal.exceptions import NetworkConnectionError
 from pip._internal.index.collector import (
@@ -33,10 +33,11 @@ from pip._internal.models.link import (
     Link,
     LinkHash,
     MetadataFile,
-    _clean_url_path,
-    _ensure_quoted_url,
 )
 from pip._internal.network.session import PipSession
+from pip._internal.utils.packaging.requirements import Requirement
+from pip._internal.utils.packaging.version import ParsedVersion
+from pip._internal.utils.urls import ParsedUrl, _FilePath, _PathSanitizer, _UrlPath
 
 from tests.lib import (
     TestData,
@@ -298,7 +299,8 @@ def test_get_simple_response_dont_log_clear_text_password(
 )
 @pytest.mark.parametrize("is_local_path", [True, False])
 def test_clean_url_path(path: str, expected: str, is_local_path: bool) -> None:
-    assert _clean_url_path(path, is_local_path=is_local_path) == expected
+    kind = _FilePath() if is_local_path else _UrlPath()
+    assert _PathSanitizer.sanitize_path(path, kind) == expected
 
 
 @pytest.mark.parametrize(
@@ -320,7 +322,7 @@ def test_clean_url_path(path: str, expected: str, is_local_path: bool) -> None:
     ],
 )
 def test_clean_url_path_with_local_path(path: str, expected: str) -> None:
-    actual = _clean_url_path(path, is_local_path=True)
+    actual = _PathSanitizer.sanitize_path(path, _FilePath())
     assert actual == expected
 
 
@@ -421,7 +423,7 @@ def test_clean_url_path_with_local_path(path: str, expected: str) -> None:
     ],
 )
 def test_ensure_quoted_url(url: str, clean_url: str) -> None:
-    assert _ensure_quoted_url(url) == clean_url
+    assert str(ParsedUrl.parse(url).with_quoted_path()) == clean_url
 
 
 def _test_parse_links_data_attribute(
@@ -433,7 +435,7 @@ def _test_parse_links_data_attribute(
         f"<body>{anchor_html}</body></html>"
     )
     html_bytes = html.encode("utf-8")
-    page = IndexContent(
+    page = IndexContent.create(
         html_bytes,
         "text/html",
         encoding=None,
@@ -525,7 +527,7 @@ def test_parse_links_json() -> None:
             ],
         }
     ).encode("utf8")
-    page = IndexContent(
+    page = IndexContent.create(
         json_bytes,
         "application/vnd.pypi.simple.v1+json",
         encoding=None,
@@ -616,7 +618,7 @@ def test_parse_links__yanked_reason(anchor_html: str, expected: str | None) -> N
 
 
 # Requirement objects do not == each other unless they point to the same instance!
-_pkg1_requirement = Requirement("pkg1==1.0")
+_pkg1_requirement = Requirement.parse("pkg1==1.0")
 
 
 @pytest.mark.parametrize(
@@ -679,7 +681,7 @@ def test_parse_links_caches_same_page_by_url() -> None:
 
     url = "https://example.com/simple/"
 
-    page_1 = IndexContent(
+    page_1 = IndexContent.create(
         html_bytes,
         "text/html",
         encoding=None,
@@ -687,7 +689,7 @@ def test_parse_links_caches_same_page_by_url() -> None:
     )
     # Make a second page with zero content, to ensure that it's not accessed,
     # because the page was cached by url.
-    page_2 = IndexContent(
+    page_2 = IndexContent.create(
         b"",
         "text/html",
         encoding=None,
@@ -696,7 +698,7 @@ def test_parse_links_caches_same_page_by_url() -> None:
     # Make a third page which represents an index url, which should not be
     # cached, even for the same url. We modify the page content slightly to
     # verify that the result is not cached.
-    page_3 = IndexContent(
+    page_3 = IndexContent.create(
         re.sub(b"pkg1", b"pkg2", html_bytes),
         "text/html",
         encoding=None,
@@ -750,7 +752,7 @@ def test_make_index_content() -> None:
     actual = _make_index_content(response)
     assert actual.content == b"<content>"
     assert actual.encoding == "UTF-8"
-    assert actual.url == "https://example.com/index.html"
+    assert str(actual.url) == "https://example.com/index.html"
 
 
 @pytest.mark.parametrize(
@@ -855,7 +857,7 @@ def test_get_index_content_directory_append_index(tmpdir: Path) -> None:
         assert actual is not None
         assert actual.content == fake_response.content
         assert actual.encoding is None
-        assert actual.url == expected_url
+        assert str(actual.url) == expected_url
 
 
 def test_collect_sources__file_expand_dir(data: TestData) -> None:
@@ -958,7 +960,7 @@ class TestLinkCollector:
         assert actual is not None
         assert actual.content == fake_response.content
         assert actual.encoding is None
-        assert actual.url == url
+        assert str(actual.url) == url
         assert actual.cache_link_parsing == location.cache_link_parsing
 
         # Also check that the right session object was passed to
@@ -982,7 +984,7 @@ class TestLinkCollector:
         collected_sources = link_collector.collect_sources(
             "twine",
             candidates_from_page=lambda link: [
-                InstallationCandidate("twine", "1.0", link)
+                InstallationCandidate("twine", ParsedVersion.parse("1.0"), link)
             ],
         )
 
@@ -1031,7 +1033,9 @@ class TestLinkCollector:
         collected_sources = link_collector.collect_sources(
             "singlemodule",
             candidates_from_page=lambda link: [
-                InstallationCandidate("singlemodule", "0.0.1", link)
+                InstallationCandidate(
+                    "singlemodule", ParsedVersion.parse("0.0.1"), link
+                )
             ],
         )
 
@@ -1175,7 +1179,10 @@ def test_link_collector_create_find_links_expansion(
     ],
 )
 def test_link_hash_parsing(url: str, result: LinkHash | None) -> None:
-    assert LinkHash.find_hash_url_fragment(url) == result
+    fragments = urllib.parse.parse_qs(
+        ParsedUrl.parse(url).fragment, keep_blank_values=True
+    )
+    assert LinkHash.find_hash_url_fragment(fragments) == result
 
 
 @pytest.mark.parametrize(
@@ -1198,8 +1205,8 @@ def test_metadata_file_info_parsing_html(
         "href": "something",
         "data-dist-info-metadata": metadata_attrib,
     }
-    page_url = "dummy_for_comes_from"
-    base_url = "https://index.url/simple"
+    page_url = ParsedUrl.parse("dummy_for_comes_from")
+    base_url = ParsedUrl.parse("https://index.url/simple")
     link = Link.from_element(attribs, page_url, base_url)
     assert link is not None
     assert link.metadata_file_data == expected

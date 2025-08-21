@@ -8,7 +8,7 @@ from optparse import Values
 from typing import TYPE_CHECKING, cast
 
 from pip._vendor.packaging.utils import canonicalize_name
-from pip._vendor.packaging.version import InvalidVersion, Version
+from pip._vendor.packaging.version import InvalidVersion
 
 from pip._internal.cli import cmdoptions
 from pip._internal.cli.index_command import IndexGroupCommand
@@ -18,6 +18,7 @@ from pip._internal.metadata import BaseDistribution, get_environment
 from pip._internal.models.selection_prefs import SelectionPreferences
 from pip._internal.utils.compat import stdlib_pkgs
 from pip._internal.utils.misc import tabulate, write_output
+from pip._internal.utils.packaging.version import ParsedVersion
 
 if TYPE_CHECKING:
     from pip._internal.index.package_finder import PackageFinder
@@ -30,7 +31,7 @@ if TYPE_CHECKING:
         makes the rest of the code much cleaner.
         """
 
-        latest_version: Version
+        latest_version: ParsedVersion
         latest_filetype: str
 
     _ProcessedDists = Sequence[_DistWithLatestInfo]
@@ -259,9 +260,10 @@ class ListCommand(IndexGroupCommand):
                 evaluator = finder.make_candidate_evaluator(
                     project_name=dist.canonical_name,
                 )
-                best_candidate = evaluator.sort_best_candidate(all_candidates)
-                if best_candidate is None:
+                sorted_candidates = evaluator.get_applicable_candidates(all_candidates)
+                if not sorted_candidates:
                     return None
+                best_candidate = sorted_candidates[-1]
 
                 remote_version = best_candidate.version
                 if best_candidate.link.is_wheel:

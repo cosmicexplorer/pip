@@ -6,8 +6,6 @@ from collections.abc import Iterable
 from optparse import Values
 from typing import Any, Callable
 
-from pip._vendor.packaging.version import Version
-
 from pip._internal.cli import cmdoptions
 from pip._internal.cli.req_command import IndexGroupCommand
 from pip._internal.cli.status_codes import ERROR, SUCCESS
@@ -22,6 +20,7 @@ from pip._internal.models.selection_prefs import SelectionPreferences
 from pip._internal.models.target_python import TargetPython
 from pip._internal.network.session import PipSession
 from pip._internal.utils.misc import write_output
+from pip._internal.utils.packaging.version import ParsedVersion
 
 logger = logging.getLogger(__name__)
 
@@ -120,7 +119,7 @@ class IndexCommand(IndexGroupCommand):
                 ignore_requires_python=options.ignore_requires_python,
             )
 
-            versions: Iterable[Version] = (
+            versions: Iterable[ParsedVersion] = (
                 candidate.version for candidate in finder.find_all_candidates(query)
             )
 

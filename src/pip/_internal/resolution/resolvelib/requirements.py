@@ -1,14 +1,17 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from pip._vendor.packaging.specifiers import SpecifierSet
 from pip._vendor.packaging.utils import NormalizedName, canonicalize_name
 
 from pip._internal.req.constructors import install_req_drop_extras
 from pip._internal.req.req_install import InstallRequirement
+from pip._internal.utils.packaging.specifiers import SpecifierSet
 
-from .base import Candidate, CandidateLookup, Requirement, format_name
+from .base import Candidate, Requirement, format_name
+
+if TYPE_CHECKING:
+    from .base import CandidateLookup
 
 
 class ExplicitRequirement(Requirement):

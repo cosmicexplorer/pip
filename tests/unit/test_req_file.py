@@ -17,7 +17,7 @@ import pytest
 import pip._internal.req.req_file  # this will be monkeypatched
 from pip._internal.exceptions import InstallationError, RequirementsFileParseError
 from pip._internal.index.package_finder import PackageFinder
-from pip._internal.models.format_control import FormatControl
+from pip._internal.models.format_control import FormatControlBuilder
 from pip._internal.network.session import PipSession
 from pip._internal.req.constructors import (
     install_req_from_editable,
@@ -32,6 +32,7 @@ from pip._internal.req.req_file import (
     preprocess,
 )
 from pip._internal.req.req_install import InstallRequirement
+from pip._internal.utils.packaging.specifiers import SpecifierSet
 
 from tests.lib import TestData, make_test_finder, requirements_file
 
@@ -51,7 +52,7 @@ def options(session: PipSession) -> mock.Mock:
     return mock.Mock(
         isolated_mode=False,
         index_url="default_url",
-        format_control=FormatControl(set(), set()),
+        format_control=FormatControlBuilder(set(), set()),
         features_enabled=[],
     )
 
@@ -849,8 +850,8 @@ class TestParseRequirements:
                 session=PipSession(),
             )
         )
-        expected = FormatControl({"fred"}, {"wilma"})
-        assert finder.format_control == expected
+        expected = FormatControlBuilder({"fred"}, {"wilma"})
+        assert finder.format_control == expected.build()
 
     def test_req_file_parse_comment_start_of_line(
         self, tmpdir: Path, finder: PackageFinder
@@ -992,7 +993,7 @@ class TestParseRequirements:
 
         assert len(reqs) == 1
         assert reqs[0].name == expected_name
-        assert reqs[0].specifier == expected_spec
+        assert reqs[0].specifier == SpecifierSet.parse(expected_spec)
 
     @pytest.mark.parametrize(
         "bom,encoding",
@@ -1020,7 +1021,7 @@ class TestParseRequirements:
 
         assert len(reqs) == 1
         assert reqs[0].name == req_name
-        assert reqs[0].specifier == req_specifier
+        assert reqs[0].specifier == SpecifierSet.parse(req_specifier)
 
     def test_warns_and_fallsback_to_locale_on_utf8_decode_fail(
         self,

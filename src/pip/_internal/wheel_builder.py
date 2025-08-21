@@ -9,19 +9,20 @@ import shutil
 from collections.abc import Iterable
 
 from pip._vendor.packaging.utils import canonicalize_name, canonicalize_version
-from pip._vendor.packaging.version import InvalidVersion, Version
+from pip._vendor.packaging.version import InvalidVersion
 
 from pip._internal.cache import WheelCache
 from pip._internal.exceptions import InvalidWheelFilename, UnsupportedWheel
 from pip._internal.metadata import FilesystemWheel, get_wheel_distribution
 from pip._internal.models.link import Link
-from pip._internal.models.wheel import Wheel
+from pip._internal.models.wheel import WheelInfo
 from pip._internal.operations.build.wheel import build_wheel_pep517
 from pip._internal.operations.build.wheel_editable import build_wheel_editable
 from pip._internal.operations.build.wheel_legacy import build_wheel_legacy
 from pip._internal.req.req_install import InstallRequirement
 from pip._internal.utils.logging import indent_log
 from pip._internal.utils.misc import ensure_dir, hash_file
+from pip._internal.utils.packaging.version import ParsedVersion
 from pip._internal.utils.setuptools_build import make_setuptools_clean_args
 from pip._internal.utils.subprocess import call_subprocess
 from pip._internal.utils.temp_dir import TempDirectory
@@ -91,7 +92,7 @@ def _should_cache(
         return False
 
     assert req.link
-    base, ext = req.link.splitext()
+    base, _ = req.link.splitext()
     if _contains_egg_info(base):
         return True
 
@@ -117,7 +118,7 @@ def _get_cache_dir(
 
 def _verify_one(req: InstallRequirement, wheel_path: str) -> None:
     canonical_name = canonicalize_name(req.name or "")
-    w = Wheel(os.path.basename(wheel_path))
+    w = WheelInfo.parse_filename(os.path.basename(wheel_path))
     if canonicalize_name(w.name) != canonical_name:
         raise InvalidWheelFilename(
             f"Wheel has unexpected file name: expected {canonical_name!r}, "
@@ -134,11 +135,13 @@ def _verify_one(req: InstallRequirement, wheel_path: str) -> None:
     if metadata_version_value is None:
         raise UnsupportedWheel("Missing Metadata-Version")
     try:
-        metadata_version = Version(metadata_version_value)
+        metadata_version = ParsedVersion.parse(metadata_version_value)
     except InvalidVersion:
         msg = f"Invalid Metadata-Version: {metadata_version_value}"
         raise UnsupportedWheel(msg)
-    if metadata_version >= Version("1.2") and not isinstance(dist.version, Version):
+    if metadata_version >= ParsedVersion.parse("1.2") and not isinstance(
+        dist.version, ParsedVersion
+    ):
         raise UnsupportedWheel(
             f"Metadata 1.2 mandates PEP 440 version, but {dist_verstr!r} is not"
         )

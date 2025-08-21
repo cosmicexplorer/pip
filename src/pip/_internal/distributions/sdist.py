@@ -8,6 +8,7 @@ from pip._internal.build_env import BuildEnvironment
 from pip._internal.distributions.base import AbstractDistribution
 from pip._internal.exceptions import InstallationError
 from pip._internal.metadata import BaseDistribution
+from pip._internal.utils.packaging.requirements import Requirement
 from pip._internal.utils.subprocess import runner_with_spinner_message
 
 if TYPE_CHECKING:
@@ -96,18 +97,18 @@ class SourceDistribution(AbstractDistribution):
             logger.warning(
                 "The project does not specify a build backend, and "
                 "pip cannot fall back to setuptools without %s.",
-                " and ".join(map(repr, sorted(missing))),
+                " and ".join(map(repr, sorted(missing, key=str))),
             )
 
-    def _get_build_requires_wheel(self) -> Iterable[str]:
+    def _get_build_requires_wheel(self) -> Iterable[Requirement]:
         with self.req.build_env:
             runner = runner_with_spinner_message("Getting requirements to build wheel")
             backend = self.req.pep517_backend
             assert backend is not None
             with backend.subprocess_runner(runner):
-                return backend.get_requires_for_build_wheel()
+                return map(Requirement.parse, backend.get_requires_for_build_wheel())
 
-    def _get_build_requires_editable(self) -> Iterable[str]:
+    def _get_build_requires_editable(self) -> Iterable[Requirement]:
         with self.req.build_env:
             runner = runner_with_spinner_message(
                 "Getting requirements to build editable"
@@ -115,7 +116,7 @@ class SourceDistribution(AbstractDistribution):
             backend = self.req.pep517_backend
             assert backend is not None
             with backend.subprocess_runner(runner):
-                return backend.get_requires_for_build_editable()
+                return map(Requirement.parse, backend.get_requires_for_build_editable())
 
     def _install_build_reqs(
         self, build_env_installer: BuildEnvironmentInstaller
@@ -139,7 +140,9 @@ class SourceDistribution(AbstractDistribution):
         )
 
     def _raise_conflicts(
-        self, conflicting_with: str, conflicting_reqs: set[tuple[str, str]]
+        self,
+        conflicting_with: str,
+        conflicting_reqs: Iterable[tuple[Requirement, Requirement]],
     ) -> None:
         format_string = (
             "Some build dependencies for {requirement} "
@@ -150,16 +153,19 @@ class SourceDistribution(AbstractDistribution):
             conflicting_with=conflicting_with,
             description=", ".join(
                 f"{installed} is incompatible with {wanted}"
-                for installed, wanted in sorted(conflicting_reqs)
+                for installed, wanted in sorted(
+                    conflicting_reqs,
+                    key=lambda rs: tuple(map(str, rs)),
+                )
             ),
         )
         raise InstallationError(error_message)
 
-    def _raise_missing_reqs(self, missing: set[str]) -> None:
+    def _raise_missing_reqs(self, missing: Iterable[Requirement]) -> None:
         format_string = (
             "Some build dependencies for {requirement} are missing: {missing}."
         )
         error_message = format_string.format(
-            requirement=self.req, missing=", ".join(map(repr, sorted(missing)))
+            requirement=self.req, missing=", ".join(map(repr, sorted(missing, key=str)))
         )
         raise InstallationError(error_message)

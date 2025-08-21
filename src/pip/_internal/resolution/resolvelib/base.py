@@ -1,18 +1,22 @@
 from __future__ import annotations
 
+import functools
 from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Optional
-
-from pip._vendor.packaging.specifiers import SpecifierSet
-from pip._vendor.packaging.utils import NormalizedName
-from pip._vendor.packaging.version import Version
+from typing import TYPE_CHECKING
 
 from pip._internal.models.link import Link, links_equivalent
 from pip._internal.req.req_install import InstallRequirement
 from pip._internal.utils.hashes import Hashes
+from pip._internal.utils.packaging.specifiers import SpecifierSet
+from pip._internal.utils.packaging.version import ParsedVersion
 
-CandidateLookup = tuple[Optional["Candidate"], Optional[InstallRequirement]]
+if TYPE_CHECKING:
+    from typing_extensions import Self
+
+    from pip._vendor.packaging.utils import NormalizedName
+
+    CandidateLookup = tuple["Candidate" | None, InstallRequirement | None]
 
 
 def format_name(project: NormalizedName, extras: frozenset[NormalizedName]) -> str:
@@ -28,14 +32,15 @@ class Constraint:
     hashes: Hashes
     links: frozenset[Link]
 
-    @classmethod
-    def empty(cls) -> Constraint:
-        return Constraint(SpecifierSet(), Hashes(), frozenset())
+    @staticmethod
+    @functools.cache
+    def empty() -> Constraint:
+        return Constraint(SpecifierSet.empty(), Hashes(), frozenset())
 
     @classmethod
-    def from_ireq(cls, ireq: InstallRequirement) -> Constraint:
+    def from_ireq(cls, ireq: InstallRequirement) -> Self:
         links = frozenset([ireq.link]) if ireq.link else frozenset()
-        return Constraint(ireq.specifier, ireq.hashes(trust_internet=False), links)
+        return cls(ireq.specifier, ireq.hashes(trust_internet=False), links)
 
     def __bool__(self) -> bool:
         return bool(self.specifier) or bool(self.hashes) or bool(self.links)
@@ -48,7 +53,7 @@ class Constraint:
         links = self.links
         if other.link:
             links = links.union([other.link])
-        return Constraint(specifier, hashes, links)
+        return self.__class__(specifier, hashes, links)
 
     def is_satisfied_by(self, candidate: Candidate) -> bool:
         # Reject if there are any mismatched URL constraints on this package.
@@ -117,7 +122,7 @@ class Candidate:
         raise NotImplementedError("Override in subclass")
 
     @property
-    def version(self) -> Version:
+    def version(self) -> ParsedVersion:
         raise NotImplementedError("Override in subclass")
 
     @property

@@ -1,13 +1,19 @@
 from __future__ import annotations
 
+import functools
 import sys
+from collections.abc import Iterable
+from dataclasses import dataclass
+from typing import Any
 
 from pip._vendor.packaging.tags import Tag
 
 from pip._internal.utils.compatibility_tags import get_supported, version_info_to_nodot
 from pip._internal.utils.misc import normalize_version_info
+from pip._internal.utils.packaging.version import ParsedVersion
 
 
+@dataclass(frozen=True)
 class TargetPython:
     """
     Encapsulates the properties of a Python interpreter one is targeting
@@ -19,62 +25,120 @@ class TargetPython:
         "abis",
         "implementation",
         "platforms",
-        "py_version",
-        "py_version_info",
-        "_valid_tags",
-        "_valid_tags_set",
+        "__dict__",
     ]
 
-    def __init__(
-        self,
-        platforms: list[str] | None = None,
+    _given_py_version_info: tuple[int, ...] | None
+    abis: tuple[str, ...] | None
+    implementation: str | None
+    platforms: tuple[str, ...] | None
+
+    def __post_init__(self) -> None:
+        if self._given_py_version_info is not None:
+            assert self._given_py_version_info
+        if self.abis is not None:
+            assert self.abis
+        if self.implementation is not None:
+            assert self.implementation
+        if self.platforms is not None:
+            assert self.platforms
+
+    @functools.cached_property
+    def _hash(self) -> int:
+        return hash(
+            (
+                self._given_py_version_info,
+                self.abis,
+                self.implementation,
+                self.platforms,
+            )
+        )
+
+    def __hash__(self) -> int:
+        return self._hash
+
+    def __eq__(self, other: Any) -> bool:
+        if not isinstance(other, self.__class__):
+            return NotImplemented
+        return (
+            hash(self) == hash(other)
+            and self._given_py_version_info == other._given_py_version_info
+            and self.abis == other.abis
+            and self.implementation == other.implementation
+            and self.platforms == other.platforms
+        )
+
+    @staticmethod
+    @functools.cache
+    def _cached_create(
+        py_version_info: tuple[int, ...] | None,
+        abis: tuple[str, ...] | None,
+        implementation: str | None,
+        platforms: tuple[str, ...] | None,
+    ) -> TargetPython:
+        return TargetPython(
+            _given_py_version_info=py_version_info,
+            abis=abis,
+            implementation=implementation,
+            platforms=platforms,
+        )
+
+    @classmethod
+    def create(
+        cls,
+        platforms: Iterable[str] | None = None,
         py_version_info: tuple[int, ...] | None = None,
-        abis: list[str] | None = None,
+        abis: Iterable[str] | None = None,
         implementation: str | None = None,
-    ) -> None:
+    ) -> TargetPython:
         """
-        :param platforms: A list of strings or None. If None, searches for
+        :param platforms: An iterable of strings or None. If None, matches
             packages that are supported by the current system. Otherwise, will
-            find packages that can be built on the platforms passed in. These
-            packages will only be downloaded for distribution: they will
+            match packages that can be built on the platforms passed in. The packages
+            matched will only ever be downloaded for distribution: they will
             not be built locally.
         :param py_version_info: An optional tuple of ints representing the
             Python version information to use (e.g. `sys.version_info[:3]`).
             This can have length 1, 2, or 3 when provided.
-        :param abis: A list of strings or None. This is passed to
-            compatibility_tags.py's get_supported() function as is.
+        :param abis: An iterable of strings or None. This is passed to
+            compatibility_tags.py's get_supported() function after converting a non-None
+            iterable to tuple.
         :param implementation: A string or None. This is passed to
             compatibility_tags.py's get_supported() function as is.
         """
-        # Store the given py_version_info for when we call get_supported().
-        self._given_py_version_info = py_version_info
+        if abis is not None:
+            abis = tuple(sorted(frozenset(abis)))
+        if platforms is not None:
+            platforms = tuple(sorted(frozenset(platforms)))
+        return cls._cached_create(
+            py_version_info=py_version_info or None,
+            abis=abis or None,
+            implementation=implementation or None,
+            platforms=platforms or None,
+        )
 
-        if py_version_info is None:
-            py_version_info = sys.version_info[:3]
-        else:
-            py_version_info = normalize_version_info(py_version_info)
+    @functools.cached_property
+    def py_version_info(self) -> tuple[int, int, int]:
+        if self._given_py_version_info is None:
+            return sys.version_info[:3]
+        return normalize_version_info(self._given_py_version_info)
 
-        py_version = ".".join(map(str, py_version_info[:2]))
+    @functools.cached_property
+    def full_py_version(self) -> ParsedVersion:
+        return ParsedVersion.parse(".".join(map(str, self.py_version_info)))
 
-        self.abis = abis
-        self.implementation = implementation
-        self.platforms = platforms
-        self.py_version = py_version
-        self.py_version_info = py_version_info
+    @functools.cached_property
+    def py_version(self) -> ParsedVersion:
+        return ParsedVersion.parse(".".join(map(str, self.py_version_info[:2])))
 
-        # This is used to cache the return value of get_(un)sorted_tags.
-        self._valid_tags: list[Tag] | None = None
-        self._valid_tags_set: set[Tag] | None = None
-
+    @functools.cached_property
     def format_given(self) -> str:
         """
         Format the given, non-None attributes for display.
         """
         display_version = None
         if self._given_py_version_info is not None:
-            display_version = ".".join(
-                str(part) for part in self._given_py_version_info
-            )
+            display_version = ".".join(map(str, self._given_py_version_info))
 
         key_values = [
             ("platforms", self.platforms),
@@ -86,37 +150,39 @@ class TargetPython:
             f"{key}={value!r}" for key, value in key_values if value is not None
         )
 
-    def get_sorted_tags(self) -> list[Tag]:
+    @functools.cached_property
+    def sorted_tags(self) -> tuple[Tag, ...]:
         """
         Return the supported PEP 425 tags to check wheel candidates against.
 
         The tags are returned in order of preference (most preferred first).
         """
-        if self._valid_tags is None:
-            # Pass versions=None if no py_version_info was given since
-            # versions=None uses special default logic.
-            py_version_info = self._given_py_version_info
-            if py_version_info is None:
-                version = None
-            else:
-                version = version_info_to_nodot(py_version_info)
+        # Pass version=None if no py_version_info was given since
+        # version=None uses special default logic.
+        version = None
+        if self._given_py_version_info is not None:
+            version = version_info_to_nodot(self._given_py_version_info)
 
-            tags = get_supported(
-                version=version,
-                platforms=self.platforms,
-                abis=self.abis,
-                impl=self.implementation,
-            )
-            self._valid_tags = tags
+        return get_supported(
+            version=version,
+            platforms=self.platforms,
+            abis=self.abis,
+            impl=self.implementation,
+        )
 
-        return self._valid_tags
+    @functools.cached_property
+    def tag_preferences(self) -> dict[Tag, int]:
+        """
+        Since the index of the tag in the _supported_tags list is used
+        as a priority, precompute a map from tag to index/priority to be
+        used in wheel.find_most_preferred_tag.
+        """
+        return {tag: idx for idx, tag in enumerate(self.sorted_tags)}
 
-    def get_unsorted_tags(self) -> set[Tag]:
+    @functools.cached_property
+    def unsorted_tags(self) -> frozenset[Tag]:
         """Exactly the same as get_sorted_tags, but returns a set.
 
         This is important for performance.
         """
-        if self._valid_tags_set is None:
-            self._valid_tags_set = set(self.get_sorted_tags())
-
-        return self._valid_tags_set
+        return frozenset(self.sorted_tags)

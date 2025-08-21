@@ -110,7 +110,7 @@ class Package:
             elif isinstance(download_info.info, DirInfo):
                 package.directory = PackageDirectory(
                     path=(
-                        Path(url_to_path(download_info.url))
+                        Path(url_to_path(download_info.parsed_url))
                         .resolve()
                         .relative_to(base_dir)
                         .as_posix()

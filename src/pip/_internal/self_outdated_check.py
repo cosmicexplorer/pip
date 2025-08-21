@@ -11,8 +11,6 @@ import sys
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from pip._vendor.packaging.version import Version
-from pip._vendor.packaging.version import parse as parse_version
 from pip._vendor.rich.console import Group
 from pip._vendor.rich.markup import escape
 from pip._vendor.rich.text import Text
@@ -38,6 +36,7 @@ from pip._internal.utils.misc import (
     check_externally_managed,
     ensure_dir,
 )
+from pip._internal.utils.packaging.version import ParsedVersion
 
 _WEEK = datetime.timedelta(days=7)
 
@@ -205,7 +204,7 @@ def _self_version_check_logic(
     *,
     state: SelfCheckState,
     current_time: datetime.datetime,
-    local_version: Version,
+    local_version: ParsedVersion,
     get_remote_version: Callable[[], str | None],
 ) -> UpgradePrompt | None:
     remote_version_str = state.get(current_time)
@@ -216,7 +215,7 @@ def _self_version_check_logic(
             return None
         state.set(remote_version_str, current_time)
 
-    remote_version = parse_version(remote_version_str)
+    remote_version = ParsedVersion.parse(remote_version_str)
     logger.debug("Remote version of pip: %s", remote_version)
     logger.debug("Local version of pip:  %s", local_version)
 

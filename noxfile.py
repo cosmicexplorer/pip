@@ -176,7 +176,7 @@ def lint(session: nox.Session) -> None:
     session.install("pre-commit")
 
     if session.posargs:
-        args = session.posargs + ["--all-files"]
+        args = session.posargs
     else:
         args = ["--all-files", "--show-diff-on-failure"]
 

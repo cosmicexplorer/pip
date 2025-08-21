@@ -45,7 +45,7 @@ from pip._internal.network.cache import SafeFileCache
 from pip._internal.utils.compat import has_tls
 from pip._internal.utils.glibc import libc_ver
 from pip._internal.utils.misc import build_url_from_netloc, parse_netloc
-from pip._internal.utils.urls import url_to_path
+from pip._internal.utils.urls import ParsedUrl, url_to_path
 
 if TYPE_CHECKING:
     from ssl import SSLContext
@@ -217,7 +217,7 @@ class LocalFSAdapter(BaseAdapter):
         cert: str | tuple[str, str] | None = None,
         proxies: Mapping[str, str] | None = None,
     ) -> Response:
-        pathname = url_to_path(request.url)
+        pathname = url_to_path(ParsedUrl.parse(request.url))
 
         resp = Response()
         resp.status_code = 200

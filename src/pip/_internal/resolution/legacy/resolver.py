@@ -20,7 +20,6 @@ from itertools import chain
 from typing import Optional
 
 from pip._vendor.packaging import specifiers
-from pip._vendor.packaging.requirements import Requirement
 
 from pip._internal.cache import WheelCache
 from pip._internal.exceptions import (
@@ -35,7 +34,8 @@ from pip._internal.exceptions import (
 from pip._internal.index.package_finder import PackageFinder
 from pip._internal.metadata import BaseDistribution
 from pip._internal.models.link import Link
-from pip._internal.models.wheel import Wheel
+from pip._internal.models.target_python import TargetPython
+from pip._internal.models.wheel import WheelInfo
 from pip._internal.operations.prepare import RequirementPreparer
 from pip._internal.req.req_install import (
     InstallRequirement,
@@ -43,12 +43,11 @@ from pip._internal.req.req_install import (
 )
 from pip._internal.req.req_set import RequirementSet
 from pip._internal.resolution.base import BaseResolver, InstallRequirementProvider
-from pip._internal.utils import compatibility_tags
-from pip._internal.utils.compatibility_tags import get_supported
 from pip._internal.utils.direct_url_helpers import direct_url_from_link
 from pip._internal.utils.logging import indent_log
 from pip._internal.utils.misc import normalize_version_info
-from pip._internal.utils.packaging import check_requires_python
+from pip._internal.utils.packaging.requirements import Requirement
+from pip._internal.utils.packaging_utils import check_requires_python
 
 logger = logging.getLogger(__name__)
 
@@ -226,11 +225,12 @@ class Resolver(BaseResolver):
         # allow specifying different wheels based on the environment/OS, in a
         # single requirements file.
         if install_req.link and install_req.link.is_wheel:
-            wheel = Wheel(install_req.link.filename)
-            tags = compatibility_tags.get_supported()
-            if requirement_set.check_supported_wheels and not wheel.supported(tags):
+            filename = install_req.link.filename
+            wheel = WheelInfo.parse_filename(filename)
+            py = TargetPython.create()
+            if requirement_set.check_supported_wheels and not wheel.supported(py):
                 raise InstallationError(
-                    f"{wheel.filename} is not a supported wheel on this platform."
+                    f"{filename} is not a supported wheel on this platform."
                 )
 
         # This next bit is really a sanity check.
@@ -423,7 +423,7 @@ class Resolver(BaseResolver):
         cache_entry = self.wheel_cache.get_cache_entry(
             link=req.link,
             package_name=req.name,
-            supported_tags=get_supported(),
+            py=TargetPython.create(),
         )
         if cache_entry is not None:
             logger.debug("Using cached wheel link: %s", cache_entry.link)
