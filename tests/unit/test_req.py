@@ -51,7 +51,7 @@ from pip._internal.req.req_file import (
     handle_requirement_line,
 )
 from pip._internal.resolution.legacy.resolver import Resolver
-from pip._internal.utils.urls import path_to_url
+from pip._internal.utils.urls import ParsedUrl, path_to_url
 
 from tests.lib import TestData, make_test_finder, requirements_file, wheel
 
@@ -225,7 +225,7 @@ class TestRequirementSet:
         dir_path = data.packages.joinpath("FSPkg")
         reqset.add_unnamed_requirement(
             get_processed_req_from_line(
-                path_to_url(str(dir_path)),
+                str(path_to_url(str(dir_path))),
                 lineno=2,
             )
         )
@@ -700,7 +700,7 @@ class TestInstallRequirement:
         assert req.extras == {"ex1", "ex2"}
 
     def test_extras_for_line_url_requirement(self) -> None:
-        line = "git+https://url#egg=SomeProject[ex1,ex2]"
+        line = "git+https://url.org#egg=SomeProject[ex1,ex2]"
         filename = "filename"
         comes_from = f"-r {filename} (line 1)"
         req = install_req_from_line(line, comes_from=comes_from)
@@ -716,7 +716,7 @@ class TestInstallRequirement:
         assert req.extras == {"ex1", "ex2"}
 
     def test_extras_for_editable_url_requirement(self) -> None:
-        url = "git+https://url#egg=SomeProject[ex1,ex2]"
+        url = "git+https://url.org#egg=SomeProject[ex1,ex2]"
         filename = "filename"
         comes_from = f"-r {filename} (line 1)"
         req = install_req_from_editable(url, comes_from=comes_from)
@@ -850,58 +850,61 @@ class TestInstallRequirement:
         assert extended.permit_editable_wheels == req.permit_editable_wheels
 
 
+@mock.patch("pip._internal.req.req_install.os.path.normpath")
 @mock.patch("pip._internal.req.req_install.os.path.abspath")
-@mock.patch("pip._internal.req.req_install.os.path.exists")
 @mock.patch("pip._internal.req.req_install.os.path.isdir")
 def test_parse_editable_local(
-    isdir_mock: mock.Mock, exists_mock: mock.Mock, abspath_mock: mock.Mock
+    isdir_mock: mock.Mock,
+    abspath_mock: mock.Mock,
+    normpath_mock: mock.Mock,
 ) -> None:
-    exists_mock.return_value = isdir_mock.return_value = True
+    path_to_url.cache_clear()
+    isdir_mock.return_value = True
     # mocks needed to support path operations on windows tests
-    abspath_mock.return_value = "/some/path"
-    assert parse_editable(".") == (None, "file:///some/path", set())
-    abspath_mock.return_value = "/some/path/foo"
+    normpath_mock.return_value = abspath_mock.return_value = "/some/path"
+    assert parse_editable(".") == (Link("file:///some/path"), frozenset())
+    normpath_mock.return_value = abspath_mock.return_value = "/some/path/foo"
     assert parse_editable("foo") == (
-        None,
-        "file:///some/path/foo",
-        set(),
+        Link("file:///some/path/foo"),
+        frozenset(),
     )
 
 
 def test_parse_editable_explicit_vcs() -> None:
     assert parse_editable("svn+https://foo#egg=foo") == (
-        "foo",
-        "svn+https://foo#egg=foo",
-        set(),
+        Link("svn+https://foo#egg=foo"),
+        frozenset(),
     )
+    assert Link("svn+https://foo#egg=foo").egg_fragment == "foo"
 
 
 def test_parse_editable_vcs_extras() -> None:
     assert parse_editable("svn+https://foo#egg=foo[extras]") == (
-        "foo[extras]",
-        "svn+https://foo#egg=foo[extras]",
-        set(),
+        Link("svn+https://foo#egg=foo[extras]"),
+        frozenset(),
     )
+    assert Link("svn+https://foo#egg=foo[extras]").egg_fragment == "foo[extras]"
 
 
+@mock.patch("pip._internal.req.req_install.os.path.normpath")
 @mock.patch("pip._internal.req.req_install.os.path.abspath")
-@mock.patch("pip._internal.req.req_install.os.path.exists")
 @mock.patch("pip._internal.req.req_install.os.path.isdir")
 def test_parse_editable_local_extras(
-    isdir_mock: mock.Mock, exists_mock: mock.Mock, abspath_mock: mock.Mock
+    isdir_mock: mock.Mock,
+    abspath_mock: mock.Mock,
+    normpath_mock: mock.Mock,
 ) -> None:
-    exists_mock.return_value = isdir_mock.return_value = True
-    abspath_mock.return_value = "/some/path"
+    path_to_url.cache_clear()
+    isdir_mock.return_value = True
+    normpath_mock.return_value = abspath_mock.return_value = "/some/path"
     assert parse_editable(".[extras]") == (
-        None,
-        "file:///some/path",
-        {"extras"},
+        Link("file:///some/path"),
+        frozenset({"extras"}),
     )
-    abspath_mock.return_value = "/some/path/foo"
+    normpath_mock.return_value = abspath_mock.return_value = "/some/path/foo"
     assert parse_editable("foo[bar,baz]") == (
-        None,
-        "file:///some/path/foo",
-        {"bar", "baz"},
+        Link("file:///some/path/foo"),
+        frozenset({"bar", "baz"}),
     )
 
 
@@ -1017,7 +1020,7 @@ def test_get_url_from_path__archive_file(
     isdir_mock.return_value = False
     isfile_mock.return_value = True
     name = "simple-0.1-py2.py3-none-any.whl"
-    url = Path(f"/path/to/{name}").resolve(strict=False).as_uri()
+    url = ParsedUrl.parse(Path(f"/path/to/{name}").resolve(strict=False).as_uri())
     assert _get_url_from_path(f"/path/to/{name}", name) == url
 
 
@@ -1029,7 +1032,7 @@ def test_get_url_from_path__installable_dir(
     isdir_mock.return_value = True
     isfile_mock.return_value = True
     name = "some/setuptools/project"
-    url = Path(f"/path/to/{name}").resolve(strict=False).as_uri()
+    url = ParsedUrl.parse(Path(f"/path/to/{name}").resolve(strict=False).as_uri())
     assert _get_url_from_path(f"/path/to/{name}", name) == url
 
 

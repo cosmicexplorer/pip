@@ -107,7 +107,7 @@ class Bazaar(VersionControl):
                 if line.startswith(x):
                     repo = line.split(x)[1]
                     if cls._is_local_repository(repo):
-                        return path_to_url(repo)
+                        return str(path_to_url(repo))
                     return repo
         raise RemoteNotFoundError
 

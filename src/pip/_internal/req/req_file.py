@@ -26,6 +26,7 @@ from typing import (
 from pip._internal.cli import cmdoptions
 from pip._internal.exceptions import InstallationError, RequirementsFileParseError
 from pip._internal.models.search_scope import SearchScope
+from pip._internal.utils.logging import getLogger
 
 if TYPE_CHECKING:
     from pip._internal.index.package_finder import PackageFinder
@@ -96,7 +97,7 @@ BOMS: list[tuple[bytes, str]] = [
 PEP263_ENCODING_RE = re.compile(rb"coding[:=]\s*([-\w.]+)")
 DEFAULT_ENCODING = "utf-8"
 
-logger = logging.getLogger(__name__)
+logger = getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -431,7 +432,7 @@ def get_line_parser(finder: PackageFinder | None) -> LineParser:
         defaults = parser.get_default_values()
         defaults.index_url = None
         if finder:
-            defaults.format_control = finder.format_control
+            defaults.format_control = finder.format_control.unbuild()
 
         args_str, options_str = break_args_options(line)
 
@@ -441,6 +442,19 @@ def get_line_parser(finder: PackageFinder | None) -> LineParser:
             raise OptionParsingError(f"Could not split options: {options_str}") from e
 
         opts, _ = parser.parse_args(options, defaults)
+
+        if finder:
+            new_format_control = opts.format_control.build()
+            if new_format_control != finder.format_control:
+                logger.verbose(
+                    "Dependency format options changed from line '%s':\n"
+                    "previous: %s\n"
+                    "current: %s\n",
+                    line,
+                    finder.format_control,
+                    new_format_control,
+                )
+                finder.format_control = new_format_control
 
         return args_str, opts
 

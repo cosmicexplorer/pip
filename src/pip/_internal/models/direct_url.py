@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import functools
 import json
 import re
 import urllib.parse
 from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any, ClassVar, TypeVar, Union
+
+from pip._internal.utils.urls import ParsedUrl
 
 __all__ = [
     "DirectUrl",
@@ -163,6 +166,10 @@ class DirectUrl:
     url: str
     info: InfoType
     subdirectory: str | None = None
+
+    @functools.cached_property
+    def parsed_url(self) -> ParsedUrl:
+        return ParsedUrl.parse(self.url)
 
     def _remove_auth_from_netloc(self, netloc: str) -> str:
         if "@" not in netloc:

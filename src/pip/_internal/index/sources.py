@@ -17,8 +17,8 @@ from pip._vendor.packaging.utils import (
 
 from pip._internal.models.candidate import InstallationCandidate
 from pip._internal.models.link import Link
-from pip._internal.utils.urls import path_to_url, url_to_path
-from pip._internal.vcs import is_url
+from pip._internal.utils.urls import ParsedUrl, path_to_url, url_to_path
+from pip._internal.vcs import try_parse_url
 
 logger = logging.getLogger(__name__)
 
@@ -43,8 +43,8 @@ class LinkSource:
         raise NotImplementedError()
 
 
-def _is_html_file(file_url: str) -> bool:
-    return mimetypes.guess_type(file_url, strict=False)[0] == "text/html"
+def _is_html_file(file_url: ParsedUrl) -> bool:
+    return mimetypes.guess_type(str(file_url), strict=False)[0] == "text/html"
 
 
 class _FlatDirectoryToUrls:
@@ -52,8 +52,8 @@ class _FlatDirectoryToUrls:
 
     def __init__(self, path: str) -> None:
         self._path = path
-        self._page_candidates: list[str] = []
-        self._project_name_to_urls: dict[str, list[str]] = defaultdict(list)
+        self._page_candidates: list[ParsedUrl] = []
+        self._project_name_to_urls: dict[str, list[ParsedUrl]] = defaultdict(list)
         self._scanned_directory = False
 
     def _scan_directory(self) -> None:
@@ -80,14 +80,14 @@ class _FlatDirectoryToUrls:
         self._scanned_directory = True
 
     @property
-    def page_candidates(self) -> list[str]:
+    def page_candidates(self) -> list[ParsedUrl]:
         if not self._scanned_directory:
             self._scan_directory()
 
         return self._page_candidates
 
     @property
-    def project_name_to_urls(self) -> dict[str, list[str]]:
+    def project_name_to_urls(self) -> dict[str, list[ParsedUrl]]:
         if not self._scanned_directory:
             self._scan_directory()
 
@@ -157,12 +157,12 @@ class _LocalFileSource(LinkSource):
         return self._link
 
     def page_candidates(self) -> FoundCandidates:
-        if not _is_html_file(self._link.url):
+        if not _is_html_file(self._link.parsed_url):
             return
         yield from self._candidates_from_page(self._link)
 
     def file_links(self) -> FoundLinks:
-        if _is_html_file(self._link.url):
+        if _is_html_file(self._link.parsed_url):
             return
         yield self._link
 
@@ -233,17 +233,17 @@ def build_source(
     expand_dir: bool,
     cache_link_parsing: bool,
     project_name: str,
-) -> tuple[str | None, LinkSource | None]:
+) -> tuple[ParsedUrl | None, LinkSource | None]:
     path: str | None = None
-    url: str | None = None
+    url: ParsedUrl | None = None
     if os.path.exists(location):  # Is a local path.
         url = path_to_url(location)
         path = location
     elif location.startswith("file:"):  # A file: URL.
-        url = location
-        path = url_to_path(location)
-    elif is_url(location):
-        url = location
+        url = ParsedUrl.parse(location)
+        path = url_to_path(url)
+    elif url := try_parse_url(location):
+        pass
 
     if url is None:
         msg = (

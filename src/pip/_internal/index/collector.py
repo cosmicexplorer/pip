@@ -34,6 +34,7 @@ from pip._internal.network.session import PipSession
 from pip._internal.network.utils import raise_for_status
 from pip._internal.utils.filetypes import is_archive_file
 from pip._internal.utils.misc import redact_auth_from_url
+from pip._internal.utils.urls import ParsedUrl
 from pip._internal.vcs import vcs
 
 from .sources import CandidatesFromPage, LinkSource, build_source
@@ -258,11 +259,25 @@ class IndexContent:
     content: bytes
     content_type: str
     encoding: str | None
-    url: str
-    cache_link_parsing: bool = True
+    url: ParsedUrl
+    cache_link_parsing: bool
+
+    def __init__(
+        self,
+        content: bytes,
+        content_type: str,
+        encoding: str | None,
+        url: str,
+        cache_link_parsing: bool = True,
+    ) -> None:
+        object.__setattr__(self, "content", content)
+        object.__setattr__(self, "content_type", content_type)
+        object.__setattr__(self, "encoding", encoding)
+        object.__setattr__(self, "url", ParsedUrl.parse(url).ensure_quoted_path())
+        object.__setattr__(self, "cache_link_parsing", cache_link_parsing)
 
     def __str__(self) -> str:
-        return redact_auth_from_url(self.url)
+        return str(self.url.with_redacted_auth_info)
 
 
 class HTMLLinkParser(HTMLParser):
@@ -271,18 +286,18 @@ class HTMLLinkParser(HTMLParser):
     elements' attributes.
     """
 
-    def __init__(self, url: str) -> None:
+    def __init__(self, url: ParsedUrl) -> None:
         super().__init__(convert_charrefs=True)
 
-        self.url: str = url
-        self.base_url: str | None = None
+        self.url: ParsedUrl = url
+        self.base_url: ParsedUrl | None = None
         self.anchors: list[dict[str, str | None]] = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         if tag == "base" and self.base_url is None:
             href = self.get_href(attrs)
             if href is not None:
-                self.base_url = href
+                self.base_url = ParsedUrl.parse(href).ensure_quoted_path()
         elif tag == "a":
             self.anchors.append(dict(attrs))
 

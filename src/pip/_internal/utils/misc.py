@@ -414,6 +414,7 @@ def build_url_from_netloc(netloc: str, scheme: str = "https") -> str:
     return f"{scheme}://{netloc}"
 
 
+@functools.cache
 def parse_netloc(netloc: str) -> tuple[str | None, int | None]:
     """
     Return the host-port pair from a netloc.
@@ -423,6 +424,7 @@ def parse_netloc(netloc: str) -> tuple[str | None, int | None]:
     return parsed.hostname, parsed.port
 
 
+@functools.cache
 def split_auth_from_netloc(netloc: str) -> NetlocTuple:
     """
     Parse out and remove the auth information from a netloc.
@@ -452,6 +454,7 @@ def split_auth_from_netloc(netloc: str) -> NetlocTuple:
     return netloc, (user, pw)
 
 
+@functools.cache
 def redact_netloc(netloc: str) -> str:
     """
     Replace the sensitive data in a netloc with "****", if it exists.
@@ -500,6 +503,7 @@ def _redact_netloc(netloc: str) -> tuple[str]:
     return (redact_netloc(netloc),)
 
 
+@functools.cache
 def split_auth_netloc_from_url(
     url: str,
 ) -> tuple[str, str, tuple[str | None, str | None]]:
@@ -512,6 +516,7 @@ def split_auth_netloc_from_url(
     return url_without_auth, netloc, auth
 
 
+@functools.cache
 def remove_auth_from_url(url: str) -> str:
     """Return a copy of url with 'username:password@' removed."""
     # username/pass params are passed to subversion through flags
@@ -519,6 +524,7 @@ def remove_auth_from_url(url: str) -> str:
     return _transform_url(url, _get_netloc)[0]
 
 
+@functools.cache
 def redact_auth_from_url(url: str) -> str:
     """Replace the password in a given url with ****."""
     return _transform_url(url, _redact_netloc)[0]

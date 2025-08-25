@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import re
+import urllib.parse
 import uuid
 from pathlib import Path
 from textwrap import dedent
@@ -37,6 +38,7 @@ from pip._internal.models.link import (
     _ensure_quoted_url,
 )
 from pip._internal.network.session import PipSession
+from pip._internal.utils.urls import ParsedUrl
 
 from tests.lib import (
     TestData,
@@ -750,7 +752,7 @@ def test_make_index_content() -> None:
     actual = _make_index_content(response)
     assert actual.content == b"<content>"
     assert actual.encoding == "UTF-8"
-    assert actual.url == "https://example.com/index.html"
+    assert str(actual.url) == "https://example.com/index.html"
 
 
 @pytest.mark.parametrize(
@@ -855,7 +857,7 @@ def test_get_index_content_directory_append_index(tmpdir: Path) -> None:
         assert actual is not None
         assert actual.content == fake_response.content
         assert actual.encoding is None
-        assert actual.url == expected_url
+        assert str(actual.url) == expected_url
 
 
 def test_collect_sources__file_expand_dir(data: TestData) -> None:
@@ -958,7 +960,7 @@ class TestLinkCollector:
         assert actual is not None
         assert actual.content == fake_response.content
         assert actual.encoding is None
-        assert actual.url == url
+        assert str(actual.url) == url
         assert actual.cache_link_parsing == location.cache_link_parsing
 
         # Also check that the right session object was passed to
@@ -1175,7 +1177,8 @@ def test_link_collector_create_find_links_expansion(
     ],
 )
 def test_link_hash_parsing(url: str, result: LinkHash | None) -> None:
-    assert LinkHash.find_hash_url_fragment(url) == result
+    fragments = urllib.parse.parse_qs(ParsedUrl.parse(url).fragment)
+    assert LinkHash.find_hash_url_fragment(fragments) == result
 
 
 @pytest.mark.parametrize(
@@ -1198,8 +1201,8 @@ def test_metadata_file_info_parsing_html(
         "href": "something",
         "data-dist-info-metadata": metadata_attrib,
     }
-    page_url = "dummy_for_comes_from"
-    base_url = "https://index.url/simple"
+    page_url = ParsedUrl.parse("dummy_for_comes_from")
+    base_url = ParsedUrl.parse("https://index.url/simple")
     link = Link.from_element(attribs, page_url, base_url)
     assert link is not None
     assert link.metadata_file_data == expected

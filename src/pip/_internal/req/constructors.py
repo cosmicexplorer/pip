@@ -30,8 +30,8 @@ from pip._internal.req.req_install import InstallRequirement
 from pip._internal.utils.filetypes import is_archive_file
 from pip._internal.utils.misc import is_installable_dir
 from pip._internal.utils.packaging import get_requirement
-from pip._internal.utils.urls import path_to_url
-from pip._internal.vcs import is_url, vcs
+from pip._internal.utils.urls import ParsedUrl, path_to_url
+from pip._internal.vcs import has_vcs_url_scheme, vcs
 
 __all__ = [
     "install_req_from_editable",
@@ -55,10 +55,11 @@ def _strip_extras(path: str) -> tuple[str, str | None]:
     return path_no_extras, extras
 
 
-def convert_extras(extras: str | None) -> set[str]:
+# TODO: what is "placeholder" and why does it work?
+def convert_extras(extras: str | None) -> frozenset[str]:
     if not extras:
-        return set()
-    return get_requirement("placeholder" + extras.lower()).extras
+        return frozenset()
+    return frozenset(get_requirement("placeholder" + extras.lower()).extras)
 
 
 def _set_requirement_extras(req: Requirement, new_extras: set[str]) -> Requirement:
@@ -86,7 +87,7 @@ def _set_requirement_extras(req: Requirement, new_extras: set[str]) -> Requireme
     return get_requirement(f"{pre}{extras}{post}")
 
 
-def parse_editable(editable_req: str) -> tuple[str | None, str, set[str]]:
+def parse_editable(editable_req: str) -> tuple[Link, frozenset[str]]:
     """Parses an editable requirement into:
         - a requirement name
         - an URL
@@ -97,48 +98,30 @@ def parse_editable(editable_req: str) -> tuple[str | None, str, set[str]]:
         .[some_extra]
     """
 
-    url = editable_req
-
     # If a file path is specified with extras, strip off the extras.
-    url_no_extras, extras = _strip_extras(url)
+    url_no_extras, extras = _strip_extras(editable_req)
 
+    parsed_url = None
+    # TODO: consider _looks_like_path()????
     if os.path.isdir(url_no_extras):
         # Treating it as code that has already been checked out
-        url_no_extras = path_to_url(url_no_extras)
+        parsed_url = path_to_url(url_no_extras)
+    elif url_no_extras.lower().startswith("file:"):
+        parsed_url = ParsedUrl.parse(url_no_extras)
 
-    if url_no_extras.lower().startswith("file:"):
-        package_name = Link(url_no_extras).egg_fragment
-        if extras:
-            return (
-                package_name,
-                url_no_extras,
-                get_requirement("placeholder" + extras.lower()).extras,
-            )
-        else:
-            return package_name, url_no_extras, set()
+    if parsed_url:
+        assert parsed_url.scheme == "file"
+        return Link(parsed_url), convert_extras(extras)
 
-    for version_control in vcs:
-        if url.lower().startswith(f"{version_control}:"):
-            url = f"{version_control}+{url}"
-            break
-
-    link = Link(url)
-
-    if not link.is_vcs:
+    if not has_vcs_url_scheme(url_no_extras):
         backends = ", ".join(vcs.all_schemes)
         raise InstallationError(
             f"{editable_req} is not a valid editable requirement. "
             f"It should either be a path to a local project or a VCS URL "
             f"(beginning with {backends})."
         )
-
-    package_name = link.egg_fragment
-    if not package_name:
-        raise InstallationError(
-            f"Could not detect requirement name for '{editable_req}', "
-            "please specify one with #egg=your_package_name"
-        )
-    return package_name, url, set()
+    # TODO: why no extras here? why is the egg fragment correct?
+    return Link(editable_req), frozenset()
 
 
 def check_first_requirement_in_file(filename: str) -> None:
@@ -199,12 +182,13 @@ class RequirementParts:
     requirement: Requirement | None
     link: Link | None
     markers: Marker | None
-    extras: set[str]
+    extras: frozenset[str]
 
 
 def parse_req_from_editable(editable_req: str) -> RequirementParts:
-    name, url, extras_override = parse_editable(editable_req)
+    link, extras_override = parse_editable(editable_req)
 
+    name = link.egg_fragment
     if name is not None:
         try:
             req: Requirement | None = get_requirement(name)
@@ -212,8 +196,6 @@ def parse_req_from_editable(editable_req: str) -> RequirementParts:
             raise InstallationError(f"Invalid requirement: {name!r}: {exc}")
     else:
         req = None
-
-    link = Link(url)
 
     return RequirementParts(req, link, None, extras_override)
 
@@ -272,7 +254,7 @@ def _looks_like_path(name: str) -> bool:
     return False
 
 
-def _get_url_from_path(path: str, name: str) -> str | None:
+def _get_url_from_path(path: str, name: str) -> ParsedUrl | None:
     """
     First, it checks whether a provided path is an installable directory. If it
     is, returns the path.
@@ -307,7 +289,8 @@ def _get_url_from_path(path: str, name: str) -> str | None:
 
 
 def parse_req_from_line(name: str, line_source: str | None) -> RequirementParts:
-    if is_url(name):
+    # import pdb; pdb.set_trace()
+    if has_vcs_url_scheme(name):
         marker_sep = "; "
     else:
         marker_sep = ";"
@@ -322,14 +305,14 @@ def parse_req_from_line(name: str, line_source: str | None) -> RequirementParts:
         markers = None
     name = name.strip()
     req_as_string = None
-    path = os.path.normpath(os.path.abspath(name))
     link = None
     extras_as_string = None
 
-    if is_url(name):
+    if has_vcs_url_scheme(name):
+        name, extras_as_string = _strip_extras(name)
         link = Link(name)
     else:
-        p, extras_as_string = _strip_extras(path)
+        p, extras_as_string = _strip_extras(name)
         url = _get_url_from_path(p, name)
         if url is not None:
             link = Link(url)
@@ -337,8 +320,9 @@ def parse_req_from_line(name: str, line_source: str | None) -> RequirementParts:
     # it's a local file, dir, or url
     if link:
         # Handle relative file URLs
+        # FIXME: optimize the reparsing here too!
         if link.scheme == "file" and re.search(r"\.\./", link.url):
-            link = Link(path_to_url(os.path.normpath(os.path.abspath(link.path))))
+            link = Link(path_to_url(link.path))
         # wheel file
         if link.is_wheel:
             wheel = WheelInfo.parse_filename(

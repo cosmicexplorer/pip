@@ -14,7 +14,7 @@ import logging
 import pathlib
 import re
 import sys
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from itertools import chain, groupby, repeat
 from typing import TYPE_CHECKING, Literal
 
@@ -593,7 +593,9 @@ class HashMismatch(HashError):
         "someone may have tampered with them."
     )
 
-    def __init__(self, allowed: dict[str, list[str]], gots: dict[str, _Hash]) -> None:
+    def __init__(
+        self, allowed: dict[str, frozenset[str]], gots: Mapping[str, _Hash]
+    ) -> None:
         """
         :param allowed: A dict of algorithm names pointing to lists of allowed
             hex digests
@@ -626,7 +628,9 @@ class HashMismatch(HashError):
         lines: list[str] = []
         for hash_name, expecteds in self.allowed.items():
             prefix = hash_then_or(hash_name)
-            lines.extend((f"        Expected {next(prefix)} {e}") for e in expecteds)
+            lines.extend(
+                (f"        Expected {next(prefix)} {e}") for e in sorted(expecteds)
+            )
             lines.append(
                 f"             Got        {self.gots[hash_name].hexdigest()}\n"
             )

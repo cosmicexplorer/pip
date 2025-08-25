@@ -6,6 +6,7 @@ from pip._vendor.packaging.tags import Tag, interpreter_name, interpreter_versio
 from pip._internal.cache import WheelCache, _hash_dict
 from pip._internal.models.link import Link
 from pip._internal.utils.misc import ensure_dir
+from pip._internal.utils.urls import ParsedUrl
 
 
 def test_falsey_path_none() -> None:
@@ -86,7 +87,7 @@ def test_link_to_cache(tmpdir: Path) -> None:
         "url": key_parts["url"],
         "yanked": False,
     }
-    page_url = "https://pypi.org/simple/netifaces/"
+    page_url = ParsedUrl.parse("https://pypi.org/simple/netifaces/")
     link = Link.from_json(file_data=file_data, page_url=page_url)
     assert link
     path = wc.get_path_for_link(link)
