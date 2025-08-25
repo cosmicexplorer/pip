@@ -32,7 +32,6 @@ from pip._internal.models.direct_url import (
 from pip._internal.utils.compat import stdlib_pkgs  # TODO: Move definition here.
 from pip._internal.utils.egg_link import egg_link_path_from_sys_path
 from pip._internal.utils.misc import is_local, normalize_path
-from pip._internal.utils.urls import url_to_path
 
 from ._json import msg_to_json
 
@@ -163,7 +162,7 @@ class BaseDistribution(Protocol):
         direct_url = self.direct_url
         if direct_url:
             if direct_url.is_local_editable():
-                return url_to_path(direct_url.url)
+                return direct_url.parsed_url.as_filesystem_path
         else:
             # Search for an .egg-link file by walking sys.path, as it was
             # done before by dist_is_editable().

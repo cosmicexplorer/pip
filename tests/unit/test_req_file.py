@@ -850,7 +850,7 @@ class TestParseRequirements:
             )
         )
         expected = FormatControlBuilder({"fred"}, {"wilma"})
-        assert finder.format_control == expected
+        assert finder.format_control == expected.build()
 
     def test_req_file_parse_comment_start_of_line(
         self, tmpdir: Path, finder: PackageFinder

@@ -668,9 +668,9 @@ def test_link_hash_pass_require_hashes(
 ) -> None:
     """Test that a good hash in user provided direct URL is
     considered valid for --require-hashes."""
-    url = path_to_url(str(shared_data.packages.joinpath("simple-1.0.tar.gz")))
+    parsed_url = path_to_url(str(shared_data.packages.joinpath("simple-1.0.tar.gz")))
     url = (
-        f"{url}#sha256="
+        f"{parsed_url}#sha256="
         "393043e672415891885c9a2a0929b1af95fb866d6ca016b42d2e6ce53619b653"
     )
     script.pip_install_local("--no-deps", "--require-hashes", url)
@@ -680,8 +680,8 @@ def test_bad_link_hash_install_failure(
     script: PipTestEnvironment, shared_data: TestData
 ) -> None:
     """Test that wrong hash in direct URL stops installation."""
-    url = path_to_url(str(shared_data.packages.joinpath("simple-1.0.tar.gz")))
-    url = f"{url}#sha256=invalidhash"
+    parsed_url = path_to_url(str(shared_data.packages.joinpath("simple-1.0.tar.gz")))
+    url = f"{parsed_url}#sha256=invalidhash"
     result = script.pip_install_local("--no-deps", url, expect_error=True)
     assert "THESE PACKAGES DO NOT MATCH THE HASHES" in result.stderr
 
@@ -693,8 +693,8 @@ def test_bad_link_hash_good_user_hash_install_success(
 
     This behaviour may be accidental?
     """
-    url = path_to_url(str(shared_data.packages.joinpath("simple-1.0.tar.gz")))
-    url = f"{url}#sha256=invalidhash"
+    parsed_url = path_to_url(str(shared_data.packages.joinpath("simple-1.0.tar.gz")))
+    url = f"{parsed_url}#sha256=invalidhash"
     digest = "393043e672415891885c9a2a0929b1af95fb866d6ca016b42d2e6ce53619b653"
     with requirements_file(
         f"simple @ {url} --hash sha256:{digest}", tmp_path
@@ -756,8 +756,8 @@ def test_bad_link_hash_in_dep_install_failure(
     script: PipTestEnvironment, tmp_path: Path, shared_data: TestData
 ) -> None:
     """Test that wrong hash in direct URL dependency stops installation."""
-    url = path_to_url(str(shared_data.packages.joinpath("simple-1.0.tar.gz")))
-    url = f"{url}#sha256=invalidhash"
+    parsed_url = path_to_url(str(shared_data.packages.joinpath("simple-1.0.tar.gz")))
+    url = f"{parsed_url}#sha256=invalidhash"
     project_path = tmp_path / "pkga"
     project_path.mkdir()
     project_path.joinpath("pyproject.toml").write_text(
@@ -1880,7 +1880,7 @@ def test_install_editable_with_wrong_egg_name(
     result = script.pip(
         "install",
         "--editable",
-        path_to_url(str(pkga_path)) + "#egg=pkgb",
+        str(path_to_url(str(pkga_path))) + "#egg=pkgb",
         expect_error=(resolver_variant == "resolvelib"),
     )
     assert (

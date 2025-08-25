@@ -9,7 +9,8 @@ import pip._internal.vcs.subversion  # noqa: F401
 from pip._internal.vcs.versioncontrol import (  # noqa: F401
     RemoteNotFoundError,
     RemoteNotValidError,
-    is_url,
+    has_vcs_url_scheme,
     make_vcs_requirement_url,
+    try_parse_url,
     vcs,
 )

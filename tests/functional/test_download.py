@@ -1259,7 +1259,7 @@ def download_local_html_index(
             "-d",
             str(download_dir),
             "-i",
-            path_to_url(str(html_index_for_packages)),
+            str(path_to_url(str(html_index_for_packages))),
             *args,
         ]
         result = script.pip(*pip_args, allow_error=allow_error)

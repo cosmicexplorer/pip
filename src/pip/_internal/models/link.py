@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import functools
 import itertools
 import logging
@@ -20,11 +21,9 @@ from pip._internal.utils.filetypes import WHEEL_EXTENSION
 from pip._internal.utils.hashes import Hashes
 from pip._internal.utils.misc import (
     pairwise,
-    redact_auth_from_url,
-    split_auth_from_netloc,
     splitext,
 )
-from pip._internal.utils.urls import path_to_url, url_to_path
+from pip._internal.utils.urls import ParsedUrl, path_to_url
 
 if TYPE_CHECKING:
     from pip._internal.index.collector import IndexContent
@@ -57,7 +56,7 @@ class LinkHash:
         # against Hashes when hash-checking is needed. This is easier to debug than
         # proactively discarding an invalid hex digest, as we handle incorrect hashes
         # and malformed hashes in the same place.
-        r"[#&]({choices})=([^&]*)".format(
+        r"({choices})=(.*)".format(
             choices="|".join(re.escape(hash_name) for hash_name in _SUPPORTED_HASHES)
         ),
     )
@@ -66,14 +65,14 @@ class LinkHash:
         assert self.name in _SUPPORTED_HASHES
 
     @classmethod
-    @functools.cache
-    def find_hash_url_fragment(cls, url: str) -> LinkHash | None:
+    def find_hash_url_fragment(cls, fragments: dict[str, list[str]]) -> LinkHash | None:
         """Search a string for a checksum algorithm name and encoded output value."""
-        match = cls._hash_url_fragment_re.search(url)
-        if match is None:
-            return None
-        name, value = match.groups()
-        return cls(name=name, value=value)
+        if hash_keys := (fragments.keys() & _SUPPORTED_HASHES):
+            assert len(hash_keys) == 1
+            (name,) = tuple(hash_keys)
+            (value,) = tuple(fragments[name])
+            return cls(name=name, value=value)
+        return None
 
     def as_dict(self) -> dict[str, str]:
         return {self.name: self.value}
@@ -200,8 +199,6 @@ class Link:
 
     __slots__ = [
         "_parsed_url",
-        "_url",
-        "_path",
         "_hashes",
         "comes_from",
         "requires_python",
@@ -209,12 +206,13 @@ class Link:
         "metadata_file_data",
         "cache_link_parsing",
         "egg_fragment",
+        "__dict__",
     ]
 
     def __init__(
         self,
-        url: str,
-        comes_from: str | IndexContent | None = None,
+        url: str | ParsedUrl,
+        comes_from: str | IndexContent | ParsedUrl | None = None,
         requires_python: str | None = None,
         yanked_reason: str | None = None,
         metadata_file_data: MetadataFile | None = None,
@@ -250,18 +248,15 @@ class Link:
         # only used by classmethods of this class, and are not used in client
         # code directly.
 
-        # url can be a UNC windows share
-        if url.startswith("\\\\"):
-            url = path_to_url(url)
+        if isinstance(url, str):
+            # url can be a UNC windows share
+            if url.startswith("\\\\"):
+                url = path_to_url(url).ensure_quoted_path()
+            else:
+                url = ParsedUrl.parse(url).ensure_quoted_path()
+        self._parsed_url = url
 
-        self._parsed_url = urllib.parse.urlsplit(url)
-        # Store the url as a private attribute to prevent accidentally
-        # trying to set a new value.
-        self._url = url
-        # The .path property is hot, so calculate its value ahead of time.
-        self._path = urllib.parse.unquote(self._parsed_url.path)
-
-        link_hash = LinkHash.find_hash_url_fragment(url)
+        link_hash = LinkHash.find_hash_url_fragment(self._fragments)
         hashes_from_link = {} if link_hash is None else link_hash.as_dict()
         if hashes is None:
             self._hashes = hashes_from_link
@@ -276,11 +271,15 @@ class Link:
         self.cache_link_parsing = cache_link_parsing
         self.egg_fragment = self._egg_fragment()
 
+    @functools.cached_property
+    def _fragments(self) -> dict[str, list[str]]:
+        return urllib.parse.parse_qs(self._parsed_url.fragment)
+
     @classmethod
     def from_json(
         cls,
         file_data: dict[str, Any],
-        page_url: str,
+        page_url: ParsedUrl,
     ) -> Link | None:
         """
         Convert an pypi json document from a simple repository page into a Link.
@@ -288,8 +287,10 @@ class Link:
         file_url = file_data.get("url")
         if file_url is None:
             return None
+        url = page_url.with_quoted_path.join(
+            ParsedUrl.parse(file_url).ensure_quoted_path()
+        )
 
-        url = _ensure_quoted_url(_absolute_link_url(page_url, file_url))
         pyrequire = file_data.get("requires-python")
         yanked_reason = file_data.get("yanked")
         hashes = file_data.get("hashes", {})
@@ -331,8 +332,8 @@ class Link:
     def from_element(
         cls,
         anchor_attribs: dict[str, str | None],
-        page_url: str,
-        base_url: str,
+        page_url: ParsedUrl,
+        base_url: ParsedUrl,
     ) -> Link | None:
         """
         Convert an anchor element's attributes in a simple repository page to a Link.
@@ -340,8 +341,8 @@ class Link:
         href = anchor_attribs.get("href")
         if not href:
             return None
+        url = base_url.join(ParsedUrl.parse(href).ensure_quoted_path())
 
-        url = _ensure_quoted_url(_absolute_link_url(base_url, href))
         pyrequire = anchor_attribs.get("data-requires-python")
         yanked_reason = anchor_attribs.get("data-yanked")
 
@@ -407,11 +408,15 @@ class Link:
 
     @property
     def url(self) -> str:
-        return self._url
+        return str(self._parsed_url)
+
+    @property
+    def parsed_url(self) -> ParsedUrl:
+        return self._parsed_url
 
     @property
     def redacted_url(self) -> str:
-        return redact_auth_from_url(self.url)
+        return str(self._parsed_url.with_redacted_auth_info)
 
     @property
     def filename(self) -> str:
@@ -420,16 +425,14 @@ class Link:
         if not name:
             # Make sure we don't leak auth information if the netloc
             # includes a username and password.
-            netloc, user_pass = split_auth_from_netloc(self.netloc)
-            return netloc
+            return self._parsed_url.with_removed_auth_info.netloc
 
-        name = urllib.parse.unquote(name)
-        assert name, f"URL {self._url!r} produced no filename"
+        assert name, f"URL {self._parsed_url!r} produced no filename"
         return name
 
     @property
     def file_path(self) -> str:
-        return url_to_path(self.url)
+        return self._parsed_url.as_filesystem_path
 
     @property
     def scheme(self) -> str:
@@ -444,7 +447,7 @@ class Link:
 
     @property
     def path(self) -> str:
-        return self._path
+        return self._parsed_url.unquoted_path
 
     def splitext(self) -> tuple[str, str]:
         return splitext(posixpath.basename(self.path.rstrip("/")))
@@ -455,10 +458,7 @@ class Link:
 
     @property
     def url_without_fragment(self) -> str:
-        scheme, netloc, path, query, fragment = self._parsed_url
-        return urllib.parse.urlunsplit((scheme, netloc, path, query, ""))
-
-    _egg_fragment_re = re.compile(r"[#&]egg=([^&]*)")
+        return str(self._parsed_url.without_fragment)
 
     # Per PEP 508.
     _project_name_re = re.compile(
@@ -466,31 +466,28 @@ class Link:
     )
 
     def _egg_fragment(self) -> str | None:
-        match = self._egg_fragment_re.search(self._url)
-        if not match:
-            return None
-
-        # An egg fragment looks like a PEP 508 project name, along with
-        # an optional extras specifier. Anything else is invalid.
-        project_name = match.group(1)
-        if not self._project_name_re.match(project_name):
-            deprecated(
-                reason=f"{self} contains an egg fragment with a non-PEP 508 name.",
-                replacement="to use the req @ url syntax, and remove the egg fragment",
-                gone_in="25.3",
-                issue=13157,
-            )
-
-        return project_name
-
-    _subdirectory_fragment_re = re.compile(r"[#&]subdirectory=([^&]*)")
+        if eggs := self._fragments.get("egg"):
+            (project_name,) = tuple(eggs)
+            # An egg fragment looks like a PEP 508 project name, along with
+            # an optional extras specifier. Anything else is invalid.
+            if not self._project_name_re.match(project_name):
+                deprecated(
+                    reason=f"{self} contains an egg fragment with a non-PEP 508 name.",
+                    replacement=(
+                        "to use the req @ url syntax, and remove the egg fragment"
+                    ),
+                    gone_in="25.3",
+                    issue=13157,
+                )
+            return project_name
+        return None
 
     @property
     def subdirectory_fragment(self) -> str | None:
-        match = self._subdirectory_fragment_re.search(self._url)
-        if not match:
-            return None
-        return match.group(1)
+        if subs := self._fragments.get("subdirectory"):
+            (subdir,) = tuple(subs)
+            return subdir
+        return None
 
     def metadata_link(self) -> Link | None:
         """Return a link to the associated core metadata file (if any)."""
@@ -514,7 +511,7 @@ class Link:
 
     @property
     def show_url(self) -> str:
-        return posixpath.basename(self._url.split("#", 1)[0].split("?", 1)[0])
+        return posixpath.basename(str(self._parsed_url.with_no_fragment_or_query))
 
     @property
     def is_file(self) -> bool:
@@ -576,7 +573,7 @@ class _CleanResult(NamedTuple):
        conflicts, so we choose to also ignore them.
     """
 
-    parsed: urllib.parse.SplitResult
+    parsed: ParsedUrl
     query: dict[str, list[str]]
     subdirectory: str
     hashes: dict[str, str]
@@ -584,11 +581,12 @@ class _CleanResult(NamedTuple):
 
 def _clean_link(link: Link) -> _CleanResult:
     parsed = link._parsed_url
+    assert not parsed.params
     netloc = parsed.netloc.rsplit("@", 1)[-1]
     # According to RFC 8089, an empty host in file: means localhost.
     if parsed.scheme == "file" and not netloc:
         netloc = "localhost"
-    fragment = urllib.parse.parse_qs(parsed.fragment)
+    fragment = link._fragments
     if "egg" in fragment:
         logger.debug("Ignoring egg= fragment in %s", link)
     try:
@@ -601,7 +599,7 @@ def _clean_link(link: Link) -> _CleanResult:
     # first one. This matches the behavior of Link.hash_value.
     hashes = {k: fragment[k][0] for k in _SUPPORTED_HASHES if k in fragment}
     return _CleanResult(
-        parsed=parsed._replace(netloc=netloc, query="", fragment=""),
+        parsed=dataclasses.replace(parsed, netloc=netloc, query="", fragment=""),
         query=urllib.parse.parse_qs(parsed.query),
         subdirectory=subdirectory,
         hashes=hashes,

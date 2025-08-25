@@ -130,3 +130,15 @@ class FormatControl:
         if self.default_source:
             return AllowedFormats.SourceOnly
         return AllowedFormats.AnyFormat
+
+    def unbuild(self) -> FormatControlBuilder:
+        no_binary: set[str] = set(self.no_binary)
+        only_binary: set[str] = set(self.only_binary)
+        if self.default_binary:
+            only_binary.add(":all:")
+        if self.default_source:
+            no_binary.add(":all:")
+        return FormatControlBuilder(
+            no_binary=no_binary,
+            only_binary=only_binary,
+        )
