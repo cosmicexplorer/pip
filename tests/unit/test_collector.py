@@ -34,11 +34,9 @@ from pip._internal.models.link import (
     Link,
     LinkHash,
     MetadataFile,
-    _clean_url_path,
-    _ensure_quoted_url,
 )
 from pip._internal.network.session import PipSession
-from pip._internal.utils.urls import ParsedUrl
+from pip._internal.utils.urls import ParsedUrl, _FilePath, _PathSanitizer, _UrlPath
 
 from tests.lib import (
     TestData,
@@ -300,7 +298,8 @@ def test_get_simple_response_dont_log_clear_text_password(
 )
 @pytest.mark.parametrize("is_local_path", [True, False])
 def test_clean_url_path(path: str, expected: str, is_local_path: bool) -> None:
-    assert _clean_url_path(path, is_local_path=is_local_path) == expected
+    kind = _FilePath() if is_local_path else _UrlPath()
+    assert _PathSanitizer.sanitize_path(path, kind) == expected
 
 
 @pytest.mark.parametrize(
@@ -322,7 +321,7 @@ def test_clean_url_path(path: str, expected: str, is_local_path: bool) -> None:
     ],
 )
 def test_clean_url_path_with_local_path(path: str, expected: str) -> None:
-    actual = _clean_url_path(path, is_local_path=True)
+    actual = _PathSanitizer.sanitize_path(path, _FilePath())
     assert actual == expected
 
 
@@ -423,7 +422,7 @@ def test_clean_url_path_with_local_path(path: str, expected: str) -> None:
     ],
 )
 def test_ensure_quoted_url(url: str, clean_url: str) -> None:
-    assert _ensure_quoted_url(url) == clean_url
+    assert str(ParsedUrl.parse(url).ensure_quoted_path()) == clean_url
 
 
 def _test_parse_links_data_attribute(
@@ -1177,7 +1176,9 @@ def test_link_collector_create_find_links_expansion(
     ],
 )
 def test_link_hash_parsing(url: str, result: LinkHash | None) -> None:
-    fragments = urllib.parse.parse_qs(ParsedUrl.parse(url).fragment)
+    fragments = urllib.parse.parse_qs(
+        ParsedUrl.parse(url).fragment, keep_blank_values=True
+    )
     assert LinkHash.find_hash_url_fragment(fragments) == result
 
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import abc
 import dataclasses
 import functools
 import itertools
@@ -9,7 +10,7 @@ import string
 import urllib.parse
 import urllib.request
 from collections.abc import Iterable, Iterator
-from typing import TYPE_CHECKING, ClassVar, NewType, Protocol, cast
+from typing import TYPE_CHECKING, Any, ClassVar, NewType, Protocol, cast
 
 from pip._internal.utils.misc import pairwise, redact_netloc, split_auth_from_netloc
 
@@ -201,44 +202,11 @@ class ParsedUrl:
         return self._unparsed_output
 
     _uses_relative: ClassVar[frozenset[str]] = frozenset(urllib.parse.uses_relative)
-    # See docs/html/topics/vcs-support.md.
-    _git_schemes: ClassVar[tuple[str, ...]] = (
-        "git",
-        "git+file",
-        "git+https",
-        "git+ssh",
-        "git+http",
-        "git+git",
-    )
-    _hg_schemes: ClassVar[tuple[str, ...]] = (
-        "hg+file",
-        "hg+http",
-        "hg+https",
-        "hg+ssh",
-        "hg+static-http",
-    )
-    _svn_schemes: ClassVar[tuple[str, ...]] = (
-        "svn",
-        "svn+svn",
-        "svn+http",
-        "svn+https",
-        "svn+ssh",
-    )
-    _bzr_schemes: ClassVar[tuple[str, ...]] = (
-        "bzr+http",
-        "bzr+https",
-        "bzr+ssh",
-        "bzr+sftp",
-        "bzr+ftp",
-        "bzr+lp",
-    )
-    _vcs_schemes: ClassVar[tuple[str, ...]] = (
-        _git_schemes + _hg_schemes + _svn_schemes + _bzr_schemes
-    )
 
     @functools.cache
     @staticmethod
     def _uses_netloc() -> frozenset[str]:
+        # See docs/html/topics/vcs-support.md.
         from pip._internal.vcs.versioncontrol import vcs
 
         return frozenset(
@@ -281,54 +249,12 @@ class ParsedUrl:
             path=UrlPath.join_right(self, url),
         )
 
-    # percent-encoded:                   /
-    _reserved_chars_re: ClassVar[re.Pattern[str]] = re.compile("(@|%2F)", re.IGNORECASE)
-
-    def _pip_path_parts(self) -> Iterator[tuple[str, str]]:
-        """
-        Split on the reserved characters prior to cleaning so that
-        revision strings in VCS URLs are properly preserved.
-        """
-        parts = type(self)._reserved_chars_re.split(self.path)
-        for to_clean, reserved in pairwise(itertools.chain(parts, ("",))):
-            # Normalize %xx escapes (e.g. %2f -> %2F)
-            yield to_clean, reserved.upper()
-
-    @staticmethod
-    def _clean_file_url_path(path_part: str) -> str:
-        """
-        Clean the first part of a URL path that corresponds to a local
-        filesystem path (i.e. the first part after splitting on "@" characters).
-        """
-        # We unquote prior to quoting to make sure nothing is double quoted.
-        # Also, on Windows the path part might contain a drive letter which
-        # should not be quoted. On Linux where drive letters do not
-        # exist, the colon should be quoted. We rely on urllib.request
-        # to do the right thing here.
-        ret = urllib.request.pathname2url(urllib.request.url2pathname(path_part))
-        if ret.startswith("///"):
-            # Remove any URL authority section, leaving only the URL path.
-            ret = ret.removeprefix("//")
-        return ret
-
-    @staticmethod
-    def _clean_url_path_part(path_part: str) -> str:
-        """
-        Clean a "part" of a URL path (i.e. after splitting on "@" characters).
-        """
-        # We unquote prior to quoting to make sure nothing is double quoted.
-        return urllib.parse.quote(urllib.parse.unquote(path_part))
-
-    def _clean_path_parts(self) -> Iterator[str]:
+    @functools.cached_property
+    def _path_kind(self) -> _PathKind:
         if self.netloc:
-            for to_clean, reserved in self._pip_path_parts():
-                yield ParsedUrl._clean_url_path_part(to_clean)
-                yield reserved
-        else:
-            # If the netloc is empty, then the URL refers to a local filesystem path.
-            for to_clean, reserved in self._pip_path_parts():
-                yield ParsedUrl._clean_file_url_path(to_clean)
-                yield reserved
+            return _UrlPath()
+        # If the netloc is empty, then the URL refers to a local filesystem path.
+        return _FilePath()
 
     def ensure_quoted_path(self) -> Self:
         """
@@ -336,9 +262,16 @@ class ParsedUrl:
         For example, if ' ' occurs in the URL, it will be replaced with "%20",
         and without double-quoting other characters.
         """
-        return dataclasses.replace(
-            self,
-            path="".join(self._clean_path_parts()),
+        # For some reason, dataclasses.replace() shows up very heavily on a profile
+        # output. It's not clear if this improves performance, but it's correct and
+        # makes the dataclasses module disappear from the profile.
+        return self.__class__(
+            self.scheme,
+            self.netloc,
+            _PathSanitizer.sanitize_path(self.path, self._path_kind),
+            self.params,
+            self.query,
+            self.fragment,
         )
 
     @functools.cached_property
@@ -429,3 +362,106 @@ class ParsedUrl:
     @functools.cached_property
     def without_fragment(self) -> Self:
         return self.no_fragment()
+
+
+class _PathKind(abc.ABC):
+    # So we can consider caching.
+    @abc.abstractmethod
+    def __hash__(self) -> int: ...
+    @abc.abstractmethod
+    def __eq__(self, rhs: Any) -> bool: ...
+
+    @abc.abstractmethod
+    def clean_path_part(self, path_part: str) -> str:
+        """Clean this kind of URL path component string (e.g. local or remote)."""
+        ...
+
+
+class _PathSanitizer:
+    # TODO: check if IGNORECASE is as performant as [fF]
+    # percent-encoded:                   /
+    _reserved_chars_re: ClassVar[re.Pattern[str]] = re.compile("(@|%2F)", re.IGNORECASE)
+
+    @staticmethod
+    def _pip_path_split(path: str) -> tuple[str, ...]:
+        """
+        Note that splitting on a regex with groups is very different from splitting on
+        a literal string, as each matched group with index > 0 will be replicated in the
+        split output:
+
+        >>> re.compile(',').split('a,b')
+        ['a', 'b']
+        >>> re.compile('(,)').split('a,b')
+        ['a', ',', 'b']
+
+        Compare to literal, performed in the reverse order:
+        >>> 'a,b'.split(',')
+        ['a', 'b']
+        """
+        return tuple(_PathSanitizer._reserved_chars_re.split(path))
+
+    @staticmethod
+    def _pip_path_clean(path: str, kind: _PathKind) -> Iterator[str]:
+        """
+        Split on the reserved characters prior to cleaning so that
+        revision strings in VCS URLs are properly preserved.
+        """
+        parts = _PathSanitizer._pip_path_split(path)
+        for to_clean, reserved in pairwise(parts + ("",)):
+            yield kind.clean_path_part(to_clean)
+            # Normalize %xx escapes (e.g. %2f -> %2F)
+            if reserved:
+                yield reserved.upper()
+
+    @staticmethod
+    def sanitize_path(path: str, kind: _PathKind) -> str:
+        return "".join(_PathSanitizer._pip_path_clean(path, kind))
+
+
+class _FilePath(_PathKind):
+    # This has no instance state.
+    def __hash__(self) -> int:
+        return hash(id(type(self)))
+
+    def __eq__(self, rhs: Any) -> bool:
+        return type(self) is type(rhs)
+
+    @staticmethod
+    def _clean_file_url_path(path_part: str) -> str:
+        """
+        Clean the first part of a URL path that corresponds to a local
+        filesystem path (i.e. the first part after splitting on "@" characters).
+        """
+        # We unquote prior to quoting to make sure nothing is double quoted.
+        # Also, on Windows the path part might contain a drive letter which
+        # should not be quoted. On Linux where drive letters do not
+        # exist, the colon should be quoted. We rely on urllib.request
+        # to do the right thing here.
+        ret = urllib.request.pathname2url(urllib.request.url2pathname(path_part))
+        if ret.startswith("///"):
+            # Remove any URL authority section, leaving only the URL path.
+            ret = ret.removeprefix("//")
+        return ret
+
+    def clean_path_part(self, path_part: str) -> str:
+        return type(self)._clean_file_url_path(path_part)
+
+
+class _UrlPath(_PathKind):
+    # This has no instance state.
+    def __hash__(self) -> int:
+        return hash(id(type(self)))
+
+    def __eq__(self, rhs: Any) -> bool:
+        return type(self) is type(rhs)
+
+    @staticmethod
+    def _clean_url_path_part(path_part: str) -> str:
+        """
+        Clean a "part" of a URL path (i.e. after splitting on "@" characters).
+        """
+        # We unquote prior to quoting to make sure nothing is double quoted.
+        return urllib.parse.quote(urllib.parse.unquote(path_part))
+
+    def clean_path_part(self, path_part: str) -> str:
+        return type(self)._clean_url_path_part(path_part)

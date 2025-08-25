@@ -186,7 +186,7 @@ class _NormalizedWheelInfo:
 @dataclass(frozen=True)
 class _LegacyWheelInfo:
     _name: str
-    version: str
+    _version: str
     _build_tag: str | None
     pyversions: tuple[str, ...]
     abis: tuple[str, ...]
@@ -205,9 +205,9 @@ class _LegacyWheelInfo:
     def name(self) -> NormalizedName:
         return canonicalize_name(self._name)
 
-    # @functools.cached_property
-    # def canonical_version(self) -> MaybeCanonicalVersion:
-    #     return canonicalize_version_string(self.version.replace("_", "-"))
+    @functools.cached_property
+    def version(self) -> str:
+        return self._version.replace("_", "-")
 
     @functools.cached_property
     def build_tag(self) -> BuildTag:
@@ -253,7 +253,7 @@ class _LegacyWheelInfo:
 
         return cls(
             _name=info["name"],
-            version=info["ver"],
+            _version=info["ver"],
             _build_tag=info["build"],
             pyversions=tuple(info["pyver"].split(".")),
             abis=tuple(info["abi"].split(".")),
