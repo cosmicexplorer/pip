@@ -250,12 +250,12 @@ class ParsedVersion:
         )
 
     @functools.cached_property
-    def base_version(self) -> str:
+    def base_version(self) -> Self:
         parts = []
         if self.epoch != 0:
             parts.append(f"{self.epoch}!")
         parts.append(".".join(map(str, self.release)))
-        return "".join(parts)
+        return self.__class__.parse("".join(parts))
 
     @property
     def is_prerelease(self) -> bool:
@@ -311,8 +311,8 @@ class ParsedVersion:
         return f"{self.__class__.__name__}.parse('{self}')"
 
     @functools.cached_property
-    def public(self) -> str:
-        return self._str.split("+", 1)[0]
+    def public(self) -> Self:
+        return self.__class__.parse(self._str.split("+", 1)[0])
 
     def __hash__(self) -> int:
         return hash(self._key)
