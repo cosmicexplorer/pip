@@ -25,7 +25,7 @@ class ParsedVersion:
     _post: tuple[str, int] | None
     _local: tuple[int | str, ...] | None
 
-    __slots__ = ["epoch", "release", "_dev", "_pre", "_post", "_local", "__dict__"]
+    __slots__ = ["epoch", "release", "_dev", "pre", "_post", "_local", "__dict__"]
 
     def __post_init__(self) -> None:
         assert len(self.release) > 0
@@ -239,6 +239,16 @@ class ParsedVersion:
     def trimmed_release(self) -> tuple[int, ...]:
         return type(self)._trim_trailing_zeros(self.release)
 
+    def with_trimmed_release(self) -> Self:
+        return self.__class__(
+            self.epoch,
+            self.trimmed_release(),
+            self._dev,
+            self.pre,
+            self._post,
+            self._local,
+        )
+
     @functools.cached_property
     def base_version(self) -> str:
         parts = []
@@ -298,7 +308,7 @@ class ParsedVersion:
         return self._str
 
     def __repr__(self) -> str:
-        return f"{type(self).__name__}.parse('{self}')"
+        return f"{self.__class__.__name__}.parse('{self}')"
 
     @functools.cached_property
     def public(self) -> str:
