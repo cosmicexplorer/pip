@@ -9,7 +9,7 @@ from pip._vendor.packaging.tags import Tag
 
 from pip._internal.utils.compatibility_tags import get_supported, version_info_to_nodot
 from pip._internal.utils.misc import normalize_version_info
-from pip._internal.utils.version import ParsedVersion
+from pip._internal.utils.packaging.version import ParsedVersion
 
 
 @dataclass(frozen=True)

@@ -46,7 +46,7 @@ from pip._internal.req.req_install import (
 from pip._internal.resolution.base import InstallRequirementProvider
 from pip._internal.utils.compatibility_tags import get_supported
 from pip._internal.utils.hashes import Hashes
-from pip._internal.utils.packaging import get_requirement
+from pip._internal.utils.packaging_utils import get_requirement
 from pip._internal.utils.virtualenv import running_under_virtualenv
 
 from .base import Candidate, Constraint, Requirement

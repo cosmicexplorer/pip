@@ -7,9 +7,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar
 
 from pip._internal.models.target_python import TargetPython
-
-from .specifiers import SpecifierSet
-from .version import ParsedVersion
+from pip._internal.utils.packaging.specifiers import SpecifierSet
+from pip._internal.utils.packaging.version import ParsedVersion
 
 if TYPE_CHECKING:
     from typing_extensions import Self

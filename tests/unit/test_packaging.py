@@ -5,7 +5,7 @@ import pytest
 from pip._vendor.packaging import specifiers
 from pip._vendor.packaging.requirements import Requirement
 
-from pip._internal.utils.packaging import check_requires_python, get_requirement
+from pip._internal.utils.packaging_utils import check_requires_python, get_requirement
 
 
 @pytest.mark.parametrize(

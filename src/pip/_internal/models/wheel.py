@@ -22,8 +22,8 @@ from pip._vendor.packaging.utils import (
 
 from pip._internal.exceptions import InvalidWheelFilename
 from pip._internal.utils.deprecation import deprecated
-from pip._internal.utils.filename_parsing import parse_wheel_filename
-from pip._internal.utils.version import ParsedVersion
+from pip._internal.utils.packaging.filename_parsing import parse_wheel_filename
+from pip._internal.utils.packaging.version import ParsedVersion
 
 if TYPE_CHECKING:
     from typing_extensions import Self

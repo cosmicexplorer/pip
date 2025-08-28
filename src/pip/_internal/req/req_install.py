@@ -55,7 +55,7 @@ from pip._internal.utils.misc import (
     redact_auth_from_requirement,
     redact_auth_from_url,
 )
-from pip._internal.utils.packaging import get_requirement
+from pip._internal.utils.packaging_utils import get_requirement
 from pip._internal.utils.subprocess import runner_with_spinner_message
 from pip._internal.utils.temp_dir import TempDirectory, tempdir_kinds
 from pip._internal.utils.unpacking import unpack_file

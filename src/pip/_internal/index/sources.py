@@ -15,7 +15,7 @@ from pip._vendor.packaging.utils import (
 
 from pip._internal.models.candidate import InstallationCandidate
 from pip._internal.models.link import Link
-from pip._internal.utils.filename_parsing import (
+from pip._internal.utils.packaging.filename_parsing import (
     parse_sdist_filename,
     parse_wheel_filename,
 )

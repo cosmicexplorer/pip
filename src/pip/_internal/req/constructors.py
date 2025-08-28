@@ -29,7 +29,7 @@ from pip._internal.req.req_file import ParsedRequirement
 from pip._internal.req.req_install import InstallRequirement
 from pip._internal.utils.filetypes import is_archive_file
 from pip._internal.utils.misc import is_installable_dir
-from pip._internal.utils.packaging import get_requirement
+from pip._internal.utils.packaging_utils import get_requirement
 from pip._internal.utils.urls import ParsedUrl, path_to_url
 from pip._internal.vcs import has_vcs_url_scheme, vcs
 

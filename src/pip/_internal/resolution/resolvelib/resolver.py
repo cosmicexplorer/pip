@@ -23,7 +23,7 @@ from pip._internal.resolution.resolvelib.reporter import (
     PipDebuggingReporter,
     PipReporter,
 )
-from pip._internal.utils.packaging import get_requirement
+from pip._internal.utils.packaging_utils import get_requirement
 
 from .base import Candidate, Requirement
 from .factory import Factory

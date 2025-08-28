@@ -23,7 +23,7 @@ from pip._internal.metadata.base import (
     Wheel,
 )
 from pip._internal.utils.misc import normalize_path
-from pip._internal.utils.packaging import get_requirement
+from pip._internal.utils.packaging_utils import get_requirement
 from pip._internal.utils.temp_dir import TempDirectory
 from pip._internal.utils.wheel import parse_wheel, read_wheel_metadata_file
 

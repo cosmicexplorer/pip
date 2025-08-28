@@ -13,7 +13,7 @@ from pip._internal.exceptions import (
     MissingPyProjectBuildRequires,
 )
 from pip._internal.utils.compat import tomllib
-from pip._internal.utils.packaging import get_requirement
+from pip._internal.utils.packaging_utils import get_requirement
 
 
 def _is_list_of_str(obj: Any) -> bool:

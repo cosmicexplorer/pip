@@ -16,8 +16,8 @@ from pip._vendor.packaging.utils import (
 )
 
 from pip._internal.metadata.base import BaseDistribution, BaseEnvironment
-from pip._internal.utils.filename_parsing import parse_wheel_filename
 from pip._internal.utils.filetypes import WHEEL_EXTENSION
+from pip._internal.utils.packaging.filename_parsing import parse_wheel_filename
 
 from ._compat import BadMetadata, BasePath, get_dist_canonical_name, get_info_location
 from ._dists import Distribution
