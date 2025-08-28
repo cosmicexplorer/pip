@@ -858,7 +858,6 @@ def test_parse_editable_local(
     abspath_mock: mock.Mock,
     normpath_mock: mock.Mock,
 ) -> None:
-    path_to_url.cache_clear()
     isdir_mock.return_value = True
     # mocks needed to support path operations on windows tests
     normpath_mock.return_value = abspath_mock.return_value = "/some/path"
@@ -894,7 +893,6 @@ def test_parse_editable_local_extras(
     abspath_mock: mock.Mock,
     normpath_mock: mock.Mock,
 ) -> None:
-    path_to_url.cache_clear()
     isdir_mock.return_value = True
     normpath_mock.return_value = abspath_mock.return_value = "/some/path"
     assert parse_editable(".[extras]") == (

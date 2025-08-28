@@ -107,7 +107,8 @@ def parse_editable(editable_req: str) -> tuple[Link, frozenset[str]]:
         # Treating it as code that has already been checked out
         parsed_url = path_to_url(url_no_extras)
     elif url_no_extras.lower().startswith("file:"):
-        parsed_url = ParsedUrl.parse(url_no_extras)
+        relative_url = ParsedUrl.parse(url_no_extras)
+        parsed_url = path_to_url(relative_url.to_path())
 
     if parsed_url:
         assert parsed_url.scheme == "file"
@@ -263,6 +264,10 @@ def _get_url_from_path(path: str, name: str) -> ParsedUrl | None:
     The function checks if the path is a file. If false, if the path has
     an @, it will treat it as a PEP 440 URL requirement and return the path.
     """
+    if path.lower().startswith("file:"):
+        path = ParsedUrl.parse(path).to_path()
+    if name.lower().startswith("file:"):
+        name = ParsedUrl.parse(name).to_path()
     if _looks_like_path(name) and os.path.isdir(path):
         if is_installable_dir(path):
             return path_to_url(path)
@@ -289,7 +294,6 @@ def _get_url_from_path(path: str, name: str) -> ParsedUrl | None:
 
 
 def parse_req_from_line(name: str, line_source: str | None) -> RequirementParts:
-    # import pdb; pdb.set_trace()
     if has_vcs_url_scheme(name):
         marker_sep = "; "
     else:

@@ -20,7 +20,6 @@ if TYPE_CHECKING:
     from typing_extensions import Self
 
 
-@functools.cache
 def path_to_url(path: str) -> ParsedUrl:
     """
     Convert a path to a file: URL.  The path will be made absolute and have
@@ -33,7 +32,6 @@ def path_to_url(path: str) -> ParsedUrl:
     )
 
 
-@functools.cache
 def url_to_path(url: ParsedUrl) -> str:
     """
     Convert a file: URL to a path.
@@ -184,8 +182,6 @@ class ParsedUrl:
             # I don't understand it.
             yield "//"
             yield netloc or ""
-            if url and url[:1] != "/":
-                yield "/"
             yield url
         if query:
             yield "?"
