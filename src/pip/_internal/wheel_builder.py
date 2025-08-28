@@ -10,7 +10,6 @@ from collections.abc import Iterable
 
 from pip._vendor.packaging.utils import canonicalize_name, canonicalize_version
 from pip._vendor.packaging.version import InvalidVersion
-from pip._vendor.packaging.version import Version as StdVersion
 
 from pip._internal.cache import WheelCache
 from pip._internal.exceptions import InvalidWheelFilename, UnsupportedWheel
