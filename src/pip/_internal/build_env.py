@@ -13,14 +13,13 @@ from collections.abc import Iterable
 from types import TracebackType
 from typing import TYPE_CHECKING, Protocol
 
-from pip._vendor.packaging.version import Version
-
 from pip import __file__ as pip_location
 from pip._internal.cli.spinners import open_spinner
 from pip._internal.locations import get_platlib, get_purelib, get_scheme
 from pip._internal.metadata import get_default_environment, get_environment
 from pip._internal.utils.logging import VERBOSE
-from pip._internal.utils.packaging_utils import get_requirement
+from pip._internal.utils.packaging.requirements import Requirement
+from pip._internal.utils.packaging.version import ParsedVersion
 from pip._internal.utils.subprocess import call_subprocess
 from pip._internal.utils.temp_dir import TempDirectory, tempdir_kinds
 
@@ -88,7 +87,7 @@ class BuildEnvironmentInstaller(Protocol):
 
     def install(
         self,
-        requirements: Iterable[str],
+        requirements: Iterable[Requirement],
         prefix: _Prefix,
         *,
         kind: str,
@@ -106,7 +105,7 @@ class SubprocessBuildEnvironmentInstaller:
 
     def install(
         self,
-        requirements: Iterable[str],
+        requirements: Iterable[Requirement],
         prefix: _Prefix,
         *,
         kind: str,
@@ -168,7 +167,7 @@ class SubprocessBuildEnvironmentInstaller:
         if finder.prefer_binary:
             args.append("--prefer-binary")
         args.append("--")
-        args.extend(requirements)
+        args.extend(map(str, requirements))
         with open_spinner(f"Installing {kind}") as spinner:
             call_subprocess(
                 args,
@@ -269,8 +268,8 @@ class BuildEnvironment:
                 os.environ[varname] = old_value
 
     def check_requirements(
-        self, reqs: Iterable[str]
-    ) -> tuple[set[tuple[str, str]], set[str]]:
+        self, reqs: Iterable[Requirement]
+    ) -> tuple[frozenset[tuple[Requirement, Requirement]], frozenset[Requirement]]:
         """Return 2 sets:
         - conflicting requirements: set of (installed, wanted) reqs tuples
         - missing requirements: set of reqs
@@ -283,28 +282,26 @@ class BuildEnvironment:
                 if hasattr(self, "_lib_dirs")
                 else get_default_environment()
             )
-            for req_str in reqs:
-                req = get_requirement(req_str)
+            for req in reqs:
                 # We're explicitly evaluating with an empty extra value, since build
                 # environments are not provided any mechanism to select specific extras.
                 if req.marker is not None and not req.marker.evaluate({"extra": ""}):
                     continue
                 dist = env.get_distribution(req.name)
                 if not dist:
-                    missing.add(req_str)
+                    missing.add(req)
                     continue
-                if isinstance(dist.version, Version):
-                    installed_req_str = f"{req.name}=={dist.version}"
-                else:
-                    installed_req_str = f"{req.name}==={dist.version}"
+                assert isinstance(dist.version, ParsedVersion), (dist, dist.version)
+                # installed_req_str = f"{req.name}==={dist.version}"
+                installed_req = Requirement.parse(f"{req.name}=={dist.version}")
                 if not req.specifier.contains(dist.version, prereleases=True):
-                    conflicting.add((installed_req_str, req_str))
+                    conflicting.add((installed_req, req))
                 # FIXME: Consider direct URL?
-        return conflicting, missing
+        return frozenset(conflicting), frozenset(missing)
 
     def install_requirements(
         self,
-        requirements: Iterable[str],
+        requirements: Iterable[Requirement],
         prefix_as_string: str,
         *,
         kind: str,
@@ -340,7 +337,7 @@ class NoOpBuildEnvironment(BuildEnvironment):
 
     def install_requirements(
         self,
-        requirements: Iterable[str],
+        requirements: Iterable[Requirement],
         prefix_as_string: str,
         *,
         kind: str,

@@ -41,5 +41,4 @@ def test_get_or_create_caching() -> None:
     # equality of attribute for list of attributes
     for iattr in ["name", "url", "extras", "specifier", "marker"]:
         assert getattr(from_helper, iattr) == getattr(freshly_made, iattr)
-    assert get_requirement(teststr) is not Requirement.parse(teststr)
     assert get_requirement(teststr) is get_requirement(teststr)

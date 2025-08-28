@@ -11,6 +11,7 @@ from pip._internal.build_env import (
     SubprocessBuildEnvironmentInstaller,
     _get_system_sitepackages,
 )
+from pip._internal.utils.packaging.requirements import Requirement
 
 from tests.lib import (
     PipTestEnvironment,
@@ -102,11 +103,11 @@ def test_build_env_allow_only_one_install(script: PipTestEnvironment) -> None:
     build_env = BuildEnvironment(SubprocessBuildEnvironmentInstaller(finder))
     for prefix in ("normal", "overlay"):
         build_env.install_requirements(
-            ["foo"], prefix, kind=f"installing foo in {prefix}"
+            [Requirement.parse("foo")], prefix, kind=f"installing foo in {prefix}"
         )
         with pytest.raises(AssertionError):
             build_env.install_requirements(
-                ["bar"], prefix, kind=f"installing bar in {prefix}"
+                [Requirement.parse("bar")], prefix, kind=f"installing bar in {prefix}"
             )
         with pytest.raises(AssertionError):
             build_env.install_requirements([], prefix, kind=f"installing in {prefix}")

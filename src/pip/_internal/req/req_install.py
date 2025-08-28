@@ -168,10 +168,10 @@ class InstallRequirement:
         self.metadata_directory: str | None = None
 
         # The static build requirements (from pyproject.toml)
-        self.pyproject_requires: list[str] | None = None
+        self.pyproject_requires: list[Requirement] | None = None
 
         # Build requirements that we will check are available
-        self.requirements_to_check: list[str] = []
+        self.requirements_to_check: list[Requirement] = []
 
         # The PEP 517 backend we should use to build the project
         self.pep517_backend: BuildBackendHookCaller | None = None
