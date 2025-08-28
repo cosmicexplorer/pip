@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from html.parser import HTMLParser
 from optparse import Values
 from typing import (
+    TYPE_CHECKING,
     Callable,
     NamedTuple,
     Protocol,
@@ -38,6 +39,9 @@ from pip._internal.utils.urls import ParsedUrl
 from pip._internal.vcs import vcs
 
 from .sources import CandidatesFromPage, LinkSource, build_source
+
+if TYPE_CHECKING:
+    from typing_extensions import Self
 
 logger = logging.getLogger(__name__)
 
@@ -245,16 +249,9 @@ def parse_links(page: IndexContent) -> Iterable[Link]:
         yield link
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class IndexContent:
-    """Represents one response (or page), along with its URL.
-
-    :param encoding: the encoding to decode the given content.
-    :param url: the URL from which the HTML was downloaded.
-    :param cache_link_parsing: whether links parsed from this page's url
-                               should be cached. PyPI index urls should
-                               have this set to False, for example.
-    """
+    """Represents one response (or page), along with its URL."""
 
     content: bytes
     content_type: str
@@ -262,22 +259,35 @@ class IndexContent:
     url: ParsedUrl
     cache_link_parsing: bool
 
-    def __init__(
-        self,
+    @classmethod
+    def create(
+        cls,
         content: bytes,
         content_type: str,
         encoding: str | None,
-        url: str,
+        url: str | ParsedUrl,
         cache_link_parsing: bool = True,
-    ) -> None:
-        object.__setattr__(self, "content", content)
-        object.__setattr__(self, "content_type", content_type)
-        object.__setattr__(self, "encoding", encoding)
-        object.__setattr__(self, "url", ParsedUrl.parse(url).ensure_quoted_path())
-        object.__setattr__(self, "cache_link_parsing", cache_link_parsing)
+    ) -> Self:
+        """
+        :param encoding: the encoding to decode the given content.
+        :param url: the URL from which the HTML was downloaded.
+        :param cache_link_parsing: whether links parsed from this page's url
+                                   should be cached. PyPI index urls should
+                                   have this set to False, for example.
+        """
+        if isinstance(url, str):
+            url = ParsedUrl.parse(url)
+        url = url.with_quoted_path()
+        return cls(
+            content=content,
+            content_type=content_type,
+            encoding=encoding,
+            url=url,
+            cache_link_parsing=cache_link_parsing,
+        )
 
     def __str__(self) -> str:
-        return str(self.url.with_redacted_auth_info)
+        return str(self.url.with_redacted_auth_info())
 
 
 class HTMLLinkParser(HTMLParser):
@@ -297,7 +307,7 @@ class HTMLLinkParser(HTMLParser):
         if tag == "base" and self.base_url is None:
             href = self.get_href(attrs)
             if href is not None:
-                self.base_url = ParsedUrl.parse(href).ensure_quoted_path()
+                self.base_url = ParsedUrl.parse(href).with_quoted_path()
         elif tag == "a":
             self.anchors.append(dict(attrs))
 
@@ -322,9 +332,9 @@ def _make_index_content(
     response: Response, cache_link_parsing: bool = True
 ) -> IndexContent:
     encoding = _get_encoding_from_headers(response.headers)
-    return IndexContent(
-        response.content,
-        response.headers["Content-Type"],
+    return IndexContent.create(
+        content=response.content,
+        content_type=response.headers["Content-Type"],
         encoding=encoding,
         url=response.url,
         cache_link_parsing=cache_link_parsing,

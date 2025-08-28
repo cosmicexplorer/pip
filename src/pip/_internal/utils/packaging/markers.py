@@ -368,7 +368,7 @@ class Marker:
         return self._hash
 
     def __eq__(self, other: Any) -> bool:
-        if not type(other) is self.__class__:
+        if type(other) is not self.__class__:
             return NotImplemented
         return hash(self) == hash(other) and str(self) == str(other)
 

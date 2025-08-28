@@ -21,7 +21,7 @@ from pip._internal.utils.hashes import Hashes
 from pip._internal.utils.misc import (
     splitext,
 )
-from pip._internal.utils.urls import ParsedUrl, path_to_url
+from pip._internal.utils.urls import ParsedUrl, path_to_url, url_to_path
 
 if TYPE_CHECKING:
     from pip._internal.index.collector import IndexContent
@@ -168,9 +168,9 @@ class Link:
         if isinstance(url, str):
             # url can be a UNC windows share
             if url.startswith("\\\\"):
-                url = path_to_url(url).ensure_quoted_path()
+                url = path_to_url(url).with_quoted_path()
             else:
-                url = ParsedUrl.parse(url).ensure_quoted_path()
+                url = ParsedUrl.parse(url).with_quoted_path()
         self._parsed_url = url
 
         link_hash = LinkHash.find_hash_url_fragment(self._fragments)
@@ -204,8 +204,8 @@ class Link:
         file_url = file_data.get("url")
         if file_url is None:
             return None
-        url = page_url.with_quoted_path.join(
-            ParsedUrl.parse(file_url).ensure_quoted_path()
+        url = page_url.with_quoted_path().join(
+            ParsedUrl.parse(file_url).with_quoted_path()
         )
 
         pyrequire = file_data.get("requires-python")
@@ -258,7 +258,7 @@ class Link:
         href = anchor_attribs.get("href")
         if not href:
             return None
-        url = base_url.join(ParsedUrl.parse(href).ensure_quoted_path())
+        url = base_url.join(ParsedUrl.parse(href).with_quoted_path())
 
         pyrequire = anchor_attribs.get("data-requires-python")
         yanked_reason = anchor_attribs.get("data-yanked")
@@ -297,7 +297,8 @@ class Link:
             metadata_file_data=metadata_file_data,
         )
 
-    def __str__(self) -> str:
+    @functools.cached_property
+    def _str(self) -> str:
         if self.requires_python:
             rp = f" (requires-python:{self.requires_python})"
         else:
@@ -307,19 +308,26 @@ class Link:
         else:
             return self.redacted_url
 
+    def __str__(self) -> str:
+        return self._str
+
     def __repr__(self) -> str:
         return f"<Link {self}>"
 
-    def __hash__(self) -> int:
+    @functools.cached_property
+    def _hash(self) -> int:
         return hash(self.url)
 
+    def __hash__(self) -> int:
+        return self._hash
+
     def __eq__(self, other: Any) -> bool:
-        if not isinstance(other, Link):
+        if type(other) is not self.__class__:
             return NotImplemented
-        return self.url == other.url
+        return hash(self) == hash(other) and self.url == other.url
 
     def __lt__(self, other: Any) -> bool:
-        if not isinstance(other, Link):
+        if type(other) is not self.__class__:
             return NotImplemented
         return self.url < other.url
 
@@ -333,23 +341,23 @@ class Link:
 
     @property
     def redacted_url(self) -> str:
-        return str(self._parsed_url.with_redacted_auth_info)
+        return str(self._parsed_url.with_redacted_auth_info())
+
+    @functools.cached_property
+    def _base_name(self) -> str:
+        return posixpath.basename(self.path.rstrip("/"))
 
     @property
     def filename(self) -> str:
-        path = self.path.rstrip("/")
-        name = posixpath.basename(path)
-        if not name:
-            # Make sure we don't leak auth information if the netloc
-            # includes a username and password.
-            return self._parsed_url.with_removed_auth_info.netloc
-
-        assert name, f"URL {self._parsed_url!r} produced no filename"
-        return name
+        if name := self._base_name:
+            return name
+        # Make sure we don't leak auth information if the netloc
+        # includes a username and password.
+        return self._parsed_url.with_removed_auth_info().netloc
 
     @property
     def file_path(self) -> str:
-        return self._parsed_url.as_filesystem_path
+        return url_to_path(self._parsed_url)
 
     @property
     def scheme(self) -> str:
@@ -364,22 +372,22 @@ class Link:
 
     @property
     def path(self) -> str:
-        return self._parsed_url.unquoted_path
+        return self._parsed_url.unquoted_path()
 
     @functools.cached_property
     def _splitext(self) -> tuple[str, str]:
-        return splitext(posixpath.basename(self.path.rstrip("/")))
+        return splitext(self._base_name)
 
     def splitext(self) -> tuple[str, str]:
         return self._splitext
 
     @property
     def ext(self) -> str:
-        return self.splitext()[1]
+        return self._splitext[1]
 
     @property
     def url_without_fragment(self) -> str:
-        return str(self._parsed_url.without_fragment)
+        return str(self._parsed_url.without_fragment())
 
     # Per PEP 508.
     _project_name_re = re.compile(
@@ -432,7 +440,7 @@ class Link:
 
     @property
     def show_url(self) -> str:
-        return posixpath.basename(str(self._parsed_url.with_no_fragment_or_query))
+        return posixpath.basename(str(self._parsed_url.with_no_fragment_or_query()))
 
     @property
     def is_file(self) -> bool:

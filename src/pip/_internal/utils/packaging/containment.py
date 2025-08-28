@@ -13,7 +13,7 @@ from .version import ParsedVersion
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
-    from typing import ClassVar, Any
+    from typing import Any, ClassVar
 
 
 class ContainsPredicate(abc.ABC):

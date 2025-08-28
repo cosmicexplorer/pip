@@ -423,7 +423,7 @@ def test_clean_url_path_with_local_path(path: str, expected: str) -> None:
     ],
 )
 def test_ensure_quoted_url(url: str, clean_url: str) -> None:
-    assert str(ParsedUrl.parse(url).ensure_quoted_path()) == clean_url
+    assert str(ParsedUrl.parse(url).with_quoted_path()) == clean_url
 
 
 def _test_parse_links_data_attribute(
@@ -435,7 +435,7 @@ def _test_parse_links_data_attribute(
         f"<body>{anchor_html}</body></html>"
     )
     html_bytes = html.encode("utf-8")
-    page = IndexContent(
+    page = IndexContent.create(
         html_bytes,
         "text/html",
         encoding=None,
@@ -527,7 +527,7 @@ def test_parse_links_json() -> None:
             ],
         }
     ).encode("utf8")
-    page = IndexContent(
+    page = IndexContent.create(
         json_bytes,
         "application/vnd.pypi.simple.v1+json",
         encoding=None,
@@ -681,7 +681,7 @@ def test_parse_links_caches_same_page_by_url() -> None:
 
     url = "https://example.com/simple/"
 
-    page_1 = IndexContent(
+    page_1 = IndexContent.create(
         html_bytes,
         "text/html",
         encoding=None,
@@ -689,7 +689,7 @@ def test_parse_links_caches_same_page_by_url() -> None:
     )
     # Make a second page with zero content, to ensure that it's not accessed,
     # because the page was cached by url.
-    page_2 = IndexContent(
+    page_2 = IndexContent.create(
         b"",
         "text/html",
         encoding=None,
@@ -698,7 +698,7 @@ def test_parse_links_caches_same_page_by_url() -> None:
     # Make a third page which represents an index url, which should not be
     # cached, even for the same url. We modify the page content slightly to
     # verify that the result is not cached.
-    page_3 = IndexContent(
+    page_3 = IndexContent.create(
         re.sub(b"pkg1", b"pkg2", html_bytes),
         "text/html",
         encoding=None,

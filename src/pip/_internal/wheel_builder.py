@@ -92,7 +92,7 @@ def _should_cache(
         return False
 
     assert req.link
-    base, ext = req.link.splitext()
+    base, _ = req.link.splitext()
     if _contains_egg_info(base):
         return True
 

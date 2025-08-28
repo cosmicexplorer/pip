@@ -31,7 +31,7 @@ from pip._internal.utils.packaging.markers import Marker
 from pip._internal.utils.packaging.requirements import Requirement
 from pip._internal.utils.packaging.specifiers import Operator
 from pip._internal.utils.packaging_utils import get_requirement
-from pip._internal.utils.urls import ParsedUrl, path_to_url
+from pip._internal.utils.urls import ParsedUrl, coerce_file_uri_to_path, path_to_url
 from pip._internal.vcs import has_vcs_url_scheme, vcs
 
 __all__ = [
@@ -102,17 +102,19 @@ def parse_editable(editable_req: str) -> tuple[Link, frozenset[str]]:
     url_no_extras, extras = _strip_extras(editable_req)
 
     parsed_url = None
+    url_no_extras = coerce_file_uri_to_path(url_no_extras)
     # TODO: consider _looks_like_path()????
     if os.path.isdir(url_no_extras):
         # Treating it as code that has already been checked out
         parsed_url = path_to_url(url_no_extras)
-    elif url_no_extras.lower().startswith("file:"):
-        relative_url = ParsedUrl.parse(url_no_extras)
-        parsed_url = path_to_url(relative_url.to_path())
-
-    if parsed_url:
-        assert parsed_url.scheme == "file"
         return Link(parsed_url), convert_extras(extras)
+    if _looks_like_path(url_no_extras):
+        logger.debug(
+            "editable requirement '%s' was converted to file-like URL '%s', "
+            "but it did not point to an existing directory path",
+            editable_req,
+            url_no_extras,
+        )
 
     if not has_vcs_url_scheme(url_no_extras):
         backends = ", ".join(vcs.all_schemes)
@@ -264,10 +266,8 @@ def _get_url_from_path(path: str, name: str) -> ParsedUrl | None:
     The function checks if the path is a file. If false, if the path has
     an @, it will treat it as a PEP 440 URL requirement and return the path.
     """
-    if path.lower().startswith("file:"):
-        path = ParsedUrl.parse(path).to_path()
-    if name.lower().startswith("file:"):
-        name = ParsedUrl.parse(name).to_path()
+    path = coerce_file_uri_to_path(path)
+    name = coerce_file_uri_to_path(name)
     if _looks_like_path(name) and os.path.isdir(path):
         if is_installable_dir(path):
             return path_to_url(path)

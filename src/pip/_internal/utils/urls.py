@@ -10,7 +10,7 @@ import string
 import urllib.parse
 import urllib.request
 from collections.abc import Iterable, Iterator
-from typing import TYPE_CHECKING, Any, ClassVar, NewType, Protocol, cast
+from typing import TYPE_CHECKING, Any, ClassVar, NewType, cast
 
 from pip._internal.utils.misc import pairwise, redact_netloc, split_auth_from_netloc
 
@@ -20,29 +20,61 @@ if TYPE_CHECKING:
     from typing_extensions import Self
 
 
-def path_to_url(path: str) -> ParsedUrl:
-    """
-    Convert a path to a file: URL.  The path will be made absolute and have
-    quoted path parts.
-    """
-    path = os.path.normpath(os.path.abspath(path))
-    return ParsedUrl.parse(
-        url=urllib.request.pathname2url(path),
-        scheme="file",
+class _PathUrlCoercions:
+    @staticmethod
+    def path_to_url(path: str) -> ParsedUrl:
+        """
+        Convert a path to a file: URL.  The path will be made absolute and have
+        quoted path parts.
+        """
+        path = os.path.normpath(os.path.abspath(path))
+        return ParsedUrl.parse(
+            url=urllib.request.pathname2url(path),
+            scheme="file",
+        )
+
+    @staticmethod
+    def url_to_path(url: ParsedUrl) -> str:
+        """
+        Convert a file: URL to a path.
+        """
+        # NB: this remains a private member, because it can be easy to confuse variable
+        #     types otherwise.
+        return url._path_for_filesystem
+
+    _file_scheme_pattern: ClassVar[re.Pattern[str]] = re.compile(
+        r"^file:",
+        flags=re.IGNORECASE,
     )
+
+    @classmethod
+    def coerce_file_uri_to_path(cls, path_or_uri: str) -> str:
+        """
+        If a path string begins with file:, parse it as a URL, then extract the intended
+        local filesystem path.
+        """
+        if cls._file_scheme_pattern.match(path_or_uri):
+            return cls.url_to_path(ParsedUrl.parse(path_or_uri))
+        return path_or_uri
+
+
+def path_to_url(path: str) -> ParsedUrl:
+    return _PathUrlCoercions.path_to_url(path)
 
 
 def url_to_path(url: ParsedUrl) -> str:
-    """
-    Convert a file: URL to a path.
-    """
-    return url.as_filesystem_path
+    return _PathUrlCoercions.url_to_path(url)
+
+
+def coerce_file_uri_to_path(path_or_uri: str) -> str:
+    return _PathUrlCoercions.coerce_file_uri_to_path(path_or_uri)
 
 
 PathComponent = NewType("PathComponent", str)
 
 
-class PathSegments(Protocol):
+class PathSegments(metaclass=abc.ABCMeta):
+    @abc.abstractmethod
     def path_segments(self) -> Iterable[PathComponent]: ...
 
 
@@ -108,7 +140,7 @@ class UrlPath:
 
 
 @dataclasses.dataclass(frozen=True)
-class ParsedUrl:
+class ParsedUrl(PathSegments):
     scheme: str
     netloc: str
     path: str
@@ -123,16 +155,19 @@ class ParsedUrl:
         "params",
         "query",
         "fragment",
-        "__dict__",
     ]
 
-    @classmethod
-    def parse(cls, url: str, scheme: str = "") -> Self:
-        scheme, netloc, path, params, query, fragment = urllib.parse.urlparse(
-            url, scheme=scheme
-        )
-
-        return cls(
+    @staticmethod
+    @functools.cache
+    def _cached_create(
+        scheme: str,
+        netloc: str,
+        path: str,
+        params: str,
+        query: str,
+        fragment: str,
+    ) -> ParsedUrl:
+        return ParsedUrl(
             scheme=scheme,
             netloc=netloc,
             path=path,
@@ -140,6 +175,29 @@ class ParsedUrl:
             query=query,
             fragment=fragment,
         )
+
+    @staticmethod
+    @functools.cache
+    def _cached_parse(
+        url: str,
+        scheme: str,
+    ) -> ParsedUrl:
+        scheme, netloc, path, params, query, fragment = urllib.parse.urlparse(
+            url, scheme=scheme
+        )
+
+        return ParsedUrl._cached_create(
+            scheme=scheme,
+            netloc=netloc,
+            path=path,
+            params=params,
+            query=query,
+            fragment=fragment,
+        )
+
+    @classmethod
+    def parse(cls, url: str, scheme: str = "") -> ParsedUrl:
+        return cls._cached_parse(url=url, scheme=scheme)
 
     def _unparse_args(self) -> tuple[str, str, str, str, str, str]:
         return (
@@ -159,10 +217,10 @@ class ParsedUrl:
 
     @functools.cached_property
     def _unparsed_output(self) -> str:
-        return ParsedUrl._unsplit(self._unsplit_args())
+        return self.__class__._unsplit(self._unsplit_args())
 
-    @staticmethod
-    def _unsplit_components(args: tuple[str, str, str, str, str]) -> Iterator[str]:
+    @classmethod
+    def _unsplit_components(cls, args: tuple[str, str, str, str, str]) -> Iterator[str]:
         """
         This method is adapted from urllib.parse.urlsplit() in the stdlib in order to
         modify the definition of uses_netloc to include pip's myriad vcs schemes.
@@ -176,7 +234,7 @@ class ParsedUrl:
         # NB: this usage of uses_netloc is very importantly different than in the join()
         #     method! In particular, join() does *not* check for truthiness of `scheme`!
         #     The result of this is that empty schemes do not get another prefix '/'!
-        if netloc or (scheme and ParsedUrl.scheme_uses_netloc(scheme)):
+        if netloc or (scheme and cls.scheme_uses_netloc(scheme)):
             # NB: we are ignoring an additional `or url[:2] == "//"` clauses in the
             # stdlib added in 2024 (e237b25a4fa5626fcd1b1848aa03f725f892e40e) because
             # I don't understand it.
@@ -190,17 +248,17 @@ class ParsedUrl:
             yield "#"
             yield fragment
 
-    @staticmethod
-    def _unsplit(args: tuple[str, str, str, str, str]) -> str:
-        return "".join(ParsedUrl._unsplit_components(args))
+    @classmethod
+    def _unsplit(cls, args: tuple[str, str, str, str, str]) -> str:
+        return "".join(cls._unsplit_components(args))
 
     def __str__(self) -> str:
         return self._unparsed_output
 
     _uses_relative: ClassVar[frozenset[str]] = frozenset(urllib.parse.uses_relative)
 
-    @functools.cache
     @staticmethod
+    @functools.cache
     def _uses_netloc() -> frozenset[str]:
         # See docs/html/topics/vcs-support.md.
         from pip._internal.vcs.versioncontrol import vcs
@@ -220,30 +278,117 @@ class ParsedUrl:
     def scheme_uses_netloc(cls, scheme: str) -> bool:
         return scheme in cls._uses_netloc()
 
-    def path_segments(self) -> list[PathComponent]:
-        return cast(list[PathComponent], self.path.split("/"))
+    @functools.cached_property
+    def _path_segments(self) -> tuple[str, ...]:
+        return tuple(self.path.split("/"))
 
-    def join(self, url: Self) -> Self:
+    def path_segments(self) -> tuple[PathComponent, ...]:
+        return cast(tuple[PathComponent, ...], self._path_segments)
+
+    def with_scheme(self, *, scheme: str) -> ParsedUrl:
+        if scheme == self.scheme:
+            return self
+        return self.__class__._cached_create(
+            scheme=scheme,
+            netloc=self.netloc,
+            path=self.path,
+            params=self.params,
+            query=self.query,
+            fragment=self.fragment,
+        )
+
+    def with_netloc(self, *, netloc: str) -> ParsedUrl:
+        if netloc == self.netloc:
+            return self
+        return self.__class__._cached_create(
+            scheme=self.scheme,
+            netloc=netloc,
+            path=self.path,
+            params=self.params,
+            query=self.query,
+            fragment=self.fragment,
+        )
+
+    def with_path_and_params(self, *, path: str, params: str) -> ParsedUrl:
+        if self.path == path and self.params == params:
+            return self
+        return self.__class__._cached_create(
+            scheme=self.scheme,
+            netloc=self.netloc,
+            path=path,
+            params=params,
+            query=self.query,
+            fragment=self.fragment,
+        )
+
+    def with_query(self, *, query: str) -> ParsedUrl:
+        if query == self.query:
+            return self
+        return self.__class__._cached_create(
+            scheme=self.scheme,
+            netloc=self.netloc,
+            path=self.path,
+            params=self.params,
+            query=query,
+            fragment=self.fragment,
+        )
+
+    def with_path(self, *, path: str) -> ParsedUrl:
+        if path == self.path:
+            return self
+        return self.__class__._cached_create(
+            scheme=self.scheme,
+            netloc=self.netloc,
+            path=path,
+            params=self.params,
+            query=self.query,
+            fragment=self.fragment,
+        )
+
+    def with_fragment_and_query(self, *, fragment: str, query: str) -> ParsedUrl:
+        if fragment == self.fragment and query == self.query:
+            return self
+        return self.__class__._cached_create(
+            scheme=self.scheme,
+            netloc=self.netloc,
+            path=self.path,
+            params=self.params,
+            query=query,
+            fragment=fragment,
+        )
+
+    def with_fragment(self, *, fragment: str) -> ParsedUrl:
+        if fragment == self.fragment:
+            return self
+        return self.__class__._cached_create(
+            scheme=self.scheme,
+            netloc=self.netloc,
+            path=self.path,
+            params=self.params,
+            query=self.query,
+            fragment=fragment,
+        )
+
+    def join(self, url: ParsedUrl) -> ParsedUrl:
         if not url.scheme:
-            url = dataclasses.replace(url, scheme=self.scheme)
+            url = url.with_scheme(scheme=self.scheme)
 
-        if self.scheme != url.scheme or not type(self).scheme_uses_relative(url.scheme):
+        if self.scheme != url.scheme or not self.__class__.scheme_uses_relative(
+            url.scheme
+        ):
             return url
-        if type(self).scheme_uses_netloc(url.scheme):
+        if self.__class__.scheme_uses_netloc(url.scheme):
             if url.netloc:
                 return url
-            url = dataclasses.replace(url, netloc=self.netloc)
+            url = url.with_netloc(netloc=self.netloc)
 
         if not url.path and not url.params:
-            url = dataclasses.replace(url, path=self.path, params=self.params)
+            url = url.with_path_and_params(path=self.path, params=self.params)
             if not url.query:
-                url = dataclasses.replace(url, query=self.query)
+                url = url.with_query(query=self.query)
             return url
 
-        return dataclasses.replace(
-            url,
-            path=UrlPath.join_right(self, url),
-        )
+        return url.with_path(path=UrlPath.join_right(self, url))
 
     @functools.cached_property
     def _path_kind(self) -> _PathKind:
@@ -252,7 +397,15 @@ class ParsedUrl:
         # If the netloc is empty, then the URL refers to a local filesystem path.
         return _FilePath()
 
-    def ensure_quoted_path(self) -> Self:
+    @functools.cached_property
+    def _quoted_path(self) -> str:
+        return _PathSanitizer.sanitize_path(self.path, self._path_kind)
+
+    @functools.cached_property
+    def _as_quoted_path(self) -> ParsedUrl:
+        return self.with_path(path=self._quoted_path)
+
+    def with_quoted_path(self) -> ParsedUrl:
         """
         Make sure a path is fully quoted.
         For example, if ' ' occurs in the URL, it will be replaced with "%20",
@@ -261,60 +414,48 @@ class ParsedUrl:
         # For some reason, dataclasses.replace() shows up very heavily on a profile
         # output. It's not clear if this improves performance, but it's correct and
         # makes the dataclasses module disappear from the profile.
-        return self.__class__(
-            self.scheme,
-            self.netloc,
-            _PathSanitizer.sanitize_path(self.path, self._path_kind),
-            self.params,
-            self.query,
-            self.fragment,
-        )
+        return self._as_quoted_path
 
     @functools.cached_property
-    def with_quoted_path(self) -> Self:
-        return self.ensure_quoted_path()
-
-    @functools.cached_property
-    def unquoted_path(self) -> str:
+    def _unquoted_path(self) -> str:
         "The .path property is hot, so calculate its value ahead of time."
         return urllib.parse.unquote(self.path)
 
-    def remove_auth_info(self) -> Self:
+    def unquoted_path(self) -> str:
+        return self._unquoted_path
+
+    @functools.cached_property
+    def _netloc_without_auth_info(self) -> str:
         netloc, _ = split_auth_from_netloc(self.netloc)
-        return dataclasses.replace(
-            self,
-            netloc=netloc,
-        )
+        return netloc
 
     @functools.cached_property
-    def with_removed_auth_info(self) -> Self:
-        return self.remove_auth_info()
+    def _as_removed_auth_info(self) -> ParsedUrl:
+        return self.with_netloc(netloc=self._netloc_without_auth_info)
 
-    def redact_auth_info(self) -> Self:
-        return dataclasses.replace(
-            self,
-            netloc=redact_netloc(self.netloc),
-        )
-
-    def no_fragment_or_query(self) -> Self:
-        return dataclasses.replace(
-            self,
-            query="",
-            fragment="",
-        )
+    def with_removed_auth_info(self) -> ParsedUrl:
+        return self._as_removed_auth_info
 
     @functools.cached_property
-    def with_no_fragment_or_query(self) -> Self:
-        return self.no_fragment_or_query()
+    def _netloc_with_redacted_auth_info(self) -> str:
+        return redact_netloc(self.netloc)
 
     @functools.cached_property
-    def with_redacted_auth_info(self) -> Self:
-        return self.redact_auth_info()
+    def _as_redacted_auth_info(self) -> ParsedUrl:
+        return self.with_netloc(netloc=self._netloc_with_redacted_auth_info)
 
-    def to_path(self) -> str:
-        """
-        Convert a file: URL to a path.
-        """
+    def with_redacted_auth_info(self) -> ParsedUrl:
+        return self._as_redacted_auth_info
+
+    @functools.cached_property
+    def _as_no_fragment_or_query(self) -> ParsedUrl:
+        return self.with_fragment_and_query(fragment="", query="")
+
+    def with_no_fragment_or_query(self) -> ParsedUrl:
+        return self._as_no_fragment_or_query
+
+    @functools.cached_property
+    def _path_for_filesystem(self) -> str:
         assert (
             self.scheme == "file"
         ), f"You can only turn file: urls into filenames (not {self!r})"
@@ -349,15 +490,11 @@ class ParsedUrl:
         return path
 
     @functools.cached_property
-    def as_filesystem_path(self) -> str:
-        return self.to_path()
+    def _as_no_fragment(self) -> ParsedUrl:
+        return self.with_fragment(fragment="")
 
-    def no_fragment(self) -> Self:
-        return dataclasses.replace(self, fragment="")
-
-    @functools.cached_property
-    def without_fragment(self) -> Self:
-        return self.no_fragment()
+    def without_fragment(self) -> ParsedUrl:
+        return self._as_no_fragment
 
 
 class _PathKind(abc.ABC):

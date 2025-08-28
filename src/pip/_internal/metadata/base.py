@@ -33,6 +33,7 @@ from pip._internal.utils.misc import is_local, normalize_path
 from pip._internal.utils.packaging.requirements import Requirement
 from pip._internal.utils.packaging.specifiers import SpecifierSet
 from pip._internal.utils.packaging.version import ParsedVersion
+from pip._internal.utils.urls import url_to_path
 
 from ._json import msg_to_json
 
@@ -163,7 +164,7 @@ class BaseDistribution(Protocol):
         direct_url = self.direct_url
         if direct_url:
             if direct_url.is_local_editable():
-                return direct_url.parsed_url.as_filesystem_path
+                return url_to_path(direct_url.parsed_url)
         else:
             # Search for an .egg-link file by walking sys.path, as it was
             # done before by dist_is_editable().

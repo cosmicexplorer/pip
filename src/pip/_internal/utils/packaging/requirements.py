@@ -15,8 +15,6 @@ from .specifiers import SpecifierSet
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from typing_extensions import Self
-
 
 @dataclass(frozen=True)
 class Requirement:
