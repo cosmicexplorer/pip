@@ -28,8 +28,6 @@ from .version import InvalidVersion, ParsedVersion
 if TYPE_CHECKING:
     from typing import Any, Callable, ClassVar
 
-    from typing_extensions import Self
-
 
 _VersionArg = TypeVar("_VersionArg")
 
@@ -96,6 +94,23 @@ class Specifier(BaseSpecifier):
     _version: str
     _trailing_dot_star: bool
     _prereleases: bool | None
+
+    __slots__ = ["operator", "_version", "_trailing_dot_star", "_prereleases"]
+
+    @staticmethod
+    @functools.cache
+    def _cached_create(
+        operator: Operator,
+        _version: str,
+        _trailing_dot_star: bool,
+        _prereleases: bool | None,
+    ) -> Specifier:
+        return Specifier(
+            operator=operator,
+            _version=_version,
+            _trailing_dot_star=_trailing_dot_star,
+            _prereleases=_prereleases,
+        )
 
     _operator_regex_str: ClassVar[
         str
@@ -203,20 +218,10 @@ class Specifier(BaseSpecifier):
         flags=re.VERBOSE | re.IGNORECASE,
     )
 
-    @classmethod
-    def parse(cls, spec: str = "", prereleases: bool | None = None) -> Self:
-        """
-        :param spec:
-            The string representation of a specifier which will be parsed and
-            normalized before use.
-        :param prereleases:
-            This tells the specifier if it should accept prerelease versions if
-            applicable or not. The default of ``None`` will autodetect it from the
-            given specifiers.
-        :raises InvalidSpecifier:
-            If the given specifier is invalid (i.e. bad syntax).
-        """
-        m = cls._regex.match(spec)
+    @staticmethod
+    @functools.cache
+    def _cached_parse(spec: str, prereleases: bool | None) -> Specifier:
+        m = Specifier._regex.match(spec)
         if not m:
             raise InvalidSpecifier(f"Invalid specifier: {spec!r}")
         g = m.groupdict()
@@ -230,12 +235,27 @@ class Specifier(BaseSpecifier):
             version = version[:-2]
         else:
             trailing_dot_star = False
-        return cls(
+        return Specifier._cached_create(
             operator=operator,
             _version=version,
             _trailing_dot_star=trailing_dot_star,
             _prereleases=prereleases,
         )
+
+    @classmethod
+    def parse(cls, spec: str = "", prereleases: bool | None = None) -> Specifier:
+        """
+        :param spec:
+            The string representation of a specifier which will be parsed and
+            normalized before use.
+        :param prereleases:
+            This tells the specifier if it should accept prerelease versions if
+            applicable or not. The default of ``None`` will autodetect it from the
+            given specifiers.
+        :raises InvalidSpecifier:
+            If the given specifier is invalid (i.e. bad syntax).
+        """
+        return cls._cached_parse(spec, prereleases)
 
     @property
     def trailing_dot_star(self) -> bool:
@@ -287,44 +307,106 @@ class Specifier(BaseSpecifier):
         # Legacy versions cannot be normalized.
         return self.operator, self._version
 
-    def __hash__(self) -> int:
+    @functools.cached_property
+    def _hash(self) -> int:
         return hash(self._canonical_spec)
 
+    def __hash__(self) -> int:
+        return self._hash
+
     def __eq__(self, other: Any) -> bool:
-        if not isinstance(other, self.__class__):
+        if type(other) is not self.__class__:
             return NotImplemented
         return (
             hash(self) == hash(other) and self._canonical_spec == other._canonical_spec
         )
 
+    @staticmethod
+    @functools.cache
+    def _arbitrary_equal(spec_str: str) -> ArbitraryEqual:
+        return ArbitraryEqual(spec_str)
+
+    @staticmethod
+    @functools.cache
+    def _less_than(ver: ParsedVersion) -> LessThan:
+        return LessThan(ver)
+
+    @staticmethod
+    @functools.cache
+    def _greater_than(ver: ParsedVersion) -> GreaterThan:
+        return GreaterThan(ver)
+
+    @staticmethod
+    @functools.cache
+    def _lte(ver: ParsedVersion) -> LessThanEqual:
+        return LessThanEqual(ver)
+
+    @staticmethod
+    @functools.cache
+    def _gte(ver: ParsedVersion) -> GreaterThanEqual:
+        return GreaterThanEqual(ver)
+
+    @staticmethod
+    @functools.cache
+    def _ne_pfx(spec_str: str) -> NotEqualPrefix:
+        return NotEqualPrefix(spec_str)
+
+    @staticmethod
+    @functools.cache
+    def _ne_basic(ver: ParsedVersion) -> NotEqualBasic:
+        return NotEqualBasic(ver)
+
+    @staticmethod
+    @functools.cache
+    def _eq_pfx(spec_str: str) -> EqualPrefix:
+        return EqualPrefix(spec_str)
+
+    @staticmethod
+    @functools.cache
+    def _eq_basic(ver: ParsedVersion) -> EqualBasic:
+        return EqualBasic(ver)
+
+    @staticmethod
+    @functools.cache
+    def _compatible(spec_str: str) -> Compatible:
+        return Compatible(spec_str)
+
     @functools.cached_property
     def _predicate(self) -> ContainsPredicate:
         if self.operator == Operator.ARBITRARY:
-            return ArbitraryEqual(self._version)
+            return self.__class__._arbitrary_equal(self._version)
         if self.operator == Operator.LESS_THAN:
             assert self.parsed_version is not None
-            return LessThan(self.parsed_version)
+            return self.__class__._less_than(self.parsed_version)
         if self.operator == Operator.GREATER_THAN:
             assert self.parsed_version is not None
-            return GreaterThan(self.parsed_version)
+            return self.__class__._greater_than(self.parsed_version)
         if self.operator == Operator.LESS_THAN_EQUAL:
             assert self.parsed_version is not None
-            return LessThanEqual(self.parsed_version)
+            return self.__class__._lte(self.parsed_version)
         if self.operator == Operator.GREATER_THAN_EQUAL:
             assert self.parsed_version is not None
-            return GreaterThanEqual(self.parsed_version)
+            return self.__class__._gte(self.parsed_version)
         if self.operator == Operator.NOT_EQUAL:
             if self._trailing_dot_star:
-                return NotEqualPrefix(self._version)
+                return self.__class__._ne_pfx(self._version)
             assert self.parsed_version is not None
-            return NotEqualBasic(self.parsed_version)
+            return self.__class__._ne_basic(self.parsed_version)
         if self.operator == Operator.EQUAL:
             if self._trailing_dot_star:
-                return EqualPrefix(self._version)
+                return self.__class__._eq_pfx(self._version)
             assert self.parsed_version is not None
+            return self.__class__._eq_basic(self.parsed_version)
             return EqualBasic(self.parsed_version)
         assert self.operator == Operator.COMPATIBLE, self.operator
-        return Compatible(self._version)
+        return self.__class__._compatible(self._version)
+
+    @staticmethod
+    @functools.cache
+    def _cached_evaluate(pred: ContainsPredicate, item: ParsedVersion) -> bool:
+        # NB: This cache is defined using id(self) as the hash key!!!
+        #     See ContainsPredicate.__hash__() and __eq__().
+        return pred.evaluate(item)
 
     def contains(self, item: ParsedVersion, prereleases: bool | None = None) -> bool:
         if prereleases is None:
@@ -333,7 +415,7 @@ class Specifier(BaseSpecifier):
         if item.is_prerelease and not prereleases:
             return False
 
-        return self._predicate.evaluate(item)
+        return self.__class__._cached_evaluate(self._predicate, item)
 
     def filter_arg(
         self,
@@ -373,13 +455,57 @@ class Specifier(BaseSpecifier):
 
 @dataclass(frozen=True)
 class SpecifierSet(BaseSpecifier):
-    _specs: frozenset[Specifier]
+    _specs: frozenset[Specifier] | None
     _prereleases: bool | None
 
+    __slots__ = ["_specs", "_prereleases"]
+
+    def __post_init__(self) -> None:
+        if self._specs is not None:
+            assert self._specs
+
     @staticmethod
-    @functools.cache
-    def empty() -> SpecifierSet:
-        return SpecifierSet(_specs=frozenset(), _prereleases=None)
+    # @functools.cache
+    def _cached_create(
+        _specs: frozenset[Specifier] | None,
+        _prereleases: bool | None,
+    ) -> SpecifierSet:
+        return SpecifierSet(
+            _specs=_specs,
+            _prereleases=_prereleases,
+        )
+
+    @classmethod
+    def empty(cls) -> SpecifierSet:
+        return cls._cached_create(_specs=None, _prereleases=None)
+
+    @staticmethod
+    # @functools.cache
+    def _split_specifiers(specifiers: str) -> frozenset[Specifier]:
+        # Split on `,` to break each individual specifier into its own item, and
+        # strip each item to remove leading/trailing whitespace.
+        split_specifiers = [s.strip() for s in specifiers.split(",") if s.strip()]
+
+        # Make each individual specifier a Specifier and save in a frozen set
+        # for later.
+        return frozenset(map(Specifier.parse, split_specifiers))
+
+    @staticmethod
+    # @functools.cache
+    def _cached_parse(
+        specifiers: str | Iterable[Specifier],
+        prereleases: bool | None,
+    ) -> SpecifierSet:
+        if isinstance(specifiers, str):
+            specs = SpecifierSet._split_specifiers(specifiers.strip())
+        else:
+            # Save the supplied specifiers in a frozen set.
+            specs = frozenset(specifiers)
+
+        return SpecifierSet._cached_create(
+            _specs=specs or None,
+            _prereleases=prereleases,
+        )
 
     @classmethod
     def parse(
@@ -402,24 +528,7 @@ class SpecifierSet(BaseSpecifier):
             If the given ``specifiers`` are not parseable than this exception will be
             raised.
         """
-        if isinstance(specifiers, str):
-            # Split on `,` to break each individual specifier into its own item, and
-            # strip each item to remove leading/trailing whitespace.
-            split_specifiers = [s.strip() for s in specifiers.split(",") if s.strip()]
-
-            # Make each individual specifier a Specifier and save in a frozen set
-            # for later.
-            specs = frozenset(map(Specifier.parse, split_specifiers))
-        else:
-            # Save the supplied specifiers in a frozen set.
-            specs = frozenset(specifiers)
-        if not specs and prereleases is None:
-            return cls.empty()
-
-        return cls(
-            _specs=specs,
-            _prereleases=prereleases,
-        )
+        return cls._cached_parse(specifiers, prereleases)
 
     @functools.cached_property
     def prereleases(self) -> bool | None:
@@ -440,6 +549,8 @@ class SpecifierSet(BaseSpecifier):
 
     @functools.cached_property
     def _str(self) -> str:
+        if not self._specs:
+            return ""
         return ",".join(sorted(map(str, self._specs)))
 
     def __str__(self) -> str:
@@ -460,11 +571,21 @@ class SpecifierSet(BaseSpecifier):
     def __hash__(self) -> int:
         return self._hash
 
-    def __and__(self, other: Self) -> Self:
-        if not isinstance(other, self.__class__):
+    def __and__(self, other: Any) -> SpecifierSet:
+        if type(other) is not self.__class__:
             return NotImplemented
 
-        specs = self._specs | other._specs
+        specs: frozenset[Specifier] | None
+        if self._specs:
+            if other._specs:
+                specs = self._specs | other._specs
+            else:
+                specs = self._specs
+        else:
+            if other._specs:
+                specs = other._specs
+            else:
+                specs = None
 
         prereleases: bool | None
         if self._prereleases is None and other._prereleases is not None:
@@ -478,20 +599,24 @@ class SpecifierSet(BaseSpecifier):
                 "Cannot combine SpecifierSets with True and False prerelease overrides."
             )
 
-        return self.__class__(
+        return self.__class__._cached_create(
             _specs=specs,
             _prereleases=prereleases,
         )
 
     def __eq__(self, other: Any) -> bool:
-        if not isinstance(other, self.__class__):
+        if type(other) is not self.__class__:
             return NotImplemented
         return hash(self) == hash(other) and self._specs == other._specs
 
     def __len__(self) -> int:
+        if not self._specs:
+            return 0
         return len(self._specs)
 
     def __iter__(self) -> Iterator[Specifier]:
+        if not self._specs:
+            return iter([])
         return iter(self._specs)
 
     def contains(self, item: ParsedVersion, prereleases: bool | None = None) -> bool:
@@ -499,7 +624,7 @@ class SpecifierSet(BaseSpecifier):
             prereleases = self.prereleases
         if not prereleases and item.is_prerelease:
             return False
-        return all(s.contains(item, prereleases=prereleases) for s in self._specs)
+        return all(s.contains(item, prereleases=prereleases) for s in self._specs or ())
 
     def filter_arg(
         self,

@@ -13,12 +13,22 @@ from .version import ParsedVersion
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
-    from typing import ClassVar
+    from typing import ClassVar, Any
 
 
 class ContainsPredicate(abc.ABC):
     @abc.abstractmethod
     def evaluate(self, prospective: ParsedVersion) -> bool: ...
+
+    @functools.cached_property
+    def _hash(self) -> int:
+        return hash(id(self))
+
+    def __hash__(self) -> int:
+        return self._hash
+
+    def __eq__(self, other: Any) -> bool:
+        return other is self
 
 
 @dataclass(frozen=True)

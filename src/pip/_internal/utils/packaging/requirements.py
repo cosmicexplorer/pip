@@ -28,20 +28,15 @@ class Requirement:
 
     __slots__ = ["name", "url", "extras", "specifier", "marker", "__dict__"]
 
-    @classmethod
-    def parse(cls, requirement_string: str) -> Self:
-        """
-        Parse a given requirement string into its parts, such as name, specifier,
-        URL, and extras.
-
-        :raises: InvalidRequirement: on a badly-formed requirement string.
-        """
+    @staticmethod
+    @functools.cache
+    def _cached_parse(requirement_string: str) -> Requirement:
         try:
             parsed = _parse_requirement(requirement_string)
         except ParserSyntaxError as e:
             raise InvalidRequirement(str(e)) from e
 
-        return cls(
+        return Requirement(
             name=parsed.name,
             url=parsed.url or None,
             extras=frozenset(parsed.extras or ()),
@@ -52,6 +47,16 @@ class Requirement:
                 else None
             ),
         )
+
+    @classmethod
+    def parse(cls, requirement_string: str) -> Requirement:
+        """
+        Parse a given requirement string into its parts, such as name, specifier,
+        URL, and extras.
+
+        :raises: InvalidRequirement: on a badly-formed requirement string.
+        """
+        return cls._cached_parse(requirement_string)
 
     def _iter_unnamed_parts(self) -> Iterator[str]:
         if self.extras:
@@ -101,7 +106,7 @@ class Requirement:
         return self._hash
 
     def __eq__(self, other: Any) -> bool:
-        if not isinstance(other, self.__class__):
+        if type(other) is not self.__class__:
             return NotImplemented
 
         return (

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 from typing import Any
 
 
@@ -7,9 +8,13 @@ class InfinityType:
     def __repr__(self) -> str:
         return "Infinity"
 
-    def __hash__(self) -> int:
+    @functools.cached_property
+    def _hash(self) -> int:
         # FIXME: packaging.version hashes repr(self)--is there a reason for that?
         return hash(id(self.__class__))
+
+    def __hash__(self) -> int:
+        return self._hash
 
     def __lt__(self, other: Any) -> bool:
         return False
@@ -19,7 +24,7 @@ class InfinityType:
         return self.__eq__(other)
 
     def __eq__(self, other: Any) -> bool:
-        return isinstance(other, self.__class__)
+        return type(other) is self.__class__
 
     def __gt__(self, other: Any) -> bool:
         return True
@@ -38,9 +43,13 @@ class NegativeInfinityType:
     def __repr__(self) -> str:
         return "-Infinity"
 
-    def __hash__(self) -> int:
+    @functools.cached_property
+    def _hash(self) -> int:
         # FIXME: packaging.version hashes repr(self)--is there a reason for that?
         return hash(id(self.__class__))
+
+    def __hash__(self) -> int:
+        return self._hash
 
     def __lt__(self, other: Any) -> bool:
         return True
@@ -49,7 +58,7 @@ class NegativeInfinityType:
         return True
 
     def __eq__(self, other: Any) -> bool:
-        return isinstance(other, self.__class__)
+        return type(other) is self.__class__
 
     def __gt__(self, other: Any) -> bool:
         return False

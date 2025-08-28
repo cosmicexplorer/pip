@@ -299,13 +299,18 @@ class Marker:
 
     __slots__ = ["_markers", "__dict__"]
 
-    @classmethod
-    def parse(cls, marker: str) -> Self:
+    @staticmethod
+    @functools.cache
+    def _cached_parse(marker: str) -> Marker:
         try:
             markers = _parse_marker(marker)
         except ParserSyntaxError as e:
             raise InvalidMarker(str(e)) from e
-        return cls.normalize_markers(markers)
+        return Marker.normalize_markers(markers)
+
+    @classmethod
+    def parse(cls, marker: str) -> Marker:
+        return cls._cached_parse(marker)
 
     @classmethod
     def normalize_markers(cls, markers: MarkerList) -> Self:
@@ -363,7 +368,7 @@ class Marker:
         return self._hash
 
     def __eq__(self, other: Any) -> bool:
-        if not isinstance(other, self.__class__):
+        if not type(other) is self.__class__:
             return NotImplemented
         return hash(self) == hash(other) and str(self) == str(other)
 
