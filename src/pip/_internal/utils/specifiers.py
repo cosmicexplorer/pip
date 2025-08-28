@@ -9,6 +9,18 @@ from typing import TYPE_CHECKING, Protocol
 
 from pip._vendor.packaging.specifiers import InvalidSpecifier
 
+from .containment import (
+    ArbitraryEqual,
+    Compatible,
+    ContainsPredicate,
+    EqualBasic,
+    EqualPrefix,
+    GreaterThan,
+    GreaterThanEqual,
+    LessThan,
+    LessThanEqual,
+    NotEqualBasic,
+)
 from .version import InvalidVersion, ParsedVersion
 
 if TYPE_CHECKING:
@@ -266,6 +278,33 @@ class Specifier:
             return NotImplemented
         return self._canonical_spec == other._canonical_spec
 
+    @functools.cached_property
+    def _predicate(self) -> ContainsPredicate:
+        if self.operator == Operator.ARBITRARY:
+            return ArbitraryEqual(self._version)
+        if self.operator == Operator.LESS_THAN:
+            assert self.parsed_version is not None
+            return LessThan(self.parsed_version)
+        if self.operator == Operator.GREATER_THAN:
+            assert self.parsed_version is not None
+            return GreaterThan(self.parsed_version)
+        if self.operator == Operator.LESS_THAN_EQUAL:
+            assert self.parsed_version is not None
+            return LessThanEqual(self.parsed_version)
+        if self.operator == Operator.GREATER_THAN_EQUAL:
+            assert self.parsed_version is not None
+            return GreaterThanEqual(self.parsed_version)
+        if self.operator == Operator.NOT_EQUAL:
+            assert self.parsed_version is not None
+            return NotEqualBasic(self.parsed_version)
+        if self.operator == Operator.EQUAL:
+            if self._trailing_dot_star:
+                return EqualPrefix(self._version)
+            assert self.parsed_version is not None
+            return EqualBasic(self.parsed_version)
+        assert self.operator == Operator.COMPATIBLE, self.operator
+        return Compatible(self._version)
+
     def __contains__(self, item: ParsedVersion) -> bool:
         return self.contains(item)
 
@@ -276,4 +315,36 @@ class Specifier:
         if item.is_prerelease and not prereleases:
             return False
 
-        raise NotImplementedError
+        return self._predicate.evaluate(item)
+
+    def filter(
+        self,
+        iterable: Iterable[ParsedVersion],
+        prereleases: bool | None = None,
+    ) -> Iterator[ParsedVersion]:
+        yielded = False
+        found_prereleases = []
+
+        kw = {"prereleases": prereleases if prereleases is not None else True}
+
+        # Attempt to iterate over all the values in the iterable and if any of
+        # them match, yield them.
+        for version in iterable:
+            if self.contains(version, **kw):
+                # If our version is a prerelease, and we were not set to allow
+                # prereleases, then we'll store it for later in case nothing
+                # else matches this specifier.
+                if version.is_prerelease and not (prereleases or self.prereleases):
+                    found_prereleases.append(version)
+                # Either this is not a prerelease, or we should have been
+                # accepting prereleases from the beginning.
+                else:
+                    yielded = True
+                    yield version
+
+        # Now that we've iterated over everything, determine if we've yielded
+        # any values, and if we have not and we have any prereleases stored up
+        # then we will go ahead and yield the prereleases.
+        if not yielded and found_prereleases:
+            for version in found_prereleases:
+                yield version
