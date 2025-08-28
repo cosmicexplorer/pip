@@ -124,50 +124,78 @@ def test_build_env_requirements_check(script: PipTestEnvironment) -> None:
     run_with_build_env(
         script,
         """
-        r = build_env.check_requirements(['foo', 'bar', 'other'])
-        assert r == (set(), {'foo', 'bar', 'other'}), repr(r)
+        from pip._internal.utils.packaging.requirements import Requirement
+        rs = tuple(map(Requirement.parse, ['foo', 'bar', 'other']))
+        r = build_env.check_requirements(rs)
+        assert r == (set(), set(rs)), repr(r)
 
-        r = build_env.check_requirements(['foo>1.0', 'bar==3.0'])
-        assert r == (set(), {'foo>1.0', 'bar==3.0'}), repr(r)
+        rs = tuple(map(Requirement.parse, ['foo>1.0', 'bar==3.0']))
+        r = build_env.check_requirements(rs)
+        assert r == (set(), set(rs)), repr(r)
 
-        r = build_env.check_requirements(['foo>3.0', 'bar>=2.5'])
-        assert r == (set(), {'foo>3.0', 'bar>=2.5'}), repr(r)
+        rs = tuple(map(Requirement.parse, ['foo>3.0', 'bar>=2.5']))
+        r = build_env.check_requirements(rs)
+        assert r == (set(), set(rs)), repr(r)
         """,
     )
 
     run_with_build_env(
         script,
         """
-        build_env.install_requirements(['foo', 'bar==3.0'], 'normal',
+        from pip._internal.utils.packaging.requirements import Requirement
+        rs = tuple(map(Requirement.parse, ['foo', 'bar==3.0']))
+        build_env.install_requirements(rs, 'normal',
                                        kind='installing foo in normal')
 
-        r = build_env.check_requirements(['foo', 'bar', 'other'])
-        assert r == (set(), {'other'}), repr(r)
+        rs = tuple(map(Requirement.parse, ['foo', 'bar', 'other']))
+        r = build_env.check_requirements(rs)
+        assert r == (set(), {Requirement.parse('other')}), repr(r)
 
-        r = build_env.check_requirements(['foo>1.0', 'bar==3.0'])
+        rs = tuple(map(Requirement.parse, ['foo>1.0', 'bar==3.0']))
+        r = build_env.check_requirements(rs)
         assert r == (set(), set()), repr(r)
 
-        r = build_env.check_requirements(['foo>3.0', 'bar>=2.5'])
-        assert r == ({('foo==2.0', 'foo>3.0')}, set()), repr(r)
+        rs = tuple(map(Requirement.parse, ['foo>3.0', 'bar>=2.5']))
+        r = build_env.check_requirements(rs)
+        conflicting = (
+          Requirement.parse('foo==2.0'),
+          Requirement.parse('foo>3.0'),
+        )
+        assert r == ({conflicting}, set()), repr(r)
         """,
     )
 
     run_with_build_env(
         script,
         """
-        build_env.install_requirements(['foo', 'bar==3.0'], 'normal',
+        from pip._internal.utils.packaging.requirements import Requirement
+        rs = tuple(map(Requirement.parse, ['foo', 'bar==3.0']))
+        build_env.install_requirements(rs, 'normal',
                                        kind='installing foo in normal')
-        build_env.install_requirements(['bar==1.0'], 'overlay',
-                                       kind='installing foo in overlay')
+        build_env.install_requirements(
+          [Requirement.parse('bar==1.0')], 'overlay',
+          kind='installing foo in overlay',
+        )
 
-        r = build_env.check_requirements(['foo', 'bar', 'other'])
-        assert r == (set(), {'other'}), repr(r)
+        rs = tuple(map(Requirement.parse, ['foo', 'bar', 'other']))
+        r = build_env.check_requirements(rs)
+        assert r == (set(), {Requirement.parse('other')}), repr(r)
 
-        r = build_env.check_requirements(['foo>1.0', 'bar==3.0'])
-        assert r == ({('bar==1.0', 'bar==3.0')}, set()), repr(r)
+        rs = tuple(map(Requirement.parse, ['foo>1.0', 'bar==3.0']))
+        r = build_env.check_requirements(rs)
+        conflicting = (
+          Requirement.parse('bar==1.0'),
+          Requirement.parse('bar==3.0'),
+        )
+        assert r == ({conflicting}, set()), repr(r)
 
-        r = build_env.check_requirements(['foo>3.0', 'bar>=2.5'])
-        assert r == ({('bar==1.0', 'bar>=2.5'), ('foo==2.0', 'foo>3.0')}, \
+        rs = tuple(map(Requirement.parse, ['foo>3.0', 'bar>=2.5']))
+        r = build_env.check_requirements(rs)
+        conflicting = {
+          (Requirement.parse('bar==1.0'), Requirement.parse('bar>=2.5')),
+          (Requirement.parse('foo==2.0'), Requirement.parse('foo>3.0')),
+        }
+        assert r == (conflicting, \
             set()), repr(r)
         """,
     )
@@ -175,16 +203,17 @@ def test_build_env_requirements_check(script: PipTestEnvironment) -> None:
     run_with_build_env(
         script,
         """
+        from pip._internal.utils.packaging.requirements import Requirement
         build_env.install_requirements(
-            ["bar==3.0"],
+            [Requirement.parse("bar==3.0")],
             "normal",
             kind="installing bar in normal",
         )
         r = build_env.check_requirements(
             [
-                "bar==2.0; python_version < '3.0'",
-                "bar==3.0; python_version >= '3.0'",
-                "foo==4.0; extra == 'dev'",
+                Requirement.parse("bar==2.0; python_version < '3.0'"),
+                Requirement.parse("bar==3.0; python_version >= '3.0'"),
+                Requirement.parse("foo==4.0; extra == 'dev'"),
             ],
         )
         assert r == (set(), set()), repr(r)
@@ -198,10 +227,15 @@ def test_build_env_overlay_prefix_has_priority(script: PipTestEnvironment) -> No
     result = run_with_build_env(
         script,
         """
-        build_env.install_requirements(['pkg==2.0'], 'overlay',
-                                       kind='installing pkg==2.0 in overlay')
-        build_env.install_requirements(['pkg==4.3'], 'normal',
-                                       kind='installing pkg==4.3 in normal')
+        from pip._internal.utils.packaging.requirements import Requirement
+        build_env.install_requirements(
+          [Requirement.parse('pkg==2.0')], 'overlay',
+          kind='installing pkg==2.0 in overlay',
+        )
+        build_env.install_requirements(
+          [Requirement.parse('pkg==4.3')], 'normal',
+          kind='installing pkg==4.3 in normal',
+        )
         """,
         """
         print(__import__('pkg').__version__)
