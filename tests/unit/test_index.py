@@ -155,7 +155,7 @@ class TestLinkEvaluator:
         expected: EvaluationResult,
     ) -> None:
         target_python = TargetPython(py_version_info=py_version_info)
-        evaluator = LinkEvaluator(
+        evaluator = LinkEvaluator.create(
             project_name="twine",
             formats=AllowedFormats.SourceOnly,
             target_python=target_python,
@@ -202,7 +202,7 @@ class TestLinkEvaluator:
         expected: EvaluationResult,
     ) -> None:
         target_python = TargetPython(py_version_info=(3, 6, 4))
-        evaluator = LinkEvaluator(
+        evaluator = LinkEvaluator.create(
             project_name="twine",
             formats=AllowedFormats.SourceOnly,
             target_python=target_python,
@@ -222,7 +222,7 @@ class TestLinkEvaluator:
         target_python = TargetPython(py_version_info=(3, 6, 4))
         # Set the valid tags to an empty tuple to make sure nothing matches.
         target_python.__dict__["sorted_tags"] = ()
-        evaluator = LinkEvaluator(
+        evaluator = LinkEvaluator.create(
             project_name="sample",
             formats=AllowedFormats.BinaryOnly,
             target_python=target_python,

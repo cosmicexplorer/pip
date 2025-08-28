@@ -256,14 +256,15 @@ class LinkEvaluator:
     # site considers whether yanked releases are allowed. This also causes
     # that decision to be made explicit in the calling code, which helps
     # people when reading the code.
-    def __init__(
-        self,
+    @classmethod
+    def create(
+        cls,
         project_name: str,
         formats: AllowedFormats,
         target_python: TargetPython,
         allow_yanked: bool,
         ignore_requires_python: bool | None = None,
-    ) -> None:
+    ) -> Self:
         """
         :param project_name: The user supplied package name.
         :param formats: The formats allowed for this package.
@@ -279,14 +280,14 @@ class LinkEvaluator:
             PEP 503 "data-requires-python" values in HTML links. Defaults
             to False.
         """
-        object.__setattr__(self, "project_name", project_name)
-        object.__setattr__(self, "formats", formats)
-        object.__setattr__(self, "target_python", target_python)
-        object.__setattr__(self, "allow_yanked", allow_yanked)
-        object.__setattr__(
-            self,
-            "ignore_requires_python",
-            False if ignore_requires_python is None else ignore_requires_python,
+        return cls(
+            project_name=project_name,
+            formats=formats,
+            target_python=target_python,
+            allow_yanked=allow_yanked,
+            ignore_requires_python=(
+                False if ignore_requires_python is None else ignore_requires_python
+            ),
         )
 
     _py_version_re: ClassVar[re.Pattern[str]] = re.compile(r"-py(?:.+)$")
@@ -932,7 +933,7 @@ class PackageFinder:
         return EvalFailureSet(tuple(self._requires_python_skipped_reasons))
 
     def make_link_evaluator(self, project_name: str) -> LinkEvaluator:
-        return LinkEvaluator(
+        return LinkEvaluator.create(
             project_name=project_name,
             formats=self.format_control.get_allowed_formats(project_name),
             target_python=self._target_python,

@@ -481,7 +481,7 @@ def test_finder_installs_pre_releases_with_version_spec() -> None:
 class TestLinkEvaluator:
     def make_test_link_evaluator(self, formats: AllowedFormats) -> LinkEvaluator:
         target_python = TargetPython()
-        return LinkEvaluator(
+        return LinkEvaluator.create(
             project_name="pytest",
             formats=formats,
             target_python=target_python,
