@@ -4,7 +4,7 @@ import dataclasses
 import re
 from collections.abc import Mapping
 
-from pip._internal.utils.packaging.requirements import Requirement
+from pip._vendor.packaging.requirements import Requirement
 
 
 def _normalize_name(name: str) -> str:

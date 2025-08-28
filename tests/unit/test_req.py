@@ -656,7 +656,7 @@ class TestInstallRequirement:
         ):
             line = "name; " + markers
             req = install_req_from_line(line)
-            assert str(req.markers) == str(Marker(markers))
+            assert str(req.markers) == str(Marker.parse(markers))
             assert req.match_markers()
 
         # don't match
@@ -666,7 +666,7 @@ class TestInstallRequirement:
         ):
             line = "name; " + markers
             req = install_req_from_line(line)
-            assert str(req.markers) == str(Marker(markers))
+            assert str(req.markers) == str(Marker.parse(markers))
             assert not req.match_markers()
 
     def test_markers_match(self) -> None:
@@ -677,7 +677,7 @@ class TestInstallRequirement:
         ):
             line = "name; " + markers
             req = install_req_from_line(line, comes_from="")
-            assert str(req.markers) == str(Marker(markers))
+            assert str(req.markers) == str(Marker.parse(markers))
             assert req.match_markers()
 
         # don't match
@@ -687,7 +687,7 @@ class TestInstallRequirement:
         ):
             line = "name; " + markers
             req = install_req_from_line(line, comes_from="")
-            assert str(req.markers) == str(Marker(markers))
+            assert str(req.markers) == str(Marker.parse(markers))
             assert not req.match_markers()
 
     def test_extras_for_line_path_requirement(self) -> None:

@@ -304,7 +304,7 @@ def parse_req_from_line(name: str, line_source: str | None) -> RequirementParts:
         if not markers_as_string:
             markers = None
         else:
-            markers = Marker(markers_as_string)
+            markers = Marker.parse(markers_as_string)
     else:
         markers = None
     name = name.strip()

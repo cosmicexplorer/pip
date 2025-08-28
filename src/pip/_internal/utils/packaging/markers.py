@@ -31,7 +31,6 @@ if TYPE_CHECKING:
     from collections.abc import Mapping, Set
     from types import ModuleType
 
-    from typing_extensions import Self
 
 __all__ = [
     "Marker",
@@ -286,9 +285,12 @@ class _OpEvaluator:
 
                 groups[-1].append(cls._eval_op(lhs_value, op, rhs_value))
             else:
-                assert marker in ["and", "or"]
                 if marker == "or":
                     groups.append([])
+                elif marker == "and":
+                    pass
+                else:
+                    raise TypeError(f"marker {marker!r} should be logical conjunction")
 
         return any(all(item) for item in groups)
 
@@ -297,10 +299,13 @@ class _OpEvaluator:
 class Marker:
     _markers: MarkerList
 
+    def __post_init__(self) -> None:
+        assert not isinstance(self._markers, str), self._markers
+
     __slots__ = ["_markers", "__dict__"]
 
     @staticmethod
-    @functools.cache
+    # @functools.cache
     def _cached_parse(marker: str) -> Marker:
         try:
             markers = _parse_marker(marker)
@@ -313,7 +318,7 @@ class Marker:
         return cls._cached_parse(marker)
 
     @classmethod
-    def normalize_markers(cls, markers: MarkerList) -> Self:
+    def normalize_markers(cls, markers: MarkerList) -> Marker:
         return cls(_markers=cls._normalize_extra_values(markers))
 
     def evaluate(
@@ -373,7 +378,7 @@ class Marker:
         return hash(self) == hash(other) and str(self) == str(other)
 
     @staticmethod
-    def _normalize_extra_values(results: MarkerList) -> MarkerList:
+    def _normalize_extra_values(results: Any) -> Any:
         """
         Normalize extra values.
         """
@@ -385,12 +390,12 @@ class Marker:
             elif isinstance(rhs, Variable) and rhs.value == "extra":
                 normalized_extra = canonicalize_name(lhs.value)
                 lhs = Value(normalized_extra)
-            results[0] = lhs, op, rhs  # type: ignore[index]
+            results[0] = lhs, op, rhs
         return results
 
-    @classmethod
+    @staticmethod
     def _format_marker(
-        cls, marker: list[str] | MarkerAtom | str, first: bool | None = True
+        marker: list[str] | MarkerAtom | str, first: bool | None = True
     ) -> str:
         assert isinstance(marker, (list, tuple, str))
 
@@ -403,10 +408,10 @@ class Marker:
             and len(marker) == 1
             and isinstance(marker[0], (list, tuple))
         ):
-            return cls._format_marker(marker[0])
+            return Marker._format_marker(marker[0])
 
         if isinstance(marker, list):
-            inner = (cls._format_marker(m, first=False) for m in marker)
+            inner = (Marker._format_marker(m, first=False) for m in marker)
             if first:
                 return " ".join(inner)
             else:

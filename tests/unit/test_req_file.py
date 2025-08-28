@@ -32,6 +32,7 @@ from pip._internal.req.req_file import (
     preprocess,
 )
 from pip._internal.req.req_install import InstallRequirement
+from pip._internal.utils.packaging.specifiers import SpecifierSet
 
 from tests.lib import TestData, make_test_finder, requirements_file
 
@@ -992,7 +993,7 @@ class TestParseRequirements:
 
         assert len(reqs) == 1
         assert reqs[0].name == expected_name
-        assert reqs[0].specifier == expected_spec
+        assert reqs[0].specifier == SpecifierSet.parse(expected_spec)
 
     @pytest.mark.parametrize(
         "bom,encoding",
@@ -1020,7 +1021,7 @@ class TestParseRequirements:
 
         assert len(reqs) == 1
         assert reqs[0].name == req_name
-        assert reqs[0].specifier == req_specifier
+        assert reqs[0].specifier == SpecifierSet.parse(req_specifier)
 
     def test_warns_and_fallsback_to_locale_on_utf8_decode_fail(
         self,

@@ -477,11 +477,11 @@ class _CandidateHashFilter:
                 return self.matches_or_no_digest
             return self.candidates
 
-        @dataclass(frozen=True, slots=True)
+        @dataclass(frozen=True)
         class NonMatches:
             non_matches: tuple[InstallationCandidate, ...]
 
-            def __str___(self) -> str:
+            def __str__(self) -> str:
                 n = len(self.non_matches)
                 if not n:
                     return "discarding no candidates"

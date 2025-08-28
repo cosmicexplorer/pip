@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from typing import Any
 from unittest import mock
 
@@ -16,7 +17,7 @@ class TestTargetPython:
     @pytest.mark.parametrize(
         "py_version_info, expected",
         [
-            ((), ((0, 0, 0), "0.0")),
+            (None, (sys.version_info[:3], ".".join(map(str, sys.version_info[:2])))),
             ((2,), ((2, 0, 0), "2.0")),
             ((3,), ((3, 0, 0), "3.0")),
             ((3, 7), ((3, 7, 0), "3.7")),
@@ -35,6 +36,7 @@ class TestTargetPython:
         """
         expected_py_version_info, expected_py_version = expected
 
+        TargetPython._cached_create.cache_clear()
         target_python = TargetPython.create(py_version_info=py_version_info)
 
         # The _given_py_version_info attribute should be set as is.
@@ -47,6 +49,7 @@ class TestTargetPython:
         """
         Test passing py_version_info=None.
         """
+        TargetPython._cached_create.cache_clear()
         target_python = TargetPython.create(py_version_info=None)
 
         assert target_python._given_py_version_info is None
@@ -78,6 +81,7 @@ class TestTargetPython:
         ],
     )
     def test_format_given(self, kwargs: dict[str, Any], expected: str) -> None:
+        TargetPython._cached_create.cache_clear()
         target_python = TargetPython.create(**kwargs)
         actual = target_python.format_given
         assert actual == expected
@@ -85,7 +89,7 @@ class TestTargetPython:
     @pytest.mark.parametrize(
         "py_version_info, expected_version",
         [
-            ((), ""),
+            ((), None),
             ((2,), "2"),
             ((3,), "3"),
             ((3, 7), "37"),
@@ -104,6 +108,7 @@ class TestTargetPython:
         dummy_tags = (Tag("py4", "none", "any"), Tag("py5", "none", "any"))
         mock_get_supported.return_value = dummy_tags
 
+        TargetPython._cached_create.cache_clear()
         target_python = TargetPython.create(py_version_info=py_version_info)
         actual = target_python.sorted_tags
         assert actual == dummy_tags
@@ -123,6 +128,7 @@ class TestTargetPython:
         dummy_tags = (Tag("py2", "none", "any"), Tag("py3", "none", "any"))
         mock_get_supported.return_value = dummy_tags
 
+        TargetPython._cached_create.cache_clear()
         target_python = TargetPython.create(py_version_info=None)
         actual = target_python.unsorted_tags
         assert actual == {Tag("py2", "none", "any"), Tag("py3", "none", "any")}

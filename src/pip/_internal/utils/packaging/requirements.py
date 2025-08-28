@@ -34,16 +34,15 @@ class Requirement:
         except ParserSyntaxError as e:
             raise InvalidRequirement(str(e)) from e
 
+        marker: Marker | None = None
+        if (mk := parsed.marker) is not None:
+            marker = Marker.normalize_markers(mk)
         return Requirement(
             name=parsed.name,
             url=parsed.url or None,
             extras=frozenset(parsed.extras or ()),
             specifier=SpecifierSet.parse(parsed.specifier),
-            marker=(
-                Marker.normalize_markers(parsed.marker)
-                if parsed.marker is not None
-                else None
-            ),
+            marker=marker,
         )
 
     @classmethod
