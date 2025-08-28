@@ -14,9 +14,6 @@ from unittest import mock
 
 import pytest
 
-from pip._vendor.packaging.markers import Marker
-from pip._vendor.packaging.requirements import Requirement
-
 from pip._internal.build_env import SubprocessBuildEnvironmentInstaller
 from pip._internal.cache import WheelCache
 from pip._internal.commands import create_command
@@ -51,6 +48,8 @@ from pip._internal.req.req_file import (
     handle_requirement_line,
 )
 from pip._internal.resolution.legacy.resolver import Resolver
+from pip._internal.utils.packaging.markers import Marker
+from pip._internal.utils.packaging.requirements import Requirement
 from pip._internal.utils.urls import ParsedUrl, path_to_url
 
 from tests.lib import TestData, make_test_finder, requirements_file, wheel
@@ -908,7 +907,7 @@ def test_parse_editable_local_extras(
 
 def test_mismatched_versions(caplog: pytest.LogCaptureFixture) -> None:
     req = InstallRequirement(
-        req=Requirement("simplewheel==2.0"),
+        req=Requirement.parse("simplewheel==2.0"),
         comes_from=None,
     )
     req.source_dir = "/tmp/somewhere"  # make req believe it has been unpacked

@@ -5,10 +5,7 @@ from unittest import mock
 
 import pytest
 
-from pip._vendor.packaging.requirements import Requirement
-from pip._vendor.packaging.specifiers import SpecifierSet
 from pip._vendor.packaging.utils import canonicalize_name
-from pip._vendor.packaging.version import parse as parse_version
 
 from pip._internal.exceptions import UnsupportedWheel
 from pip._internal.metadata.pkg_resources import (
@@ -16,6 +13,9 @@ from pip._internal.metadata.pkg_resources import (
     Environment,
     InMemoryMetadata,
 )
+from pip._internal.utils.packaging.requirements import Requirement
+from pip._internal.utils.packaging.specifiers import SpecifierSet
+from pip._internal.utils.packaging.version import ParsedVersion
 
 pkg_resources = pytest.importorskip("pip._vendor.pkg_resources")
 
@@ -108,14 +108,14 @@ def test_wheel_metadata_works() -> None:
     )
 
     assert name == dist.canonical_name == dist.raw_name
-    assert parse_version(version) == dist.version
+    assert ParsedVersion.parse(version) == dist.version
     assert {canonicalize_name(e) for e in extras} == set(dist.iter_provided_extras())
     assert [require_a] == [str(r) for r in dist.iter_dependencies()]
-    assert [Requirement(require_a), Requirement(require_b)] == [
-        Requirement(str(r)) for r in dist.iter_dependencies(["also_b"])
+    assert [Requirement.parse(require_a), Requirement.parse(require_b)] == [
+        Requirement.parse(str(r)) for r in dist.iter_dependencies(["also_b"])
     ]
     assert metadata.as_string() == dist.metadata.as_string()
-    assert SpecifierSet(requires_python) == dist.requires_python
+    assert SpecifierSet.parse(requires_python) == dist.requires_python
 
 
 def test_wheel_metadata_throws_on_bad_unicode() -> None:

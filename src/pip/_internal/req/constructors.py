@@ -17,9 +17,7 @@ import re
 from collections.abc import Collection
 from dataclasses import dataclass
 
-from pip._vendor.packaging.markers import Marker
-from pip._vendor.packaging.requirements import InvalidRequirement, Requirement
-from pip._vendor.packaging.specifiers import Specifier
+from pip._vendor.packaging.requirements import InvalidRequirement
 
 from pip._internal.exceptions import InstallationError
 from pip._internal.models.index import PyPI, TestPyPI
@@ -29,6 +27,9 @@ from pip._internal.req.req_file import ParsedRequirement
 from pip._internal.req.req_install import InstallRequirement
 from pip._internal.utils.filetypes import is_archive_file
 from pip._internal.utils.misc import is_installable_dir
+from pip._internal.utils.packaging.markers import Marker
+from pip._internal.utils.packaging.requirements import Requirement
+from pip._internal.utils.packaging.specifiers import Operator
 from pip._internal.utils.packaging_utils import get_requirement
 from pip._internal.utils.urls import ParsedUrl, path_to_url
 from pip._internal.vcs import has_vcs_url_scheme, vcs
@@ -40,7 +41,6 @@ __all__ = [
 ]
 
 logger = logging.getLogger(__name__)
-operators = Specifier._operators.keys()
 
 
 def _strip_extras(path: str) -> tuple[str, str | None]:
@@ -357,7 +357,7 @@ def parse_req_from_line(name: str, line_source: str | None) -> RequirementParts:
                 add_msg = "It looks like a path."
                 add_msg += deduce_helpful_msg(req_as_string)
             elif "=" in req_as_string and not any(
-                op in req_as_string for op in operators
+                op.value in req_as_string for op in Operator
             ):
                 add_msg = "= is not a valid operator. Did you mean == ?"
             else:

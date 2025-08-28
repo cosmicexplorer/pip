@@ -16,11 +16,10 @@ from typing import (
     ClassVar,
 )
 
-from pip._vendor.packaging import specifiers
+from pip._vendor.packaging.specifiers import InvalidSpecifier
 from pip._vendor.packaging.tags import Tag, parse_tag
-from pip._vendor.packaging.utils import canonicalize_name
-from pip._vendor.packaging.version import InvalidVersion, _BaseVersion
-from pip._vendor.packaging.version import parse as parse_version
+from pip._vendor.packaging.utils import BuildTag, NormalizedName, canonicalize_name
+from pip._vendor.packaging.version import InvalidVersion
 
 from pip._internal.exceptions import (
     BestVersionAlreadyInstalled,
@@ -45,15 +44,15 @@ from pip._internal.utils.filetypes import WHEEL_EXTENSION
 from pip._internal.utils.hashes import Hashes
 from pip._internal.utils.logging import indent_log
 from pip._internal.utils.misc import build_netloc
+from pip._internal.utils.packaging.specifiers import BaseSpecifier, SpecifierSet
+from pip._internal.utils.packaging.version import ParsedVersion
 from pip._internal.utils.predicates import FragmentMatcher, RequiresPython
 from pip._internal.utils.unpacking import SUPPORTED_EXTENSIONS
 
 if TYPE_CHECKING:
-    from typing_extensions import TypeGuard
+    from typing_extensions import Self, TypeGuard
 
-    from pip._vendor.packaging.utils import BuildTag, NormalizedName
-
-    CandidateSortingKey = tuple[int, int, int, _BaseVersion, int | None, BuildTag, int]
+    CandidateSortingKey = tuple[int, int, int, ParsedVersion, int | None, BuildTag, int]
 
 __all__ = ["BestCandidateResult", "PackageFinder"]
 
@@ -394,7 +393,7 @@ class LinkEvaluator:
             return True, None
         try:
             predicate = RequiresPython.parse(link.requires_python)
-        except specifiers.InvalidSpecifier:
+        except InvalidSpecifier:
             logger.debug(
                 "Ignoring invalid Requires-Python (%r) for link: %s",
                 link.requires_python,
@@ -452,78 +451,118 @@ class LinkEvaluator:
         return _FoundCandidate(version)
 
 
-def filter_unallowed_hashes(
-    candidates: list[InstallationCandidate],
-    hashes: Hashes | None,
-    project_name: str,
-) -> list[InstallationCandidate]:
-    """
-    Filter out candidates whose hashes aren't allowed, and return a new
-    list of candidates.
+@dataclass(frozen=True, slots=True)
+class _CandidateHashFilter:
+    project_name: str
+    hashes: Hashes | None
 
-    If at least one candidate has an allowed hash, then all candidates with
-    either an allowed hash or no hash specified are returned.  Otherwise,
-    the given candidates are returned.
+    @dataclass(frozen=True)
+    class HashMatches:
+        match_count: int
+        matches_or_no_digest: tuple[InstallationCandidate, ...]
+        non_matches: tuple[InstallationCandidate, ...]
+        candidates: tuple[InstallationCandidate, ...]
 
-    Including the candidates with no hash specified when there is a match
-    allows a warning to be logged if there is a more preferred candidate
-    with no hash specified.  Returning all candidates in the case of no
-    matches lets pip report the hash of the candidate that would otherwise
-    have been installed (e.g. permitting the user to more easily update
-    their requirements file with the desired hash).
-    """
-    if not hashes:
+        __slots__ = [
+            "match_count",
+            "matches_or_no_digest",
+            "non_matches",
+            "candidates",
+            "__dict__",
+        ]
+
+        @functools.cached_property
+        def filtered(self) -> tuple[InstallationCandidate, ...]:
+            if self.match_count:
+                return self.matches_or_no_digest
+            return self.candidates
+
+        @dataclass(frozen=True, slots=True)
+        class NonMatches:
+            non_matches: tuple[InstallationCandidate, ...]
+
+            def __str___(self) -> str:
+                n = len(self.non_matches)
+                if not n:
+                    return "discarding no candidates"
+                joined = "\n  ".join(str(c.link) for c in self.non_matches)
+                return f"discarding {n} non-matches:\n  {joined}"
+
+        def discarded_candidates(self) -> NonMatches:
+            if len(self.filtered) == len(self.candidates):
+                return self.__class__.NonMatches(())
+            return self.__class__.NonMatches(self.non_matches)
+
+        @classmethod
+        def calculate(
+            cls, hashes: Hashes, candidates: tuple[InstallationCandidate, ...]
+        ) -> Self:
+            matches_or_no_digest = []
+            # Collect the non-matches for logging purposes.
+            non_matches = []
+            match_count = 0
+            for candidate in candidates:
+                link = candidate.link
+                if not link.has_hash:
+                    pass
+                elif link.is_hash_allowed(hashes=hashes):
+                    match_count += 1
+                else:
+                    non_matches.append(candidate)
+                    continue
+                matches_or_no_digest.append(candidate)
+            return cls(
+                match_count=match_count,
+                matches_or_no_digest=tuple(matches_or_no_digest),
+                non_matches=tuple(non_matches),
+                candidates=candidates,
+            )
+
+    def filter_unallowed_hashes(
+        self,
+        candidates: Iterable[InstallationCandidate],
+    ) -> tuple[InstallationCandidate, ...]:
+        """
+        Filter out candidates whose hashes aren't allowed, and return a new
+        list of candidates.
+
+        If at least one candidate has an allowed hash, then all candidates with
+        either an allowed hash or no hash specified are returned.  Otherwise,
+        the given candidates are returned.
+
+        Including the candidates with no hash specified when there is a match
+        allows a warning to be logged if there is a more preferred candidate
+        with no hash specified.  Returning all candidates in the case of no
+        matches lets pip report the hash of the candidate that would otherwise
+        have been installed (e.g. permitting the user to more easily update
+        their requirements file with the desired hash).
+        """
+        # Make sure we're not returning back the given value.
+        candidates = tuple(candidates)
+        if not self.hashes:
+            logger.debug(
+                "Given no hashes to check %s links for project %r: "
+                "discarding no candidates",
+                len(candidates),
+                self.project_name,
+            )
+            return candidates
+        assert self.hashes is not None
+
+        hash_matches = self.__class__.HashMatches.calculate(self.hashes, candidates)
+
         logger.debug(
-            "Given no hashes to check %s links for project %r: "
-            "discarding no candidates",
-            len(candidates),
-            project_name,
-        )
-        # Make sure we're not returning back the given value.
-        return list(candidates)
-
-    matches_or_no_digest = []
-    # Collect the non-matches for logging purposes.
-    non_matches = []
-    match_count = 0
-    for candidate in candidates:
-        link = candidate.link
-        if not link.has_hash:
-            pass
-        elif link.is_hash_allowed(hashes=hashes):
-            match_count += 1
-        else:
-            non_matches.append(candidate)
-            continue
-
-        matches_or_no_digest.append(candidate)
-
-    if match_count:
-        filtered = matches_or_no_digest
-    else:
-        # Make sure we're not returning back the given value.
-        filtered = list(candidates)
-
-    if len(filtered) == len(candidates):
-        discard_message = "discarding no candidates"
-    else:
-        discard_message = "discarding {} non-matches:\n  {}".format(
-            len(non_matches),
-            "\n  ".join(str(candidate.link) for candidate in non_matches),
+            "Checked %s links for project %r against %s hashes "
+            "(%s matches, %s no digest): %s",
+            len(hash_matches.candidates),
+            self.project_name,
+            self.hashes.digest_count,
+            hash_matches.match_count,
+            len(hash_matches.matches_or_no_digest) - hash_matches.match_count,
+            hash_matches.discarded_candidates(),
         )
 
-    logger.debug(
-        "Checked %s links for project %r against %s hashes "
-        "(%s matches, %s no digest): %s",
-        len(candidates),
-        project_name,
-        hashes.digest_count,
-        match_count,
-        len(matches_or_no_digest) - match_count,
-        discard_message,
-    )
-
-    return filtered
+        return hash_matches.filtered
 
 
 @dataclass
@@ -567,7 +606,7 @@ class CandidateEvaluator:
 
     _project_name: str
     _supported_tags: tuple[Tag, ...]
-    _specifier: specifiers.BaseSpecifier
+    _specifier: BaseSpecifier
     _prefer_binary: bool = False
     _allow_all_prereleases: bool = False
     _hashes: Hashes | None = None
@@ -579,7 +618,7 @@ class CandidateEvaluator:
         target_python: TargetPython | None = None,
         prefer_binary: bool = False,
         allow_all_prereleases: bool = False,
-        specifier: specifiers.BaseSpecifier | None = None,
+        specifier: BaseSpecifier | None = None,
         hashes: Hashes | None = None,
     ) -> CandidateEvaluator:
         """Create a CandidateEvaluator object.
@@ -595,7 +634,7 @@ class CandidateEvaluator:
         if target_python is None:
             target_python = TargetPython()
         if specifier is None:
-            specifier = specifiers.SpecifierSet()
+            specifier = SpecifierSet.empty()
 
         supported_tags = target_python.sorted_tags
 
@@ -617,6 +656,10 @@ class CandidateEvaluator:
         """
         return {tag: idx for idx, tag in enumerate(self._supported_tags)}
 
+    @functools.cached_property
+    def _candidate_hash_filter(self) -> _CandidateHashFilter:
+        return _CandidateHashFilter(self._project_name, self._hashes)
+
     def get_applicable_candidates(
         self,
         candidates: Iterable[InstallationCandidate],
@@ -626,7 +669,6 @@ class CandidateEvaluator:
         """
         # Using None infers from the specifier instead.
         allow_prereleases = self._allow_all_prereleases or None
-        specifier = self._specifier
 
         # We turn the version object into a str here because otherwise
         # when we're debundled but setuptools isn't, Python will see
@@ -635,19 +677,13 @@ class CandidateEvaluator:
         # types. This way we'll use a str as a common data interchange
         # format. If we stop using the pkg_resources provided specifier
         # and start using our own, we can drop the cast to str().
-        candidates_and_versions = [(c, str(c.version)) for c in candidates]
-        versions = set(
-            specifier.filter(
-                (v for _, v in candidates_and_versions),
-                prereleases=allow_prereleases,
-            )
+        applicable_candidates = self._specifier.filter_arg(
+            candidates,
+            key=lambda c: c.version,
+            prereleases=allow_prereleases,
         )
-
-        applicable_candidates = [c for c, v in candidates_and_versions if v in versions]
-        filtered_applicable_candidates = filter_unallowed_hashes(
-            candidates=applicable_candidates,
-            hashes=self._hashes,
-            project_name=self._project_name,
+        filtered_applicable_candidates = (
+            self._candidate_hash_filter.filter_unallowed_hashes(applicable_candidates)
         )
 
         return tuple(
@@ -947,8 +983,8 @@ class PackageFinder:
         try:
             return InstallationCandidate(
                 name=link_evaluator.project_name,
+                version=ParsedVersion.parse(version),
                 link=link,
-                version=version,
             )
         except InvalidVersion:
             return None
@@ -1054,7 +1090,7 @@ class PackageFinder:
     def make_candidate_evaluator(
         self,
         project_name: str,
-        specifier: specifiers.BaseSpecifier | None = None,
+        specifier: BaseSpecifier | None = None,
         hashes: Hashes | None = None,
     ) -> CandidateEvaluator:
         """Create a CandidateEvaluator object to use."""
@@ -1073,16 +1109,14 @@ class PackageFinder:
         self,
     ) -> defaultdict[
         str,
-        dict[
-            tuple[specifiers.BaseSpecifier | None, Hashes | None], BestCandidateResult
-        ],
+        dict[tuple[BaseSpecifier | None, Hashes | None], BestCandidateResult],
     ]:
         return defaultdict(dict)
 
     def find_best_candidate(
         self,
         project_name: str,
-        specifier: specifiers.BaseSpecifier | None = None,
+        specifier: BaseSpecifier | None = None,
         hashes: Hashes | None = None,
     ) -> BestCandidateResult:
         sub_cache = self._best_candidates[project_name]
@@ -1095,7 +1129,7 @@ class PackageFinder:
     def _do_find_best_candidate(
         self,
         project_name: str,
-        specifier: specifiers.BaseSpecifier | None = None,
+        specifier: BaseSpecifier | None = None,
         hashes: Hashes | None = None,
     ) -> BestCandidateResult:
         """Find matches for the given project and specifier.
@@ -1113,6 +1147,17 @@ class PackageFinder:
             hashes=hashes,
         )
         return candidate_evaluator.compute_best_candidate(candidates)
+
+    @staticmethod
+    def _format_versions(cand_iter: Iterable[InstallationCandidate]) -> str:
+        # This repeated parse_version and str() conversion is needed to
+        # handle different vendoring sources from pip and pkg_resources.
+        # If we stop using the pkg_resources provided specifier and start
+        # using our own, we can drop the cast to str().
+        versions = frozenset(c.version for c in cand_iter)
+        if not versions:
+            return "none"
+        return ", ".join(map(str, sorted(versions)))
 
     def find_requirement(
         self, req: InstallRequirement, upgrade: bool
@@ -1134,31 +1179,16 @@ class PackageFinder:
         )
         best_candidate = best_candidate_result.best_candidate
 
-        installed_version: _BaseVersion | None = None
+        installed_version: ParsedVersion | None = None
         if req.satisfied_by is not None:
             installed_version = req.satisfied_by.version
-
-        def _format_versions(cand_iter: Iterable[InstallationCandidate]) -> str:
-            # This repeated parse_version and str() conversion is needed to
-            # handle different vendoring sources from pip and pkg_resources.
-            # If we stop using the pkg_resources provided specifier and start
-            # using our own, we can drop the cast to str().
-            return (
-                ", ".join(
-                    sorted(
-                        {str(c.version) for c in cand_iter},
-                        key=parse_version,
-                    )
-                )
-                or "none"
-            )
 
         if installed_version is None and best_candidate is None:
             logger.critical(
                 "Could not find a version that satisfies the requirement %s "
                 "(from versions: %s)",
                 req,
-                _format_versions(best_candidate_result.all_candidates),
+                self.__class__._format_versions(best_candidate_result.all_candidates),
             )
 
             raise DistributionNotFound(f"No matching distribution found for {req}")
@@ -1192,7 +1222,9 @@ class PackageFinder:
             logger.debug(
                 "Using version %s (newest of versions: %s)",
                 best_candidate.version,
-                _format_versions(best_candidate_result.applicable_candidates),
+                self.__class__._format_versions(
+                    best_candidate_result.applicable_candidates
+                ),
             )
             return best_candidate
 
@@ -1200,6 +1232,8 @@ class PackageFinder:
         logger.debug(
             "Installed version (%s) is most up-to-date (past versions: %s)",
             installed_version,
-            _format_versions(best_candidate_result.applicable_candidates),
+            self.__class__._format_versions(
+                best_candidate_result.applicable_candidates
+            ),
         )
         raise BestVersionAlreadyInstalled

@@ -14,15 +14,14 @@ import logging
 from collections.abc import Iterator, Sequence
 from typing import Any, Callable, Optional
 
-from pip._vendor.packaging.version import _BaseVersion
-
 from pip._internal.exceptions import MetadataInvalid
+from pip._internal.utils.packaging.version import ParsedVersion
 
 from .base import Candidate
 
 logger = logging.getLogger(__name__)
 
-IndexCandidateInfo = tuple[_BaseVersion, Callable[[], Optional[Candidate]]]
+IndexCandidateInfo = tuple[ParsedVersion, Callable[[], Optional[Candidate]]]
 
 
 def _iter_built(infos: Iterator[IndexCandidateInfo]) -> Iterator[Candidate]:
@@ -31,7 +30,7 @@ def _iter_built(infos: Iterator[IndexCandidateInfo]) -> Iterator[Candidate]:
     This iterator is used when the package is not already installed. Candidates
     from index come later in their normal ordering.
     """
-    versions_found: set[_BaseVersion] = set()
+    versions_found: set[ParsedVersion] = set()
     for version, func in infos:
         if version in versions_found:
             continue
@@ -67,7 +66,7 @@ def _iter_built_with_prepended(
     normal ordering, except skipped when the version is already installed.
     """
     yield installed
-    versions_found: set[_BaseVersion] = {installed.version}
+    versions_found: set[ParsedVersion] = {installed.version}
     for version, func in infos:
         if version in versions_found:
             continue
@@ -91,7 +90,7 @@ def _iter_built_with_inserted(
     the installed candidate exactly once before we start yielding older or
     equivalent candidates, or after all other candidates if they are all newer.
     """
-    versions_found: set[_BaseVersion] = set()
+    versions_found: set[ParsedVersion] = set()
     for version, func in infos:
         if version in versions_found:
             continue

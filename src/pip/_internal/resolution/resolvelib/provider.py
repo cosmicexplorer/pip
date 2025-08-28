@@ -11,6 +11,7 @@ from typing import (
 from pip._vendor.resolvelib.providers import AbstractProvider
 
 from pip._internal.req.req_install import InstallRequirement
+from pip._internal.utils.packaging.specifiers import Operator
 
 from .base import Candidate, Constraint, Requirement
 from .candidates import REQUIRES_PYTHON_IDENTIFIER
@@ -200,16 +201,26 @@ class PipProvider(_ProviderBase):
             )
             direct = any(directs)
 
-        operators: list[tuple[str, str]] = [
-            (specifier.operator, specifier.version)
+        operators: list[tuple[Operator, bool]] = [
+            (specifier.operator, specifier.trailing_dot_star)
             for specifier_set in (ireq.specifier for ireq in ireqs if ireq)
             for specifier in specifier_set
         ]
 
-        pinned = any(((op[:2] == "==") and ("*" not in ver)) for op, ver in operators)
+        pinned = any((op.is_pinned() and (not dot_star)) for op, dot_star in operators)
         upper_bounded = any(
-            ((op in ("<", "<=", "~=")) or (op == "==" and "*" in ver))
-            for op, ver in operators
+            (
+                (
+                    op
+                    in (
+                        Operator.LESS_THAN,
+                        Operator.LESS_THAN_EQUAL,
+                        Operator.COMPATIBLE,
+                    )
+                )
+                or (op == Operator.EQUAL and dot_star)
+            )
+            for op, dot_star in operators
         )
         unfree = bool(operators)
         requested_order = self._user_requested.get(identifier, math.inf)

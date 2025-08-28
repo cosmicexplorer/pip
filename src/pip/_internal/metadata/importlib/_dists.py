@@ -10,10 +10,7 @@ from typing import (
     cast,
 )
 
-from pip._vendor.packaging.requirements import Requirement
 from pip._vendor.packaging.utils import NormalizedName, canonicalize_name
-from pip._vendor.packaging.version import Version
-from pip._vendor.packaging.version import parse as parse_version
 
 from pip._internal.exceptions import InvalidWheel, UnsupportedWheel
 from pip._internal.metadata.base import (
@@ -23,6 +20,8 @@ from pip._internal.metadata.base import (
     Wheel,
 )
 from pip._internal.utils.misc import normalize_path
+from pip._internal.utils.packaging.requirements import Requirement
+from pip._internal.utils.packaging.version import ParsedVersion
 from pip._internal.utils.packaging_utils import get_requirement
 from pip._internal.utils.temp_dir import TempDirectory
 from pip._internal.utils.wheel import parse_wheel, read_wheel_metadata_file
@@ -164,10 +163,10 @@ class Distribution(BaseDistribution):
         return get_dist_canonical_name(self._dist)
 
     @property
-    def version(self) -> Version:
+    def version(self) -> ParsedVersion:
         if version := parse_name_and_version_from_info_directory(self._dist)[1]:
-            return parse_version(version)
-        return parse_version(self._dist.version)
+            return ParsedVersion.parse(version)
+        return ParsedVersion.parse(self._dist.version)
 
     @property
     def raw_version(self) -> str:

@@ -6,7 +6,7 @@ import re
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeVar
 
 from pip._vendor.packaging.specifiers import InvalidSpecifier
 
@@ -26,18 +26,20 @@ from .containment import (
 from .version import InvalidVersion, ParsedVersion
 
 if TYPE_CHECKING:
-    from typing import Any, ClassVar
+    from typing import Any, Callable, ClassVar
 
     from typing_extensions import Self
 
 
+_VersionArg = TypeVar("_VersionArg")
+
+
 class BaseSpecifier(metaclass=abc.ABCMeta):
-    @abc.abstractmethod
     def __contains__(self, item: ParsedVersion) -> bool:
         """
         Return whether or not the item is contained in this specifier.
         """
-        ...
+        return self.contains(item)
 
     @abc.abstractmethod
     def contains(self, item: ParsedVersion, prereleases: bool | None = None) -> bool:
@@ -46,15 +48,25 @@ class BaseSpecifier(metaclass=abc.ABCMeta):
         """
         ...
 
-    @abc.abstractmethod
     def filter(
-        self, iterable: Iterable[ParsedVersion], prereleases: bool | None = None
+        self,
+        iterable: Iterable[ParsedVersion],
+        prereleases: bool | None = None,
     ) -> Iterator[ParsedVersion]:
         """
         Takes an iterable of items and filters them so that only items which
         are contained within this specifier are allowed in it.
         """
-        ...
+        return self.filter_arg(iterable, key=lambda x: x, prereleases=prereleases)
+
+    @abc.abstractmethod
+    def filter_arg(
+        self,
+        args: Iterable[_VersionArg],
+        *,
+        key: Callable[[_VersionArg], ParsedVersion],
+        prereleases: bool | None = None,
+    ) -> Iterator[_VersionArg]: ...
 
 
 class Operator(Enum):
@@ -72,7 +84,10 @@ class Operator(Enum):
         return "|".join(re.escape(o.value) for o in cls)
 
     def is_inclusive(self) -> bool:
-        return self != type(self).NOT_EQUAL
+        return self != self.__class__.NOT_EQUAL
+
+    def is_pinned(self) -> bool:
+        return (self == Operator.EQUAL) or (self == Operator.ARBITRARY)
 
 
 @dataclass(frozen=True)
@@ -222,6 +237,10 @@ class Specifier(BaseSpecifier):
             _prereleases=prereleases,
         )
 
+    @property
+    def trailing_dot_star(self) -> bool:
+        return self._trailing_dot_star
+
     @functools.cached_property
     def parsed_version(self) -> ParsedVersion | None:
         try:
@@ -274,7 +293,9 @@ class Specifier(BaseSpecifier):
     def __eq__(self, other: Any) -> bool:
         if not isinstance(other, self.__class__):
             return NotImplemented
-        return self._canonical_spec == other._canonical_spec
+        return (
+            hash(self) == hash(other) and self._canonical_spec == other._canonical_spec
+        )
 
     @functools.cached_property
     def _predicate(self) -> ContainsPredicate:
@@ -305,9 +326,6 @@ class Specifier(BaseSpecifier):
         assert self.operator == Operator.COMPATIBLE, self.operator
         return Compatible(self._version)
 
-    def __contains__(self, item: ParsedVersion) -> bool:
-        return self.contains(item)
-
     def contains(self, item: ParsedVersion, prereleases: bool | None = None) -> bool:
         if prereleases is None:
             prereleases = self.prereleases
@@ -317,11 +335,13 @@ class Specifier(BaseSpecifier):
 
         return self._predicate.evaluate(item)
 
-    def filter(
+    def filter_arg(
         self,
-        iterable: Iterable[ParsedVersion],
+        args: Iterable[_VersionArg],
+        *,
+        key: Callable[[_VersionArg], ParsedVersion],
         prereleases: bool | None = None,
-    ) -> Iterator[ParsedVersion]:
+    ) -> Iterator[_VersionArg]:
         yielded = False
         found_prereleases = []
 
@@ -329,25 +349,26 @@ class Specifier(BaseSpecifier):
 
         # Attempt to iterate over all the values in the iterable and if any of
         # them match, yield them.
-        for version in iterable:
+        for arg in args:
+            version = key(arg)
             if self.contains(version, **kw):
                 # If our version is a prerelease, and we were not set to allow
                 # prereleases, then we'll store it for later in case nothing
                 # else matches this specifier.
                 if version.is_prerelease and not (prereleases or self.prereleases):
-                    found_prereleases.append(version)
+                    found_prereleases.append(arg)
                 # Either this is not a prerelease, or we should have been
                 # accepting prereleases from the beginning.
                 else:
                     yielded = True
-                    yield version
+                    yield arg
 
         # Now that we've iterated over everything, determine if we've yielded
         # any values, and if we have not and we have any prereleases stored up
         # then we will go ahead and yield the prereleases.
         if not yielded and found_prereleases:
-            for version in found_prereleases:
-                yield version
+            for arg in found_prereleases:
+                yield arg
 
 
 @dataclass(frozen=True)
@@ -355,12 +376,17 @@ class SpecifierSet(BaseSpecifier):
     _specs: frozenset[Specifier]
     _prereleases: bool | None
 
+    @staticmethod
+    @functools.cache
+    def empty() -> SpecifierSet:
+        return SpecifierSet(_specs=frozenset(), _prereleases=None)
+
     @classmethod
     def parse(
         cls,
         specifiers: str | Iterable[Specifier] = "",
         prereleases: bool | None = None,
-    ) -> Self:
+    ) -> SpecifierSet:
         """
         :param specifiers:
             The string representation of a specifier or a comma-separated list of
@@ -387,6 +413,8 @@ class SpecifierSet(BaseSpecifier):
         else:
             # Save the supplied specifiers in a frozen set.
             specs = frozenset(specifiers)
+        if not specs and prereleases is None:
+            return cls.empty()
 
         return cls(
             _specs=specs,
@@ -458,16 +486,13 @@ class SpecifierSet(BaseSpecifier):
     def __eq__(self, other: Any) -> bool:
         if not isinstance(other, self.__class__):
             return NotImplemented
-        return self._specs == other._specs
+        return hash(self) == hash(other) and self._specs == other._specs
 
     def __len__(self) -> int:
         return len(self._specs)
 
     def __iter__(self) -> Iterator[Specifier]:
         return iter(self._specs)
-
-    def __contains__(self, item: ParsedVersion) -> bool:
-        return self.contains(item)
 
     def contains(self, item: ParsedVersion, prereleases: bool | None = None) -> bool:
         if prereleases is None:
@@ -476,37 +501,39 @@ class SpecifierSet(BaseSpecifier):
             return False
         return all(s.contains(item, prereleases=prereleases) for s in self._specs)
 
-    def filter(
+    def filter_arg(
         self,
-        iterable: Iterable[ParsedVersion],
+        args: Iterable[_VersionArg],
+        *,
+        key: Callable[[_VersionArg], ParsedVersion],
         prereleases: bool | None = None,
-    ) -> Iterator[ParsedVersion]:
+    ) -> Iterator[_VersionArg]:
         if prereleases is None:
             prereleases = self.prereleases
-        assert prereleases is not None
 
         # If we have any specifiers, then we want to wrap our iterable in the
         # filter method for each one, this will act as a logical AND amongst
         # each specifier.
         if self._specs:
             for spec in self._specs:
-                iterable = spec.filter(iterable, prereleases=prereleases)
-            return iter(iterable)
+                args = spec.filter_arg(args, key=key, prereleases=prereleases)
+            return iter(args)
 
         # If we do not have any specifiers, then we need to have a rough filter
         # which will filter out any pre-releases, unless there are no final
         # releases.
-        filtered: list[ParsedVersion] = []
-        found_prereleases: list[ParsedVersion] = []
+        filtered: list[_VersionArg] = []
+        found_prereleases: list[_VersionArg] = []
 
-        for item in iterable:
+        for arg in args:
+            item = key(arg)
             # Store any item which is a pre-release for later unless we've
             # already found a final version or we are accepting prereleases
             if item.is_prerelease and not prereleases:
                 if not filtered:
-                    found_prereleases.append(item)
+                    found_prereleases.append(arg)
             else:
-                filtered.append(item)
+                filtered.append(arg)
 
         # If we've found no items except for pre-releases, then we'll go
         # ahead and use the pre-releases

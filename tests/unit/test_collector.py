@@ -14,7 +14,6 @@ from unittest import mock
 import pytest
 
 from pip._vendor import requests
-from pip._vendor.packaging.requirements import Requirement
 
 from pip._internal.exceptions import NetworkConnectionError
 from pip._internal.index.collector import (
@@ -36,6 +35,8 @@ from pip._internal.models.link import (
     MetadataFile,
 )
 from pip._internal.network.session import PipSession
+from pip._internal.utils.packaging.requirements import Requirement
+from pip._internal.utils.packaging.version import ParsedVersion
 from pip._internal.utils.urls import ParsedUrl, _FilePath, _PathSanitizer, _UrlPath
 
 from tests.lib import (
@@ -617,7 +618,7 @@ def test_parse_links__yanked_reason(anchor_html: str, expected: str | None) -> N
 
 
 # Requirement objects do not == each other unless they point to the same instance!
-_pkg1_requirement = Requirement("pkg1==1.0")
+_pkg1_requirement = Requirement.parse("pkg1==1.0")
 
 
 @pytest.mark.parametrize(
@@ -983,7 +984,7 @@ class TestLinkCollector:
         collected_sources = link_collector.collect_sources(
             "twine",
             candidates_from_page=lambda link: [
-                InstallationCandidate("twine", "1.0", link)
+                InstallationCandidate("twine", ParsedVersion.parse("1.0"), link)
             ],
         )
 
@@ -1032,7 +1033,9 @@ class TestLinkCollector:
         collected_sources = link_collector.collect_sources(
             "singlemodule",
             candidates_from_page=lambda link: [
-                InstallationCandidate("singlemodule", "0.0.1", link)
+                InstallationCandidate(
+                    "singlemodule", ParsedVersion.parse("0.0.1"), link
+                )
             ],
         )
 

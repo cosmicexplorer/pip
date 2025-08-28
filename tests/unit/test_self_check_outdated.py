@@ -12,11 +12,10 @@ from unittest.mock import ANY, Mock, patch
 import pytest
 from freezegun import freeze_time
 
-from pip._vendor.packaging.version import Version
-
 from pip._internal import self_outdated_check
 from pip._internal.self_outdated_check import UpgradePrompt, pip_self_version_check
 from pip._internal.utils.misc import ExternallyManagedEnvironment
+from pip._internal.utils.packaging.version import ParsedVersion
 
 
 @pytest.mark.parametrize(
@@ -109,7 +108,7 @@ def test_core_logic(
         return_value = self_outdated_check._self_version_check_logic(
             state=mock_state,
             current_time=fake_time,
-            local_version=Version(installed_version),
+            local_version=ParsedVersion.parse(installed_version),
             get_remote_version=lambda: remote_version,
         )
 

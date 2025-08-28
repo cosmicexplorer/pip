@@ -333,7 +333,7 @@ class ParsedVersion:
         if not isinstance(other, ParsedVersion):
             return NotImplemented
 
-        return self._key == other._key
+        return hash(self) == hash(other) and self._key == other._key
 
     def __ge__(self, other: Any) -> bool:
         if not isinstance(other, ParsedVersion):

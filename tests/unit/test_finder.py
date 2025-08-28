@@ -3,9 +3,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from pip._vendor.packaging.specifiers import SpecifierSet
 from pip._vendor.packaging.tags import Tag
-from pip._vendor.packaging.version import parse as parse_version
 
 import pip._internal.utils.compatibility_tags
 from pip._internal.exceptions import BestVersionAlreadyInstalled, DistributionNotFound
@@ -20,6 +18,8 @@ from pip._internal.index.package_finder import (
 from pip._internal.models.format_control import AllowedFormats
 from pip._internal.models.target_python import TargetPython
 from pip._internal.req.constructors import install_req_from_line
+from pip._internal.utils.packaging.specifiers import SpecifierSet
+from pip._internal.utils.packaging.version import ParsedVersion
 
 from tests.lib import TestData, make_test_finder
 
@@ -89,7 +89,7 @@ def test_finder_detects_latest_already_satisfied_find_links(data: TestData) -> N
     latest_version = "3.0"
     satisfied_by = Mock(
         location="/path",
-        version=parse_version(latest_version),
+        version=ParsedVersion.parse(latest_version),
     )
     req.satisfied_by = satisfied_by
     finder = make_test_finder(find_links=[data.find_links])
@@ -105,7 +105,7 @@ def test_finder_detects_latest_already_satisfied_pypi_links() -> None:
     latest_version = "0.3.1"
     satisfied_by = Mock(
         location="/path",
-        version=parse_version(latest_version),
+        version=ParsedVersion.parse(latest_version),
     )
     req.satisfied_by = satisfied_by
     finder = make_test_finder(index_urls=["http://pypi.org/simple/"])
@@ -188,7 +188,7 @@ class TestWheel:
         latest_version = "1.0"
         satisfied_by = Mock(
             location="/path",
-            version=parse_version(latest_version),
+            version=ParsedVersion.parse(latest_version),
         )
         req.satisfied_by = satisfied_by
         finder = make_test_finder(find_links=[data.find_links])
@@ -203,25 +203,27 @@ class TestCandidateEvaluator:
         Test link sorting
         """
         links = [
-            InstallationCandidate("simple", "2.0", Link("simple-2.0.tar.gz")),
+            InstallationCandidate(
+                "simple", ParsedVersion.parse("2.0"), Link("simple-2.0.tar.gz")
+            ),
             InstallationCandidate(
                 "simple",
-                "1.0",
+                ParsedVersion.parse("1.0"),
                 Link("simple-1.0-pyT-none-TEST.whl"),
             ),
             InstallationCandidate(
                 "simple",
-                "1.0",
+                ParsedVersion.parse("1.0"),
                 Link("simple-1.0-pyT-TEST-any.whl"),
             ),
             InstallationCandidate(
                 "simple",
-                "1.0",
+                ParsedVersion.parse("1.0"),
                 Link("simple-1.0-pyT-none-any.whl"),
             ),
             InstallationCandidate(
                 "simple",
-                "1.0",
+                ParsedVersion.parse("1.0"),
                 Link("simple-1.0.tar.gz"),
             ),
         ]
@@ -230,11 +232,10 @@ class TestCandidateEvaluator:
             Tag("pyT", "TEST", "any"),
             Tag("pyT", "none", "any"),
         )
-        specifier = SpecifierSet()
         evaluator = CandidateEvaluator(
             "my-project",
             _supported_tags=valid_tags,
-            _specifier=specifier,
+            _specifier=SpecifierSet.empty(),
         )
         sort_key = evaluator._sort_key
         results = sorted(links, key=sort_key, reverse=True)
@@ -248,17 +249,17 @@ class TestCandidateEvaluator:
         links = [
             InstallationCandidate(
                 "simplewheel",
-                "2.0",
+                ParsedVersion.parse("2.0"),
                 Link("simplewheel-2.0-1-py2.py3-none-any.whl"),
             ),
             InstallationCandidate(
                 "simplewheel",
-                "2.0",
+                ParsedVersion.parse("2.0"),
                 Link("simplewheel-2.0-py2.py3-none-any.whl"),
             ),
             InstallationCandidate(
                 "simplewheel",
-                "1.0",
+                ParsedVersion.parse("1.0"),
                 Link("simplewheel-1.0-py2.py3-none-any.whl"),
             ),
         ]
@@ -274,22 +275,22 @@ class TestCandidateEvaluator:
         links = [
             InstallationCandidate(
                 "simple",
-                "1.0",
+                ParsedVersion.parse("1.0"),
                 Link("simple-1.0-1-py3-abi3-linux_x86_64.whl"),
             ),
             InstallationCandidate(
                 "simple",
-                "1.0",
+                ParsedVersion.parse("1.0"),
                 Link("simple-1.0-2-py3-abi3-linux_i386.whl"),
             ),
             InstallationCandidate(
                 "simple",
-                "1.0",
+                ParsedVersion.parse("1.0"),
                 Link("simple-1.0-2-py3-any-none.whl"),
             ),
             InstallationCandidate(
                 "simple",
-                "1.0",
+                ParsedVersion.parse("1.0"),
                 Link("simple-1.0.tar.gz"),
             ),
         ]
@@ -301,7 +302,7 @@ class TestCandidateEvaluator:
         evaluator = CandidateEvaluator(
             "my-project",
             _supported_tags=valid_tags,
-            _specifier=SpecifierSet(),
+            _specifier=SpecifierSet.empty(),
         )
         sort_key = evaluator._sort_key
         results = sorted(links, key=sort_key, reverse=True)

@@ -17,10 +17,8 @@ from typing import (
     Union,
 )
 
-from pip._vendor.packaging.requirements import Requirement
-from pip._vendor.packaging.specifiers import InvalidSpecifier, SpecifierSet
+from pip._vendor.packaging.specifiers import InvalidSpecifier
 from pip._vendor.packaging.utils import NormalizedName, canonicalize_name
-from pip._vendor.packaging.version import Version
 
 from pip._internal.exceptions import NoneMetadataError
 from pip._internal.locations import site_packages, user_site
@@ -32,6 +30,9 @@ from pip._internal.models.direct_url import (
 from pip._internal.utils.compat import stdlib_pkgs  # TODO: Move definition here.
 from pip._internal.utils.egg_link import egg_link_path_from_sys_path
 from pip._internal.utils.misc import is_local, normalize_path
+from pip._internal.utils.packaging.requirements import Requirement
+from pip._internal.utils.packaging.specifiers import SpecifierSet
+from pip._internal.utils.packaging.version import ParsedVersion
 
 from ._json import msg_to_json
 
@@ -268,7 +269,7 @@ class BaseDistribution(Protocol):
         raise NotImplementedError()
 
     @property
-    def version(self) -> Version:
+    def version(self) -> ParsedVersion:
         raise NotImplementedError()
 
     @property
@@ -423,14 +424,14 @@ class BaseDistribution(Protocol):
         """
         value = self.metadata.get("Requires-Python")
         if value is None:
-            return SpecifierSet()
+            return SpecifierSet.empty()
         try:
             # Convert to str to satisfy the type checker; this can be a Header object.
-            spec = SpecifierSet(str(value))
+            spec = SpecifierSet.parse(str(value))
         except InvalidSpecifier as e:
             message = "Package %r has an invalid Requires-Python: %s"
             logger.warning(message, self.raw_name, e)
-            return SpecifierSet()
+            return SpecifierSet.empty()
         return spec
 
     def iter_dependencies(self, extras: Collection[str] = ()) -> Iterable[Requirement]:

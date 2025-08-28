@@ -9,7 +9,8 @@ import shutil
 from collections.abc import Iterable
 
 from pip._vendor.packaging.utils import canonicalize_name, canonicalize_version
-from pip._vendor.packaging.version import InvalidVersion, Version
+from pip._vendor.packaging.version import InvalidVersion
+from pip._vendor.packaging.version import Version as StdVersion
 
 from pip._internal.cache import WheelCache
 from pip._internal.exceptions import InvalidWheelFilename, UnsupportedWheel
@@ -22,6 +23,7 @@ from pip._internal.operations.build.wheel_legacy import build_wheel_legacy
 from pip._internal.req.req_install import InstallRequirement
 from pip._internal.utils.logging import indent_log
 from pip._internal.utils.misc import ensure_dir, hash_file
+from pip._internal.utils.packaging.version import ParsedVersion
 from pip._internal.utils.setuptools_build import make_setuptools_clean_args
 from pip._internal.utils.subprocess import call_subprocess
 from pip._internal.utils.temp_dir import TempDirectory
@@ -134,11 +136,13 @@ def _verify_one(req: InstallRequirement, wheel_path: str) -> None:
     if metadata_version_value is None:
         raise UnsupportedWheel("Missing Metadata-Version")
     try:
-        metadata_version = Version(metadata_version_value)
+        metadata_version = ParsedVersion.parse(metadata_version_value)
     except InvalidVersion:
         msg = f"Invalid Metadata-Version: {metadata_version_value}"
         raise UnsupportedWheel(msg)
-    if metadata_version >= Version("1.2") and not isinstance(dist.version, Version):
+    if metadata_version >= ParsedVersion.parse("1.2") and not isinstance(
+        dist.version, StdVersion
+    ):
         raise UnsupportedWheel(
             f"Metadata 1.2 mandates PEP 440 version, but {dist_verstr!r} is not"
         )

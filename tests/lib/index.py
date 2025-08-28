@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pip._internal.models.candidate import InstallationCandidate
 from pip._internal.models.link import Link
+from pip._internal.utils.package.version import ParsedVersion
 
 
 def make_mock_candidate(
@@ -13,6 +14,6 @@ def make_mock_candidate(
         url += f"#sha256={hex_digest}"
 
     link = Link(url, yanked_reason=yanked_reason)
-    candidate = InstallationCandidate("mypackage", version, link)
+    candidate = InstallationCandidate("mypackage", ParsedVersion.parse(version), link)
 
     return candidate

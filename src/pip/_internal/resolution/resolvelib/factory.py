@@ -14,10 +14,9 @@ from typing import (
 )
 
 from pip._vendor.packaging.requirements import InvalidRequirement
-from pip._vendor.packaging.specifiers import SpecifierSet
 from pip._vendor.packaging.tags import Tag
 from pip._vendor.packaging.utils import NormalizedName, canonicalize_name
-from pip._vendor.packaging.version import InvalidVersion, Version
+from pip._vendor.packaging.version import InvalidVersion
 from pip._vendor.resolvelib import ResolutionImpossible
 
 from pip._internal.cache import CacheEntry, WheelCache
@@ -46,6 +45,8 @@ from pip._internal.req.req_install import (
 from pip._internal.resolution.base import InstallRequirementProvider
 from pip._internal.utils.compatibility_tags import get_supported
 from pip._internal.utils.hashes import Hashes
+from pip._internal.utils.packaging.specifiers import Operator, SpecifierSet
+from pip._internal.utils.packaging.version import ParsedVersion
 from pip._internal.utils.packaging_utils import get_requirement
 from pip._internal.utils.virtualenv import running_under_virtualenv
 
@@ -179,7 +180,7 @@ class Factory:
         extras: frozenset[str],
         template: InstallRequirement,
         name: NormalizedName | None,
-        version: Version | None,
+        version: ParsedVersion | None,
     ) -> Candidate | None:
         base: BaseCandidate | None = self._make_base_candidate_from_link(
             link, template, name, version
@@ -193,7 +194,7 @@ class Factory:
         link: Link,
         template: InstallRequirement,
         name: NormalizedName | None,
-        version: Version | None,
+        version: ParsedVersion | None,
     ) -> BaseCandidate | None:
         # TODO: Check already installed candidate, and use it if the link and
         # editable flag match.
@@ -315,11 +316,11 @@ class Factory:
 
             def is_pinned(specifier: SpecifierSet) -> bool:
                 for sp in specifier:
-                    if sp.operator == "===":
+                    if sp.operator == Operator.ARBITRARY:
                         return True
-                    if sp.operator != "==":
+                    if sp.operator != Operator.EQUAL:
                         continue
-                    if sp.version.endswith(".*"):
+                    if sp.trailing_dot_star:
                         continue
                     return True
                 return False
@@ -674,8 +675,8 @@ class Factory:
         cands = self._finder.find_all_candidates(req.project_name)
         skipped_by_requires_python = self._finder.requires_python_skipped_reasons()
 
-        versions_set: set[Version] = set()
-        yanked_versions_set: set[Version] = set()
+        versions_set: set[ParsedVersion] = set()
+        yanked_versions_set: set[ParsedVersion] = set()
         for c in cands:
             is_yanked = c.link.is_yanked if c.link else False
             if is_yanked:

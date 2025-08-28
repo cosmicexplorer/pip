@@ -4,14 +4,13 @@ from pathlib import Path
 
 import pytest
 
-from pip._vendor.packaging.requirements import Requirement
-
 from pip._internal.exceptions import InstallationError
 from pip._internal.req.constructors import (
     install_req_from_line,
     install_req_from_req_string,
 )
 from pip._internal.req.req_install import InstallRequirement
+from pip._internal.utils.packaging.requirements import Requirement
 
 
 class TestInstallRequirementBuildDirectory:
@@ -103,7 +102,9 @@ class TestInstallRequirementFrom:
         install_str = "torch@ " + wheel_url
 
         # Dummy numpy "comes_from" requirement without link:
-        comes_from = InstallRequirement(Requirement("numpy>=1.15.0"), comes_from=None)
+        comes_from = InstallRequirement(
+            Requirement.parse("numpy>=1.15.0"), comes_from=None
+        )
 
         # Attempt install from install string comes:
         install_req = install_req_from_req_string(install_str, comes_from=comes_from)

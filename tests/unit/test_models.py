@@ -1,9 +1,8 @@
 """Tests for various classes in pip._internal.models"""
 
-from pip._vendor.packaging.version import parse as parse_version
-
 from pip._internal.models import candidate, index
 from pip._internal.models.link import Link
+from pip._internal.utils.packaging.version import ParsedVersion
 
 
 class TestPackageIndex:
@@ -43,8 +42,10 @@ class TestPackageIndex:
 class TestInstallationCandidate:
     def test_sets_correct_variables(self) -> None:
         obj = candidate.InstallationCandidate(
-            "A", "1.0.0", Link("https://somewhere.com/path/A-1.0.0.tar.gz")
+            "A",
+            ParsedVersion.parse("1.0.0"),
+            Link("https://somewhere.com/path/A-1.0.0.tar.gz"),
         )
         assert obj.name == "A"
-        assert obj.version == parse_version("1.0.0")
+        assert obj.version == ParsedVersion.parse("1.0.0")
         assert obj.link.url == "https://somewhere.com/path/A-1.0.0.tar.gz"

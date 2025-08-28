@@ -4,7 +4,6 @@ import logging
 
 import pytest
 
-from pip._vendor.packaging.specifiers import SpecifierSet
 from pip._vendor.packaging.tags import Tag
 from pip._vendor.packaging.utils import canonicalize_name
 
@@ -16,10 +15,10 @@ from pip._internal.index.package_finder import (
     LinkEvaluator,
     LinkType,
     PackageFinder,
+    _CandidateHashFilter,
     _FoundCandidate,
     _IncompatibleRequiresPython,
     _YankedReason,
-    filter_unallowed_hashes,
 )
 from pip._internal.models.format_control import AllowedFormats, FormatControlBuilder
 from pip._internal.models.link import Link
@@ -29,6 +28,7 @@ from pip._internal.models.target_python import TargetPython
 from pip._internal.network.session import PipSession
 from pip._internal.utils.compatibility_tags import get_supported
 from pip._internal.utils.hashes import Hashes
+from pip._internal.utils.packaging.specifiers import SpecifierSet
 from pip._internal.utils.predicates import FragmentMatcher, RequiresPython
 
 from tests.lib import CURRENT_PY_VERSION_INFO
@@ -256,16 +256,14 @@ def test_filter_unallowed_hashes(hex_digest: str, expected_versions: list[str]) 
         "sha256": [hex_digest],
     }
     hashes = Hashes(hashes_data)
-    actual = filter_unallowed_hashes(
-        candidates,
-        hashes=hashes,
+    filt = _CandidateHashFilter(
         project_name="my-project",
+        hashes=hashes,
     )
+    actual = filt.filter_unallowed_hashes(candidates)
 
     actual_versions = [str(candidate.version) for candidate in actual]
     assert actual_versions == expected_versions
-    # Check that the return value is always different from the given value.
-    assert actual is not candidates
 
 
 def test_filter_unallowed_hashes__no_hashes(caplog: pytest.LogCaptureFixture) -> None:
@@ -275,15 +273,13 @@ def test_filter_unallowed_hashes__no_hashes(caplog: pytest.LogCaptureFixture) ->
         make_mock_candidate("1.0"),
         make_mock_candidate("1.1"),
     ]
-    actual = filter_unallowed_hashes(
-        candidates,
-        hashes=Hashes(),
+    filt = _CandidateHashFilter(
         project_name="my-project",
+        hashes=Hashes(),
     )
+    actual = filt.filter_unallowed_hashes(candidates)
 
-    # Check that the return value is a copy.
-    assert actual == candidates
-    assert actual is not candidates
+    assert actual == tuple(candidates)
 
     expected_message = (
         "Given no hashes to check 2 links for project 'my-project': "
@@ -315,11 +311,11 @@ def test_filter_unallowed_hashes__log_message_with_match(
         "sha256": [64 * "a", 64 * "d"],
     }
     hashes = Hashes(hashes_data)
-    actual = filter_unallowed_hashes(
-        candidates,
-        hashes=hashes,
+    filt = _CandidateHashFilter(
         project_name="my-project",
+        hashes=hashes,
     )
+    actual = filt.filter_unallowed_hashes(candidates)
     assert len(actual) == 4
 
     expected_message = (
@@ -347,11 +343,11 @@ def test_filter_unallowed_hashes__log_message_with_no_match(
         "sha256": [64 * "a", 64 * "d"],
     }
     hashes = Hashes(hashes_data)
-    actual = filter_unallowed_hashes(
-        candidates,
-        hashes=hashes,
+    filt = _CandidateHashFilter(
         project_name="my-project",
+        hashes=hashes,
     )
+    actual = filt.filter_unallowed_hashes(candidates)
     assert len(actual) == 3
 
     expected_message = (
@@ -374,7 +370,7 @@ class TestCandidateEvaluator:
     def test_create(self, allow_all_prereleases: bool, prefer_binary: bool) -> None:
         target_python = TargetPython()
         target_python.__dict__["sorted_tags"] = (Tag("py36", "none", "any"),)
-        specifier = SpecifierSet()
+        specifier = SpecifierSet.empty()
         evaluator = CandidateEvaluator.create(
             project_name="my-project",
             target_python=target_python,
@@ -400,11 +396,11 @@ class TestCandidateEvaluator:
         Test passing specifier=None.
         """
         evaluator = CandidateEvaluator.create("my-project")
-        expected_specifier = SpecifierSet()
+        expected_specifier = SpecifierSet.empty()
         assert evaluator._specifier == expected_specifier
 
     def test_get_applicable_candidates(self) -> None:
-        specifier = SpecifierSet("<= 1.11")
+        specifier = SpecifierSet.parse("<= 1.11")
         versions = ["1.10", "1.11", "1.12"]
         candidates = tuple(make_mock_candidate(version) for version in versions)
         evaluator = CandidateEvaluator.create(
@@ -423,10 +419,10 @@ class TestCandidateEvaluator:
         "specifier, expected_versions",
         [
             # Test no version constraint.
-            (SpecifierSet(), ["1.0", "1.2"]),
+            (SpecifierSet.empty(), ["1.0", "1.2"]),
             # Test a version constraint that excludes the candidate whose
             # hash matches.  Then the non-allowed hash is a candidate.
-            (SpecifierSet("<= 1.1"), ["1.0", "1.1"]),
+            (SpecifierSet.parse("<= 1.1"), ["1.0", "1.1"]),
         ],
     )
     def test_get_applicable_candidates__hashes(
@@ -456,7 +452,7 @@ class TestCandidateEvaluator:
         assert actual_versions == expected_versions
 
     def test_compute_best_candidate(self) -> None:
-        specifier = SpecifierSet("<= 1.11")
+        specifier = SpecifierSet.parse("<= 1.11")
         versions = ["1.10", "1.11", "1.12"]
         candidates = tuple(make_mock_candidate(version) for version in versions)
         evaluator = CandidateEvaluator.create(
@@ -479,7 +475,7 @@ class TestCandidateEvaluator:
         """
         Test returning a None best candidate.
         """
-        specifier = SpecifierSet("<= 1.10")
+        specifier = SpecifierSet.parse("<= 1.10")
         versions = ["1.11", "1.12"]
         candidates = tuple(make_mock_candidate(version) for version in versions)
         evaluator = CandidateEvaluator.create(
@@ -802,7 +798,7 @@ class TestPackageFinder:
             candidate_prefs=candidate_prefs,
         )
 
-        specifier = SpecifierSet()
+        specifier = SpecifierSet.empty()
         # Pass hashes to check that _hashes is set.
         hashes = Hashes({"sha256": [64 * "a"]})
         evaluator = finder.make_candidate_evaluator(

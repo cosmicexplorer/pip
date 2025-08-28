@@ -3,8 +3,9 @@ from __future__ import annotations
 import functools
 import logging
 
-from pip._vendor.packaging import specifiers, version
-from pip._vendor.packaging.requirements import Requirement
+from pip._internal.utils.packaging.requirements import Requirement
+from pip._internal.utils.packaging.specifiers import SpecifierSet
+from pip._internal.utils.packaging.version import ParsedVersion
 
 logger = logging.getLogger(__name__)
 
@@ -27,9 +28,9 @@ def check_requires_python(
     if requires_python is None:
         # The package provides no information
         return True
-    requires_python_specifier = specifiers.SpecifierSet(requires_python)
+    requires_python_specifier = SpecifierSet.parse(requires_python)
 
-    python_version = version.parse(".".join(map(str, version_info)))
+    python_version = ParsedVersion.parse(".".join(map(str, version_info)))
     return python_version in requires_python_specifier
 
 
@@ -41,4 +42,4 @@ def get_requirement(req_string: str) -> Requirement:
     # constructed). This method adds a cache to requirement object creation to
     # minimize repeated parsing of the same string to construct equivalent
     # Requirement objects.
-    return Requirement(req_string)
+    return Requirement.parse(req_string)

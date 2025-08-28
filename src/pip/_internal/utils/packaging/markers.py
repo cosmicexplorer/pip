@@ -28,7 +28,7 @@ from .specifiers import Specifier
 from .version import ParsedVersion
 
 if TYPE_CHECKING:
-    from collections.abc import Set
+    from collections.abc import Mapping, Set
     from types import ModuleType
 
     from typing_extensions import Self
@@ -37,6 +37,7 @@ __all__ = [
     "Marker",
     "Environment",
     "EvaluateContext",
+    "EnvConfigure",
 ]
 
 
@@ -118,7 +119,7 @@ class Environment(TypedDict):
     """
 
 
-class _EnvConfigure:
+class EnvConfigure:
     @staticmethod
     def _full_version(ver: str) -> ParsedVersion:
         """
@@ -140,7 +141,7 @@ class _EnvConfigure:
             "platform_release": platform.release(),
             "platform_system": platform.system(),
             "platform_version": platform.version(),
-            "python_full_version": _EnvConfigure._full_version(
+            "python_full_version": EnvConfigure._full_version(
                 platform.python_version()
             ),
             "platform_python_implementation": platform.python_implementation(),
@@ -157,7 +158,17 @@ class _EnvConfigure:
         import platform
         import sys
 
-        return _EnvConfigure.configure(os, platform, sys)
+        return EnvConfigure.configure(os, platform, sys)
+
+    @staticmethod
+    def json_safe_value(v: Any) -> Any:
+        if isinstance(v, ParsedVersion):
+            return str(v)
+        return v
+
+    @staticmethod
+    def json_safe(env: Environment) -> dict[str, Any]:
+        return {k: EnvConfigure.json_safe_value(v) for k, v in env.items()}
 
 
 class _OpEvaluator:
@@ -290,18 +301,19 @@ class Marker:
 
     @classmethod
     def parse(cls, marker: str) -> Self:
-        # Note: We create a Marker object without calling this constructor in
-        #       packaging.requirements.Requirement. If any additional logic is
-        #       added here, make sure to mirror/adapt Requirement.
         try:
-            markers = cls._normalize_extra_values(_parse_marker(marker))
+            markers = _parse_marker(marker)
         except ParserSyntaxError as e:
             raise InvalidMarker(str(e)) from e
-        return cls(_markers=markers)
+        return cls.normalize_markers(markers)
+
+    @classmethod
+    def normalize_markers(cls, markers: MarkerList) -> Self:
+        return cls(_markers=cls._normalize_extra_values(markers))
 
     def evaluate(
         self,
-        environment: dict[str, str | ParsedVersion | Set[str]] | None = None,
+        environment: Mapping[str, str | ParsedVersion | Set[str]] | None = None,
         context: EvaluateContext = EvaluateContext.METADATA,
     ) -> bool:
         """Evaluate a marker.
@@ -316,7 +328,7 @@ class Marker:
         The environment is determined from the current Python process.
         """
         current_environment = cast(
-            "dict[str, str | ParsedVersion | Set[str]]", _EnvConfigure.default()
+            "dict[str, str | ParsedVersion | Set[str]]", EnvConfigure.default()
         )
         if context == EvaluateContext.LOCK_FILE:
             current_environment.update(

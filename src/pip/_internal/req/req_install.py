@@ -12,12 +12,7 @@ from optparse import Values
 from pathlib import Path
 from typing import Any
 
-from pip._vendor.packaging.markers import Marker
-from pip._vendor.packaging.requirements import Requirement
-from pip._vendor.packaging.specifiers import SpecifierSet
 from pip._vendor.packaging.utils import canonicalize_name
-from pip._vendor.packaging.version import Version
-from pip._vendor.packaging.version import parse as parse_version
 from pip._vendor.pyproject_hooks import BuildBackendHookCaller
 
 from pip._internal.build_env import BuildEnvironment, NoOpBuildEnvironment
@@ -55,6 +50,9 @@ from pip._internal.utils.misc import (
     redact_auth_from_requirement,
     redact_auth_from_url,
 )
+from pip._internal.utils.packaging.markers import Marker
+from pip._internal.utils.packaging.requirements import Requirement
+from pip._internal.utils.packaging.specifiers import SpecifierSet
 from pip._internal.utils.packaging_utils import get_requirement
 from pip._internal.utils.subprocess import runner_with_spinner_message
 from pip._internal.utils.temp_dir import TempDirectory, tempdir_kinds
@@ -278,7 +276,7 @@ class InstallRequirement:
         """
         assert self.req is not None
         specifiers = self.req.specifier
-        return len(specifiers) == 1 and next(iter(specifiers)).operator in {"==", "==="}
+        return len(specifiers) == 1 and next(iter(specifiers)).operator.is_pinned()
 
     def match_markers(self, extras_requested: Iterable[str] | None = None) -> bool:
         if not extras_requested:
@@ -394,18 +392,13 @@ class InstallRequirement:
         assert self.source_dir is not None
 
         # Construct a Requirement object from the generated metadata
-        if isinstance(parse_version(self.metadata["Version"]), Version):
-            op = "=="
-        else:
-            op = "==="
-
         self.req = get_requirement(
             "".join(
-                [
+                (
                     self.metadata["Name"],
-                    op,
+                    "==",
                     self.metadata["Version"],
-                ]
+                )
             )
         )
 

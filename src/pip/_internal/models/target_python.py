@@ -83,9 +83,7 @@ class TargetPython:
         """
         display_version = None
         if self._given_py_version_info is not None:
-            display_version = ".".join(
-                str(part) for part in self._given_py_version_info
-            )
+            display_version = ".".join(map(str, self._given_py_version_info))
 
         key_values = [
             ("platforms", self.platforms),
