@@ -9,6 +9,7 @@ from pip._vendor.packaging.tags import Tag
 
 from pip._internal.utils.compatibility_tags import get_supported, version_info_to_nodot
 from pip._internal.utils.misc import normalize_version_info
+from pip._internal.utils.version import ParsedVersion
 
 
 @dataclass(frozen=True)
@@ -68,12 +69,12 @@ class TargetPython:
         return normalize_version_info(self._given_py_version_info)
 
     @functools.cached_property
-    def full_py_version(self) -> str:
-        return ".".join(map(str, self.py_version_info))
+    def full_py_version(self) -> ParsedVersion:
+        return ParsedVersion.parse(".".join(map(str, self.py_version_info)))
 
     @functools.cached_property
-    def py_version(self) -> str:
-        return ".".join(map(str, self.py_version_info[:2]))
+    def py_version(self) -> ParsedVersion:
+        return ParsedVersion.parse(".".join(map(str, self.py_version_info[:2])))
 
     @functools.cached_property
     def format_given(self) -> str:

@@ -21,6 +21,7 @@ from .containment import (
     LessThan,
     LessThanEqual,
     NotEqualBasic,
+    NotEqualPrefix,
 )
 from .version import InvalidVersion, ParsedVersion
 
@@ -208,7 +209,8 @@ class Specifier(BaseSpecifier):
         operator = Operator(g["operator"])
 
         version = g["version"].strip()
-        if operator == Operator.EQUAL and version.endswith(".*"):
+        if version.endswith(".*"):
+            assert operator in [Operator.EQUAL, Operator.NOT_EQUAL], operator
             trailing_dot_star = True
             version = version[:-2]
         else:
@@ -291,6 +293,8 @@ class Specifier(BaseSpecifier):
             assert self.parsed_version is not None
             return GreaterThanEqual(self.parsed_version)
         if self.operator == Operator.NOT_EQUAL:
+            if self._trailing_dot_star:
+                return NotEqualPrefix(self._version)
             assert self.parsed_version is not None
             return NotEqualBasic(self.parsed_version)
         if self.operator == Operator.EQUAL:

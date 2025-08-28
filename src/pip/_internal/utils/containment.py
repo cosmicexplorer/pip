@@ -144,6 +144,16 @@ class EqualPrefix(_StrPredicate):
 
 
 @dataclass(frozen=True)
+class NotEqualPrefix(_StrPredicate):
+    @functools.cached_property
+    def eq_prefix_pred(self) -> EqualPrefix:
+        return EqualPrefix(self.spec_str)
+
+    def evaluate(self, prospective: ParsedVersion) -> bool:
+        return not self.eq_prefix_pred.evaluate(prospective)
+
+
+@dataclass(frozen=True)
 class Compatible(_StrPredicate):
     @functools.cached_property
     def prefix_form(self) -> str:

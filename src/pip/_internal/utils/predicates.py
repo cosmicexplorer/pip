@@ -6,9 +6,10 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar
 
-from pip._vendor.packaging import specifiers
-
 from pip._internal.models.target_python import TargetPython
+
+from .specifiers import SpecifierSet
+from .version import ParsedVersion
 
 if TYPE_CHECKING:
     from typing_extensions import Self
@@ -18,7 +19,7 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, slots=True)
 class RequiresPython:
-    specifier: specifiers.SpecifierSet
+    specifier: SpecifierSet
 
     @functools.cache
     @staticmethod
@@ -28,7 +29,7 @@ class RequiresPython:
 
     @functools.cache
     @staticmethod
-    def _sorted_string(specifier: specifiers.SpecifierSet) -> str:
+    def _sorted_string(specifier: SpecifierSet) -> str:
         return ",".join(
             sorted(
                 map(str, specifier),
@@ -40,7 +41,7 @@ class RequiresPython:
         return RequiresPython._sorted_string(self.specifier)
 
     _compat_by_specifier: ClassVar[
-        defaultdict[specifiers.SpecifierSet, dict[str, bool]]
+        defaultdict[SpecifierSet, dict[ParsedVersion, bool]]
     ] = defaultdict(dict)
 
     def is_compatible(self, py: TargetPython) -> bool:
@@ -51,17 +52,12 @@ class RequiresPython:
         cache[py.full_py_version] = new_result
         return new_result
 
-    @functools.cache
-    @staticmethod
-    def _parse_specifier(requires_python: str) -> specifiers.SpecifierSet:
-        return specifiers.SpecifierSet(requires_python)
-
     @classmethod
     def parse(cls, requires_python: str) -> Self:
         """
         :raises: specifiers.InvalidSpecifier
         """
-        return cls(cls._parse_specifier(requires_python))
+        return cls(SpecifierSet.parse(requires_python))
 
 
 @dataclass(frozen=True)
