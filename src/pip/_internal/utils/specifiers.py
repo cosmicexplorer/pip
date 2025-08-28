@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import abc
 import functools
 import re
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING
 
 from pip._vendor.packaging.specifiers import InvalidSpecifier
 
@@ -29,19 +30,22 @@ if TYPE_CHECKING:
     from typing_extensions import Self
 
 
-class BaseSpecifier(Protocol):
+class BaseSpecifier(metaclass=abc.ABCMeta):
+    @abc.abstractmethod
     def __contains__(self, item: ParsedVersion) -> bool:
         """
         Return whether or not the item is contained in this specifier.
         """
         ...
 
+    @abc.abstractmethod
     def contains(self, item: ParsedVersion, prereleases: bool | None = None) -> bool:
         """
         Determines if the given item is contained within this specifier.
         """
         ...
 
+    @abc.abstractmethod
     def filter(
         self, iterable: Iterable[ParsedVersion], prereleases: bool | None = None
     ) -> Iterator[ParsedVersion]:
@@ -71,19 +75,11 @@ class Operator(Enum):
 
 
 @dataclass(frozen=True)
-class Specifier:
+class Specifier(BaseSpecifier):
     operator: Operator
     _version: str
     _trailing_dot_star: bool
     _prereleases: bool | None
-
-    __slots__ = [
-        "operator",
-        "_version",
-        "_trailing_dot_star",
-        "_prereleases",
-        "__dict__",
-    ]
 
     _operator_regex_str: ClassVar[
         str
@@ -348,3 +344,169 @@ class Specifier:
         if not yielded and found_prereleases:
             for version in found_prereleases:
                 yield version
+
+
+@dataclass(frozen=True)
+class SpecifierSet(BaseSpecifier):
+    _specs: frozenset[Specifier]
+    _prereleases: bool | None
+
+    @classmethod
+    def parse(
+        cls,
+        specifiers: str | Iterable[Specifier] = "",
+        prereleases: bool | None = None,
+    ) -> Self:
+        """
+        :param specifiers:
+            The string representation of a specifier or a comma-separated list of
+            specifiers which will be parsed and normalized before use.
+            May also be an iterable of ``Specifier`` instances, which will be used
+            as is.
+        :param prereleases:
+            This tells the SpecifierSet if it should accept prerelease versions if
+            applicable or not. The default of ``None`` will autodetect it from the
+            given specifiers.
+
+        :raises InvalidSpecifier:
+            If the given ``specifiers`` are not parseable than this exception will be
+            raised.
+        """
+        if isinstance(specifiers, str):
+            # Split on `,` to break each individual specifier into its own item, and
+            # strip each item to remove leading/trailing whitespace.
+            split_specifiers = [s.strip() for s in specifiers.split(",") if s.strip()]
+
+            # Make each individual specifier a Specifier and save in a frozen set
+            # for later.
+            specs = frozenset(map(Specifier.parse, split_specifiers))
+        else:
+            # Save the supplied specifiers in a frozen set.
+            specs = frozenset(specifiers)
+
+        return cls(
+            _specs=specs,
+            _prereleases=prereleases,
+        )
+
+    @functools.cached_property
+    def prereleases(self) -> bool | None:
+        # If we have been given an explicit prerelease modifier, then we'll
+        # pass that through here.
+        if self._prereleases is not None:
+            return self._prereleases
+
+        # If we don't have any specifiers, and we don't have a forced value,
+        # then we'll just return None since we don't know if this should have
+        # pre-releases or not.
+        if not self._specs:
+            return None
+
+        # Otherwise we'll see if any of the given specifiers accept
+        # prereleases, if any of them do we'll return True, otherwise False.
+        return any(s.prereleases for s in self._specs)
+
+    @functools.cached_property
+    def _str(self) -> str:
+        return ",".join(sorted(map(str, self._specs)))
+
+    def __str__(self) -> str:
+        return self._str
+
+    def __repr__(self) -> str:
+        pre = (
+            f", prereleases={self._prereleases!r}"
+            if self._prereleases is not None
+            else ""
+        )
+        return f"SpecifierSet.parse('{self}'{pre})"
+
+    @functools.cached_property
+    def _hash(self) -> int:
+        return hash(self._specs)
+
+    def __hash__(self) -> int:
+        return self._hash
+
+    def __and__(self, other: Self) -> Self:
+        if not isinstance(other, self.__class__):
+            return NotImplemented
+
+        specs = self._specs | other._specs
+
+        prereleases: bool | None
+        if self._prereleases is None and other._prereleases is not None:
+            prereleases = other._prereleases
+        elif self._prereleases is not None and other._prereleases is None:
+            prereleases = self._prereleases
+        elif self._prereleases == other._prereleases:
+            prereleases = self._prereleases
+        else:
+            raise ValueError(
+                "Cannot combine SpecifierSets with True and False prerelease overrides."
+            )
+
+        return self.__class__(
+            _specs=specs,
+            _prereleases=prereleases,
+        )
+
+    def __eq__(self, other: Any) -> bool:
+        if not isinstance(other, self.__class__):
+            return NotImplemented
+        return self._specs == other._specs
+
+    def __len__(self) -> int:
+        return len(self._specs)
+
+    def __iter__(self) -> Iterator[Specifier]:
+        return iter(self._specs)
+
+    def __contains__(self, item: ParsedVersion) -> bool:
+        return self.contains(item)
+
+    def contains(self, item: ParsedVersion, prereleases: bool | None = None) -> bool:
+        if prereleases is None:
+            prereleases = self.prereleases
+        if not prereleases and item.is_prerelease:
+            return False
+        return all(s.contains(item, prereleases=prereleases) for s in self._specs)
+
+    def filter(
+        self,
+        iterable: Iterable[ParsedVersion],
+        prereleases: bool | None = None,
+    ) -> Iterator[ParsedVersion]:
+        if prereleases is None:
+            prereleases = self.prereleases
+        assert prereleases is not None
+
+        # If we have any specifiers, then we want to wrap our iterable in the
+        # filter method for each one, this will act as a logical AND amongst
+        # each specifier.
+        if self._specs:
+            for spec in self._specs:
+                iterable = spec.filter(iterable, prereleases=prereleases)
+            return iter(iterable)
+
+        # If we do not have any specifiers, then we need to have a rough filter
+        # which will filter out any pre-releases, unless there are no final
+        # releases.
+        filtered: list[ParsedVersion] = []
+        found_prereleases: list[ParsedVersion] = []
+
+        for item in iterable:
+            # Store any item which is a pre-release for later unless we've
+            # already found a final version or we are accepting prereleases
+            if item.is_prerelease and not prereleases:
+                if not filtered:
+                    found_prereleases.append(item)
+            else:
+                filtered.append(item)
+
+        # If we've found no items except for pre-releases, then we'll go
+        # ahead and use the pre-releases
+        if not filtered and found_prereleases and prereleases is None:
+            return iter(found_prereleases)
+
+        return iter(filtered)
