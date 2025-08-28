@@ -139,7 +139,7 @@ class TestWheel:
         Test not finding an unsupported wheel.
         """
         req = install_req_from_line("simple.dist")
-        target_python = TargetPython()
+        target_python = TargetPython.create()
         # Make sure no tags will match.
         target_python.__dict__["sorted_tags"] = ()
         finder = make_test_finder(
@@ -234,7 +234,10 @@ class TestCandidateEvaluator:
         )
         evaluator = CandidateEvaluator(
             "my-project",
-            _supported_tags=valid_tags,
+            _target_python=Mock(
+                sorted_tags=valid_tags,
+                tag_preferences={tag: idx for idx, tag in enumerate(valid_tags)},
+            ),
             _specifier=SpecifierSet.empty(),
         )
         sort_key = evaluator._sort_key
@@ -301,7 +304,10 @@ class TestCandidateEvaluator:
         )
         evaluator = CandidateEvaluator(
             "my-project",
-            _supported_tags=valid_tags,
+            _target_python=Mock(
+                sorted_tags=valid_tags,
+                tag_preferences={tag: idx for idx, tag in enumerate(valid_tags)},
+            ),
             _specifier=SpecifierSet.empty(),
         )
         sort_key = evaluator._sort_key
@@ -480,7 +486,7 @@ def test_finder_installs_pre_releases_with_version_spec() -> None:
 
 class TestLinkEvaluator:
     def make_test_link_evaluator(self, formats: AllowedFormats) -> LinkEvaluator:
-        target_python = TargetPython()
+        target_python = TargetPython.create()
         return LinkEvaluator.create(
             project_name="pytest",
             formats=formats,

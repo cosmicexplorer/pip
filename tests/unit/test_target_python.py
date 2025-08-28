@@ -35,7 +35,7 @@ class TestTargetPython:
         """
         expected_py_version_info, expected_py_version = expected
 
-        target_python = TargetPython(py_version_info=py_version_info)
+        target_python = TargetPython.create(py_version_info=py_version_info)
 
         # The _given_py_version_info attribute should be set as is.
         assert target_python._given_py_version_info == py_version_info
@@ -47,7 +47,7 @@ class TestTargetPython:
         """
         Test passing py_version_info=None.
         """
-        target_python = TargetPython(py_version_info=None)
+        target_python = TargetPython.create(py_version_info=None)
 
         assert target_python._given_py_version_info is None
 
@@ -78,7 +78,7 @@ class TestTargetPython:
         ],
     )
     def test_format_given(self, kwargs: dict[str, Any], expected: str) -> None:
-        target_python = TargetPython(**kwargs)
+        target_python = TargetPython.create(**kwargs)
         actual = target_python.format_given
         assert actual == expected
 
@@ -104,7 +104,7 @@ class TestTargetPython:
         dummy_tags = (Tag("py4", "none", "any"), Tag("py5", "none", "any"))
         mock_get_supported.return_value = dummy_tags
 
-        target_python = TargetPython(py_version_info=py_version_info)
+        target_python = TargetPython.create(py_version_info=py_version_info)
         actual = target_python.sorted_tags
         assert actual == dummy_tags
 
@@ -123,6 +123,6 @@ class TestTargetPython:
         dummy_tags = (Tag("py2", "none", "any"), Tag("py3", "none", "any"))
         mock_get_supported.return_value = dummy_tags
 
-        target_python = TargetPython(py_version_info=None)
+        target_python = TargetPython.create(py_version_info=None)
         actual = target_python.unsorted_tags
         assert actual == {Tag("py2", "none", "any"), Tag("py3", "none", "any")}

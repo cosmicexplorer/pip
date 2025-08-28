@@ -53,6 +53,7 @@ from pip._internal.utils.misc import (
 from pip._internal.utils.packaging.markers import Marker
 from pip._internal.utils.packaging.requirements import Requirement
 from pip._internal.utils.packaging.specifiers import SpecifierSet
+from pip._internal.utils.packaging.version import ParsedVersion
 from pip._internal.utils.packaging_utils import get_requirement
 from pip._internal.utils.subprocess import runner_with_spinner_message
 from pip._internal.utils.temp_dir import TempDirectory, tempdir_kinds
@@ -613,7 +614,7 @@ class InstallRequirement:
 
     def assert_source_matches_version(self) -> None:
         assert self.source_dir, f"No source dir for {self}"
-        version = self.metadata["version"]
+        version = ParsedVersion.parse(self.metadata["version"])
         if self.req and self.req.specifier and version not in self.req.specifier:
             logger.warning(
                 "Requested %s, but installing version %s",

@@ -17,7 +17,7 @@ from typing import (
 )
 
 from pip._vendor.packaging.specifiers import InvalidSpecifier
-from pip._vendor.packaging.tags import Tag, parse_tag
+from pip._vendor.packaging.tags import parse_tag
 from pip._vendor.packaging.utils import BuildTag, NormalizedName, canonicalize_name
 from pip._vendor.packaging.version import InvalidVersion
 
@@ -25,7 +25,6 @@ from pip._internal.exceptions import (
     BestVersionAlreadyInstalled,
     DistributionNotFound,
     InvalidWheelFilename,
-    UnsupportedWheel,
 )
 from pip._internal.index.collector import LinkCollector, parse_links
 from pip._internal.models.candidate import InstallationCandidate
@@ -308,7 +307,7 @@ class LinkEvaluator:
             return None, _WrongName(self.project_name)
 
         # FIXME: optimize this!
-        if not wheel.supported(self.target_python.unsorted_tags):
+        if not wheel.supported(self.target_python):
             return None, _UnsupportedTags(wheel)
         return wheel.version, None
 
@@ -606,7 +605,7 @@ class CandidateEvaluator:
     """
 
     _project_name: str
-    _supported_tags: tuple[Tag, ...]
+    _target_python: TargetPython
     _specifier: BaseSpecifier
     _prefer_binary: bool = False
     _allow_all_prereleases: bool = False
@@ -633,29 +632,18 @@ class CandidateEvaluator:
         :param hashes: An optional collection of allowed hashes.
         """
         if target_python is None:
-            target_python = TargetPython()
+            target_python = TargetPython.create()
         if specifier is None:
             specifier = SpecifierSet.empty()
 
-        supported_tags = target_python.sorted_tags
-
         return cls(
             _project_name=project_name,
-            _supported_tags=tuple(supported_tags),
+            _target_python=target_python,
             _specifier=specifier,
             _prefer_binary=prefer_binary,
             _allow_all_prereleases=allow_all_prereleases,
             _hashes=hashes,
         )
-
-    @functools.cached_property
-    def _wheel_tag_preferences(self) -> dict[Tag, int]:
-        """
-        Since the index of the tag in the _supported_tags list is used
-        as a priority, precompute a map from tag to index/priority to be
-        used in wheel.find_most_preferred_tag.
-        """
-        return {tag: idx for idx, tag in enumerate(self._supported_tags)}
 
     @functools.cached_property
     def _candidate_hash_filter(self) -> _CandidateHashFilter:
@@ -742,22 +730,12 @@ class CandidateEvaluator:
         if link.is_wheel:
             # can raise InvalidWheelFilename
             wheel = WheelInfo.parse_filename(link.filename)
-            try:
-                pri = -(
-                    wheel.find_most_preferred_tag(
-                        self._supported_tags, self._wheel_tag_preferences
-                    )
-                )
-            except ValueError:
-                raise UnsupportedWheel(
-                    f"{link.filename} is not a supported wheel for this platform. It "
-                    "can't be sorted."
-                )
+            pri = -wheel.support_index_min(self._target_python)
             if self._prefer_binary:
                 binary_preference = 1
             build_tag = wheel.build_tag
         else:  # sdist
-            pri = -len(self._supported_tags)
+            pri = -len(self._target_python.sorted_tags)
         has_allowed_hash = int(link.is_hash_allowed(self._hashes))
         yank_value = -1 * int(link.is_yanked)  # -1 for yanked.
         egg_value = -1 * int(link.egg_fragment is not None)
@@ -856,7 +834,7 @@ class PackageFinder:
             object will be constructed from the running Python.
         """
         if target_python is None:
-            target_python = TargetPython()
+            target_python = TargetPython.create()
 
         candidate_prefs = CandidatePreferences(
             prefer_binary=selection_prefs.prefer_binary,

@@ -45,7 +45,7 @@ from tests.lib.index import make_mock_candidate
     ],
 )
 def test_check_link_requires_python(requires_python: str, expected: bool) -> None:
-    target = TargetPython(py_version_info=(3, 6, 5))
+    target = TargetPython.create(py_version_info=(3, 6, 5))
     link = Link("https://example.com", requires_python=requires_python)
     actual, _ = LinkEvaluator._requires_python_is_compatible(target, False, link)
     assert actual == expected
@@ -94,7 +94,7 @@ def test_check_link_requires_python__incompatible_python(
     expected_return, expected_level, expected_message = expected
     link = Link("https://example.com", requires_python="== 3.6.4")
     caplog.set_level(logging.DEBUG)
-    target = TargetPython(py_version_info=(3, 6, 5))
+    target = TargetPython.create(py_version_info=(3, 6, 5))
     actual, _ = LinkEvaluator._requires_python_is_compatible(
         target, ignore_requires_python, link
     )
@@ -111,7 +111,7 @@ def test_check_link_requires_python__invalid_requires(
     """
     link = Link("https://example.com", requires_python="invalid")
     caplog.set_level(logging.DEBUG)
-    target = TargetPython(py_version_info=(3, 6, 5))
+    target = TargetPython.create(py_version_info=(3, 6, 5))
     actual, _ = LinkEvaluator._requires_python_is_compatible(target, False, link)
     assert actual
 
@@ -154,7 +154,7 @@ class TestLinkEvaluator:
         ignore_requires_python: bool,
         expected: EvaluationResult,
     ) -> None:
-        target_python = TargetPython(py_version_info=py_version_info)
+        target_python = TargetPython.create(py_version_info=py_version_info)
         evaluator = LinkEvaluator.create(
             project_name="twine",
             formats=AllowedFormats.SourceOnly,
@@ -201,7 +201,7 @@ class TestLinkEvaluator:
         allow_yanked: bool,
         expected: EvaluationResult,
     ) -> None:
-        target_python = TargetPython(py_version_info=(3, 6, 4))
+        target_python = TargetPython.create(py_version_info=(3, 6, 4))
         evaluator = LinkEvaluator.create(
             project_name="twine",
             formats=AllowedFormats.SourceOnly,
@@ -219,7 +219,7 @@ class TestLinkEvaluator:
         """
         Test an incompatible wheel.
         """
-        target_python = TargetPython(py_version_info=(3, 6, 4))
+        target_python = TargetPython.create(py_version_info=(3, 6, 4))
         # Set the valid tags to an empty tuple to make sure nothing matches.
         target_python.__dict__["sorted_tags"] = ()
         evaluator = LinkEvaluator.create(
@@ -368,7 +368,7 @@ class TestCandidateEvaluator:
         ],
     )
     def test_create(self, allow_all_prereleases: bool, prefer_binary: bool) -> None:
-        target_python = TargetPython()
+        target_python = TargetPython.create()
         target_python.__dict__["sorted_tags"] = (Tag("py36", "none", "any"),)
         specifier = SpecifierSet.empty()
         evaluator = CandidateEvaluator.create(
@@ -381,7 +381,7 @@ class TestCandidateEvaluator:
         assert evaluator._allow_all_prereleases == allow_all_prereleases
         assert evaluator._prefer_binary == prefer_binary
         assert evaluator._specifier is specifier
-        assert evaluator._supported_tags == (Tag("py36", "none", "any"),)
+        assert evaluator._target_python.sorted_tags == (Tag("py36", "none", "any"),)
 
     def test_create__target_python_none(self) -> None:
         """
@@ -389,7 +389,7 @@ class TestCandidateEvaluator:
         """
         evaluator = CandidateEvaluator.create("my-project")
         expected_tags = get_supported()
-        assert evaluator._supported_tags == expected_tags
+        assert evaluator._target_python.sorted_tags == expected_tags
 
     def test_create__specifier_none(self) -> None:
         """
@@ -627,7 +627,7 @@ class TestPackageFinder:
             session=PipSession(),
             search_scope=SearchScope([], [], False),
         )
-        target_python = TargetPython(py_version_info=(3, 7, 3))
+        target_python = TargetPython.create(py_version_info=(3, 7, 3))
         finder = PackageFinder.create(
             link_collector=link_collector,
             selection_prefs=SelectionPreferences(allow_yanked=True),
@@ -734,7 +734,7 @@ class TestPackageFinder:
         expected_formats: AllowedFormats,
     ) -> None:
         # Create a test TargetPython that we can check for.
-        target_python = TargetPython(py_version_info=(3, 7))
+        target_python = TargetPython.create(py_version_info=(3, 7))
         format_control = FormatControlBuilder(set(), only_binary)
 
         link_collector = LinkCollector(
@@ -781,7 +781,7 @@ class TestPackageFinder:
         allow_all_prereleases: bool,
         prefer_binary: bool,
     ) -> None:
-        target_python = TargetPython()
+        target_python = TargetPython.create()
         target_python.__dict__["sorted_tags"] = (Tag("py36", "none", "any"),)
         candidate_prefs = CandidatePreferences(
             prefer_binary=prefer_binary,
@@ -811,7 +811,7 @@ class TestPackageFinder:
         assert evaluator._prefer_binary == prefer_binary
         assert evaluator._project_name == "my-project"
         assert evaluator._specifier is specifier
-        assert evaluator._supported_tags == (Tag("py36", "none", "any"),)
+        assert evaluator._target_python.sorted_tags == (Tag("py36", "none", "any"),)
 
 
 @pytest.mark.parametrize(

@@ -8,7 +8,7 @@ import functools
 import re
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, ClassVar, Protocol
+from typing import TYPE_CHECKING, Any, ClassVar, Protocol
 
 from pip._vendor.packaging.tags import Tag
 from pip._vendor.packaging.utils import (
@@ -21,6 +21,7 @@ from pip._vendor.packaging.utils import (
 )
 
 from pip._internal.exceptions import InvalidWheelFilename
+from pip._internal.models.target_python import TargetPython
 from pip._internal.utils.deprecation import deprecated
 from pip._internal.utils.packaging.filename_parsing import parse_wheel_filename
 from pip._internal.utils.packaging.version import ParsedVersion
@@ -64,7 +65,32 @@ class WheelInfo:
         """Return the wheel's tags as a sorted tuple of strings."""
         return tuple(sorted(map(str, self.tag_set)))
 
-    def support_index_min(self, tags: Iterable[Tag]) -> int:
+    @functools.cached_property
+    def _hash(self) -> int:
+        return hash(
+            (
+                self.name,
+                self.version,
+                self.build_tag,
+                self.tag_set,
+            )
+        )
+
+    def __hash__(self) -> int:
+        return self._hash
+
+    def __eq__(self, other: Any) -> bool:
+        if not isinstance(other, self.__class__):
+            return NotImplemented
+        return (
+            hash(self) == hash(other)
+            and self.name == other.name
+            and self.version == other.version
+            and self.build_tag == other.build_tag
+            and self.tag_set == other.tag_set
+        )
+
+    def support_index_min(self, py: TargetPython) -> int:
         """Return the lowest index that one of the wheel's file_tag combinations
         achieves in the given list of supported tags.
 
@@ -77,14 +103,33 @@ class WheelInfo:
         :raises ValueError: If none of the wheel's file tags match one of
             the supported tags.
         """
-        try:
-            return next(i for i, t in enumerate(tags) if t in self.tag_set)
-        except StopIteration:
-            raise ValueError()
+        tag_prio = self.find_most_preferred_tag(py)
+        if tag_prio is None:
+            raise ValueError
+        assert tag_prio >= 0, tag_prio
+        return tag_prio
 
-    def find_most_preferred_tag(
-        self, tags: Iterable[Tag], tag_to_priority: dict[Tag, int]
-    ) -> int:
+    @staticmethod
+    def _tag_priorities(
+        tags: Iterable[Tag],
+        tag_to_priority: dict[Tag, int],
+    ) -> Iterator[int]:
+        for tag in tags:
+            if (prio := tag_to_priority.get(tag, None)) is not None:
+                yield prio
+
+    @staticmethod
+    @functools.cache
+    def _tag_priority_calculation(
+        info: WheelInfo,
+        py: TargetPython,
+    ) -> int | None:
+        return min(
+            WheelInfo._tag_priorities(info.tag_set, py.tag_preferences),
+            default=None,
+        )
+
+    def find_most_preferred_tag(self, py: TargetPython) -> int | None:
         """Return the priority of the most preferred tag that one of the wheel's file
         tag combinations achieves in the given list of supported tags using the given
         tag_to_priority mapping, where lower priorities are more-preferred.
@@ -92,29 +137,20 @@ class WheelInfo:
         This is used in place of support_index_min in some cases in order to avoid
         an expensive linear scan of a large list of tags.
 
-        :param tags: the PEP 425 tags to check the wheel against.
         :param tag_to_priority: a mapping from tag to priority of that tag, where
             lower is more preferred.
-
-        :raises ValueError: If none of the wheel's file tags match one of
-            the supported tags.
         """
-        # NB: This method has been completely broken
-        # since d2c280be64e7e6413a481e1b2548d8908fc9c3ae. The `tags` parameter was
-        # never checked. It appears this simply misses out on optimizations as opposed
-        # to producing correctness issues. The intended behavior appears to be
-        # an intersection.
-        return min(tag_to_priority[tag] for tag in self.tag_set.intersection(tags))
+        return WheelInfo._tag_priority_calculation(self, py)
 
-    def supported(self, tags: Iterable[Tag]) -> bool:
+    def supported(self, py: TargetPython) -> bool:
         """Return whether the wheel is compatible with one of the given tags.
 
         :param tags: the PEP 425 tags to check the wheel against.
         """
-        return not self.tag_set.isdisjoint(tags)
+        return WheelInfo._tag_priority_calculation(self, py) is not None
 
     @classmethod
-    def _from_parsed(cls, info: _ParsedWheelInfo) -> Self:
+    def _from_parsed(cls, info: _ParsedWheelInfo) -> WheelInfo:
         return cls(
             name=info.name,
             version=info.version,
@@ -122,11 +158,12 @@ class WheelInfo:
             tag_set=info.tag_set,
         )
 
-    @classmethod
-    def parse_filename(cls, filename: str) -> Self:
+    @staticmethod
+    @functools.cache
+    def parse_filename(filename: str) -> WheelInfo:
         try:
             normal_info = _NormalizedWheelInfo.parse_pep_508_wheel_filename(filename)
-            return cls._from_parsed(normal_info)
+            return WheelInfo._from_parsed(normal_info)
         except _PackagingInvalidWheelFilename as e:
             legacy_info = _LegacyWheelInfo.parse_legacy_wheel_filename(filename)
 
@@ -145,7 +182,7 @@ class WheelInfo:
                 issue=12938,
             )
 
-            return cls._from_parsed(legacy_info)
+            return WheelInfo._from_parsed(legacy_info)
 
 
 @dataclass(frozen=True)

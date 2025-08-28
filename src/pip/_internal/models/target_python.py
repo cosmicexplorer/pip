@@ -4,6 +4,7 @@ import functools
 import sys
 from collections.abc import Iterable
 from dataclasses import dataclass
+from typing import Any
 
 from pip._vendor.packaging.tags import Tag
 
@@ -32,13 +33,64 @@ class TargetPython:
     implementation: str | None
     platforms: tuple[str, ...] | None
 
-    def __init__(
-        self,
+    def __post_init__(self) -> None:
+        if self._given_py_version_info is not None:
+            assert self._given_py_version_info
+        if self.abis is not None:
+            assert self.abis
+        if self.implementation is not None:
+            assert self.implementation
+        if self.platforms is not None:
+            assert self.platforms
+
+    @functools.cached_property
+    def _hash(self) -> int:
+        return hash(
+            (
+                self._given_py_version_info,
+                self.abis,
+                self.implementation,
+                self.platforms,
+            )
+        )
+
+    def __hash__(self) -> int:
+        return self._hash
+
+    def __eq__(self, other: Any) -> bool:
+        if not isinstance(other, self.__class__):
+            return NotImplemented
+        return (
+            hash(self) == hash(other)
+            and self._given_py_version_info == other._given_py_version_info
+            and self.abis == other.abis
+            and self.implementation == other.implementation
+            and self.platforms == other.platforms
+        )
+
+    @staticmethod
+    @functools.cache
+    def _cached_create(
+        py_version_info: tuple[int, ...] | None,
+        abis: tuple[str, ...] | None,
+        implementation: str | None,
+        platforms: tuple[str, ...] | None,
+    ) -> TargetPython:
+        return TargetPython(
+            _given_py_version_info=py_version_info,
+            abis=abis,
+            implementation=implementation,
+            platforms=platforms,
+        )
+
+    @classmethod
+    def create(
+        cls,
         platforms: Iterable[str] | None = None,
         py_version_info: tuple[int, ...] | None = None,
         abis: Iterable[str] | None = None,
         implementation: str | None = None,
-    ) -> None:
+    ) -> TargetPython:
         """
         :param platforms: An iterable of strings or None. If None, matches
             packages that are supported by the current system. Otherwise, will
@@ -54,12 +106,15 @@ class TargetPython:
         :param implementation: A string or None. This is passed to
             compatibility_tags.py's get_supported() function as is.
         """
-        # Store the given py_version_info for when we call get_supported().
-        object.__setattr__(self, "_given_py_version_info", py_version_info)
-        object.__setattr__(self, "abis", None if abis is None else tuple(abis))
-        object.__setattr__(self, "implementation", implementation)
-        object.__setattr__(
-            self, "platforms", None if platforms is None else tuple(platforms)
+        if abis is not None:
+            abis = tuple(sorted(frozenset(abis)))
+        if platforms is not None:
+            platforms = tuple(sorted(frozenset(platforms)))
+        return cls._cached_create(
+            py_version_info=py_version_info or None,
+            abis=abis or None,
+            implementation=implementation or None,
+            platforms=platforms or None,
         )
 
     @functools.cached_property
@@ -114,6 +169,15 @@ class TargetPython:
             abis=self.abis,
             impl=self.implementation,
         )
+
+    @functools.cached_property
+    def tag_preferences(self) -> dict[Tag, int]:
+        """
+        Since the index of the tag in the _supported_tags list is used
+        as a priority, precompute a map from tag to index/priority to be
+        used in wheel.find_most_preferred_tag.
+        """
+        return {tag: idx for idx, tag in enumerate(self.sorted_tags)}
 
     @functools.cached_property
     def unsorted_tags(self) -> frozenset[Tag]:

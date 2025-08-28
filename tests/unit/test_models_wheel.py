@@ -1,3 +1,6 @@
+from collections.abc import Iterable
+from unittest.mock import Mock
+
 import pytest
 
 from pip._vendor.packaging.tags import Tag
@@ -5,6 +8,26 @@ from pip._vendor.packaging.tags import Tag
 from pip._internal.exceptions import InvalidWheelFilename
 from pip._internal.models.wheel import WheelInfo
 from pip._internal.utils import compatibility_tags, deprecation
+
+
+def _supported(info: WheelInfo, tags: Iterable[Tag]) -> bool:
+    tags = tuple(tags)
+    return info.supported(
+        Mock(
+            sorted_tags=tags,
+            tag_preferences={tag: idx for idx, tag in enumerate(tags)},
+        )
+    )
+
+
+def _support_index_min(info: WheelInfo, tags: Iterable[Tag]) -> int:
+    tags = tuple(tags)
+    return info.support_index_min(
+        Mock(
+            sorted_tags=tags,
+            tag_preferences={tag: idx for idx, tag in enumerate(tags)},
+        )
+    )
 
 
 class TestWheelFile:
@@ -64,21 +87,21 @@ class TestWheelFile:
         Test single-version wheel is known to be supported
         """
         w = WheelInfo.parse_filename("simple-0.1-py2-none-any.whl")
-        assert w.supported(tags=[Tag("py2", "none", "any")])
+        assert _supported(w, tags=[Tag("py2", "none", "any")])
 
     def test_supported_multi_version(self) -> None:
         """
         Test multi-version wheel is known to be supported
         """
         w = WheelInfo.parse_filename("simple-0.1-py2.py3-none-any.whl")
-        assert w.supported(tags=[Tag("py3", "none", "any")])
+        assert _supported(w, tags=[Tag("py3", "none", "any")])
 
     def test_not_supported_version(self) -> None:
         """
         Test unsupported wheel is known to be unsupported
         """
         w = WheelInfo.parse_filename("simple-0.1-py2-none-any.whl")
-        assert not w.supported(tags=[Tag("py1", "none", "any")])
+        assert not _supported(w, tags=[Tag("py1", "none", "any")])
 
     def test_supported_osx_version(self) -> None:
         """
@@ -88,9 +111,9 @@ class TestWheelFile:
             "27", platforms=["macosx_10_9_intel"], impl="cp"
         )
         w = WheelInfo.parse_filename("simple-0.1-cp27-none-macosx_10_6_intel.whl")
-        assert w.supported(tags=tags)
+        assert _supported(w, tags=tags)
         w = WheelInfo.parse_filename("simple-0.1-cp27-none-macosx_10_9_intel.whl")
-        assert w.supported(tags=tags)
+        assert _supported(w, tags=tags)
 
     def test_not_supported_osx_version(self) -> None:
         """
@@ -100,7 +123,7 @@ class TestWheelFile:
             "27", platforms=["macosx_10_6_intel"], impl="cp"
         )
         w = WheelInfo.parse_filename("simple-0.1-cp27-none-macosx_10_9_intel.whl")
-        assert not w.supported(tags=tags)
+        assert not _supported(w, tags=tags)
 
     def test_supported_multiarch_darwin(self) -> None:
         """
@@ -126,19 +149,19 @@ class TestWheelFile:
         )
 
         w = WheelInfo.parse_filename("simple-0.1-cp27-none-macosx_10_5_intel.whl")
-        assert w.supported(tags=intel)
-        assert w.supported(tags=x64)
-        assert w.supported(tags=i386)
-        assert not w.supported(tags=universal)
-        assert not w.supported(tags=ppc)
-        assert not w.supported(tags=ppc64)
+        assert _supported(w, tags=intel)
+        assert _supported(w, tags=x64)
+        assert _supported(w, tags=i386)
+        assert not _supported(w, tags=universal)
+        assert not _supported(w, tags=ppc)
+        assert not _supported(w, tags=ppc64)
         w = WheelInfo.parse_filename("simple-0.1-cp27-none-macosx_10_5_universal.whl")
-        assert w.supported(tags=universal)
-        assert w.supported(tags=intel)
-        assert w.supported(tags=x64)
-        assert w.supported(tags=i386)
-        assert w.supported(tags=ppc)
-        assert w.supported(tags=ppc64)
+        assert _supported(w, tags=universal)
+        assert _supported(w, tags=intel)
+        assert _supported(w, tags=x64)
+        assert _supported(w, tags=i386)
+        assert _supported(w, tags=ppc)
+        assert _supported(w, tags=ppc64)
 
     def test_not_supported_multiarch_darwin(self) -> None:
         """
@@ -152,11 +175,11 @@ class TestWheelFile:
         )
 
         w = WheelInfo.parse_filename("simple-0.1-cp27-none-macosx_10_5_i386.whl")
-        assert not w.supported(tags=intel)
-        assert not w.supported(tags=universal)
+        assert not _supported(w, tags=intel)
+        assert not _supported(w, tags=universal)
         w = WheelInfo.parse_filename("simple-0.1-cp27-none-macosx_10_5_x86_64.whl")
-        assert not w.supported(tags=intel)
-        assert not w.supported(tags=universal)
+        assert not _supported(w, tags=intel)
+        assert not _supported(w, tags=universal)
 
     def test_supported_ios_version(self) -> None:
         """
@@ -168,11 +191,11 @@ class TestWheelFile:
         w = WheelInfo.parse_filename(
             "simple-0.1-cp313-none-ios_12_3_arm64_iphoneos.whl"
         )
-        assert w.supported(tags=tags)
+        assert _supported(w, tags=tags)
         w = WheelInfo.parse_filename(
             "simple-0.1-cp313-none-ios_15_1_arm64_iphoneos.whl"
         )
-        assert w.supported(tags=tags)
+        assert _supported(w, tags=tags)
 
     def test_not_supported_ios_version(self) -> None:
         """
@@ -184,7 +207,7 @@ class TestWheelFile:
         w = WheelInfo.parse_filename(
             "simple-0.1-cp313-none-ios_15_1_arm64_iphoneos.whl"
         )
-        assert not w.supported(tags=tags)
+        assert not _supported(w, tags=tags)
 
     def test_android(self) -> None:
         arm_old = compatibility_tags.get_supported(
@@ -201,40 +224,40 @@ class TestWheelFile:
         )
 
         w = WheelInfo.parse_filename("simple-0.1-cp313-none-android_21_arm64_v8a.whl")
-        assert w.supported(arm_old)
-        assert w.supported(arm_new)
-        assert not w.supported(x86_old)
-        assert not w.supported(x86_new)
+        assert _supported(w, arm_old)
+        assert _supported(w, arm_new)
+        assert not _supported(w, x86_old)
+        assert not _supported(w, x86_new)
 
         w = WheelInfo.parse_filename("simple-0.1-cp313-none-android_22_arm64_v8a.whl")
-        assert not w.supported(arm_old)
-        assert w.supported(arm_new)
-        assert not w.supported(x86_old)
-        assert not w.supported(x86_new)
+        assert not _supported(w, arm_old)
+        assert _supported(w, arm_new)
+        assert not _supported(w, x86_old)
+        assert not _supported(w, x86_new)
 
         w = WheelInfo.parse_filename("simple-0.1-cp313-none-android_31_arm64_v8a.whl")
-        assert not w.supported(arm_old)
-        assert not w.supported(arm_new)
-        assert not w.supported(x86_old)
-        assert not w.supported(x86_new)
+        assert not _supported(w, arm_old)
+        assert not _supported(w, arm_new)
+        assert not _supported(w, x86_old)
+        assert not _supported(w, x86_new)
 
         w = WheelInfo.parse_filename("simple-0.1-cp313-none-android_20_x86_64.whl")
-        assert not w.supported(arm_old)
-        assert not w.supported(arm_new)
-        assert w.supported(x86_old)
-        assert w.supported(x86_new)
+        assert not _supported(w, arm_old)
+        assert not _supported(w, arm_new)
+        assert _supported(w, x86_old)
+        assert _supported(w, x86_new)
 
         w = WheelInfo.parse_filename("simple-0.1-cp313-none-android_30_x86_64.whl")
-        assert not w.supported(arm_old)
-        assert not w.supported(arm_new)
-        assert not w.supported(x86_old)
-        assert w.supported(x86_new)
+        assert not _supported(w, arm_old)
+        assert not _supported(w, arm_new)
+        assert not _supported(w, x86_old)
+        assert _supported(w, x86_new)
 
         w = WheelInfo.parse_filename("simple-0.1-cp313-none-android_31_x86_64.whl")
-        assert not w.supported(arm_old)
-        assert not w.supported(arm_new)
-        assert not w.supported(x86_old)
-        assert not w.supported(x86_new)
+        assert not _supported(w, arm_old)
+        assert not _supported(w, arm_new)
+        assert not _supported(w, x86_old)
+        assert not _supported(w, x86_new)
 
     def test_support_index_min(self) -> None:
         """
@@ -246,9 +269,9 @@ class TestWheelFile:
             Tag("py2", "none", "any"),
         ]
         w = WheelInfo.parse_filename("simple-0.1-py2-none-any.whl")
-        assert w.support_index_min(tags=tags) == 2
+        assert _support_index_min(w, tags=tags) == 2
         w = WheelInfo.parse_filename("simple-0.1-py2-none-TEST.whl")
-        assert w.support_index_min(tags=tags) == 0
+        assert _support_index_min(w, tags=tags) == 0
 
     def test_support_index_min__none_supported(self) -> None:
         """
@@ -256,7 +279,7 @@ class TestWheelFile:
         """
         w = WheelInfo.parse_filename("simple-0.1-py2-none-any.whl")
         with pytest.raises(ValueError):
-            w.support_index_min(tags=[])
+            _support_index_min(w, tags=[])
 
     def test_version_underscore_conversion(self) -> None:
         """

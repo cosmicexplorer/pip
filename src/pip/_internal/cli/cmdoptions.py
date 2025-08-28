@@ -666,7 +666,7 @@ def add_target_python_options(cmd_opts: OptionGroup) -> None:
 
 
 def make_target_python(options: Values) -> TargetPython:
-    target_python = TargetPython(
+    target_python = TargetPython.create(
         platforms=options.platforms,
         py_version_info=options.python_version,
         abis=options.abis,

@@ -366,8 +366,12 @@ class Link:
     def path(self) -> str:
         return self._parsed_url.unquoted_path
 
-    def splitext(self) -> tuple[str, str]:
+    @functools.cached_property
+    def _splitext(self) -> tuple[str, str]:
         return splitext(posixpath.basename(self.path.rstrip("/")))
+
+    def splitext(self) -> tuple[str, str]:
+        return self._splitext
 
     @property
     def ext(self) -> str:

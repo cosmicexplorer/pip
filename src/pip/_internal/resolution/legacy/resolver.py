@@ -34,6 +34,7 @@ from pip._internal.exceptions import (
 from pip._internal.index.package_finder import PackageFinder
 from pip._internal.metadata import BaseDistribution
 from pip._internal.models.link import Link
+from pip._internal.models.target_python import TargetPython
 from pip._internal.models.wheel import WheelInfo
 from pip._internal.operations.prepare import RequirementPreparer
 from pip._internal.req.req_install import (
@@ -42,8 +43,6 @@ from pip._internal.req.req_install import (
 )
 from pip._internal.req.req_set import RequirementSet
 from pip._internal.resolution.base import BaseResolver, InstallRequirementProvider
-from pip._internal.utils import compatibility_tags
-from pip._internal.utils.compatibility_tags import get_supported
 from pip._internal.utils.direct_url_helpers import direct_url_from_link
 from pip._internal.utils.logging import indent_log
 from pip._internal.utils.misc import normalize_version_info
@@ -228,8 +227,8 @@ class Resolver(BaseResolver):
         if install_req.link and install_req.link.is_wheel:
             filename = install_req.link.filename
             wheel = WheelInfo.parse_filename(filename)
-            tags = compatibility_tags.get_supported()
-            if requirement_set.check_supported_wheels and not wheel.supported(tags):
+            py = TargetPython.create()
+            if requirement_set.check_supported_wheels and not wheel.supported(py):
                 raise InstallationError(
                     f"{filename} is not a supported wheel on this platform."
                 )
@@ -424,7 +423,7 @@ class Resolver(BaseResolver):
         cache_entry = self.wheel_cache.get_cache_entry(
             link=req.link,
             package_name=req.name,
-            supported_tags=get_supported(),
+            py=TargetPython.create(),
         )
         if cache_entry is not None:
             logger.debug("Using cached wheel link: %s", cache_entry.link)

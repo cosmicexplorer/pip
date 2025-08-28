@@ -141,7 +141,7 @@ def _verify_one(req: InstallRequirement, wheel_path: str) -> None:
         msg = f"Invalid Metadata-Version: {metadata_version_value}"
         raise UnsupportedWheel(msg)
     if metadata_version >= ParsedVersion.parse("1.2") and not isinstance(
-        dist.version, StdVersion
+        dist.version, ParsedVersion
     ):
         raise UnsupportedWheel(
             f"Metadata 1.2 mandates PEP 440 version, but {dist_verstr!r} is not"

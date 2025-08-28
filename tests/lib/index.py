@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pip._internal.models.candidate import InstallationCandidate
 from pip._internal.models.link import Link
-from pip._internal.utils.package.version import ParsedVersion
+from pip._internal.utils.packaging.version import ParsedVersion
 
 
 def make_mock_candidate(

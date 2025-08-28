@@ -6,16 +6,16 @@ import hashlib
 import json
 import logging
 import os
-from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
-from pip._vendor.packaging.tags import Tag, interpreter_name, interpreter_version
+from pip._vendor.packaging.tags import interpreter_name, interpreter_version
 from pip._vendor.packaging.utils import canonicalize_name
 
 from pip._internal.exceptions import InvalidWheelFilename
 from pip._internal.models.direct_url import DirectUrl
 from pip._internal.models.link import Link
+from pip._internal.models.target_python import TargetPython
 from pip._internal.models.wheel import WheelInfo
 from pip._internal.utils.temp_dir import TempDirectory, tempdir_kinds
 from pip._internal.utils.urls import path_to_url
@@ -93,7 +93,7 @@ class Cache:
         self,
         link: Link,
         package_name: str | None,
-        supported_tags: Iterable[Tag],
+        py: TargetPython,
     ) -> Link:
         """Returns a link to a cached item if it exists, otherwise returns the
         passed link.
@@ -131,7 +131,7 @@ class SimpleWheelCache(Cache):
         self,
         link: Link,
         package_name: str | None,
-        supported_tags: Iterable[Tag],
+        py: TargetPython,
     ) -> Link:
         candidates = []
 
@@ -153,12 +153,12 @@ class SimpleWheelCache(Cache):
                     package_name,
                 )
                 continue
-            if not wheel.supported(supported_tags):
+            if not wheel.supported(py):
                 # Built for a different python/arch/etc
                 continue
             candidates.append(
                 (
-                    wheel.support_index_min(supported_tags),
+                    wheel.support_index_min(py),
                     wheel_name,
                     wheel_dir,
                 )
@@ -229,9 +229,9 @@ class WheelCache(Cache):
         self,
         link: Link,
         package_name: str | None,
-        supported_tags: Iterable[Tag],
+        py: TargetPython,
     ) -> Link:
-        cache_entry = self.get_cache_entry(link, package_name, supported_tags)
+        cache_entry = self.get_cache_entry(link, package_name, py)
         if cache_entry is None:
             return link
         return cache_entry.link
@@ -240,7 +240,7 @@ class WheelCache(Cache):
         self,
         link: Link,
         package_name: str | None,
-        supported_tags: Iterable[Tag],
+        py: TargetPython,
     ) -> CacheEntry | None:
         """Returns a CacheEntry with a link to a cached item if it exists or
         None. The cache entry indicates if the item was found in the persistent
@@ -249,7 +249,7 @@ class WheelCache(Cache):
         retval = self._wheel_cache.get(
             link=link,
             package_name=package_name,
-            supported_tags=supported_tags,
+            py=py,
         )
         if retval is not link:
             return CacheEntry(retval, persistent=True)
@@ -257,7 +257,7 @@ class WheelCache(Cache):
         retval = self._ephem_cache.get(
             link=link,
             package_name=package_name,
-            supported_tags=supported_tags,
+            py=py,
         )
         if retval is not link:
             return CacheEntry(retval, persistent=False)

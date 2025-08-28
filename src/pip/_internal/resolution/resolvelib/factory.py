@@ -14,7 +14,6 @@ from typing import (
 )
 
 from pip._vendor.packaging.requirements import InvalidRequirement
-from pip._vendor.packaging.tags import Tag
 from pip._vendor.packaging.utils import NormalizedName, canonicalize_name
 from pip._vendor.packaging.version import InvalidVersion
 from pip._vendor.resolvelib import ResolutionImpossible
@@ -32,6 +31,7 @@ from pip._internal.exceptions import (
 from pip._internal.index.package_finder import PackageFinder
 from pip._internal.metadata import BaseDistribution, get_default_environment
 from pip._internal.models.link import Link
+from pip._internal.models.target_python import TargetPython
 from pip._internal.models.wheel import WheelInfo
 from pip._internal.operations.prepare import RequirementPreparer
 from pip._internal.req.constructors import (
@@ -43,7 +43,6 @@ from pip._internal.req.req_install import (
     check_invalid_constraint_type,
 )
 from pip._internal.resolution.base import InstallRequirementProvider
-from pip._internal.utils.compatibility_tags import get_supported
 from pip._internal.utils.hashes import Hashes
 from pip._internal.utils.packaging.specifiers import Operator, SpecifierSet
 from pip._internal.utils.packaging.version import ParsedVersion
@@ -128,8 +127,8 @@ class Factory:
             self._installed_dists = {}
 
     @functools.cached_property
-    def _supported_tags(self) -> tuple[Tag, ...]:
-        return get_supported()
+    def _target_python(self) -> TargetPython:
+        return TargetPython.create()
 
     @property
     def force_reinstall(self) -> bool:
@@ -139,7 +138,7 @@ class Factory:
         if not link.is_wheel:
             return
         wheel = WheelInfo.parse_filename(link.filename)
-        if wheel.supported(self._finder.target_python.unsorted_tags):
+        if wheel.supported(self._finder.target_python):
             return
         msg = f"{link.filename} is not a supported wheel on this platform."
         raise UnsupportedWheel(msg)
@@ -611,7 +610,7 @@ class Factory:
         return self._wheel_cache.get_cache_entry(
             link=link,
             package_name=name,
-            supported_tags=self._supported_tags,
+            py=self._target_python,
         )
 
     def get_dist_to_uninstall(self, candidate: Candidate) -> BaseDistribution | None:
