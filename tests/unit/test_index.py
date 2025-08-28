@@ -12,9 +12,13 @@ from pip._internal.index.collector import LinkCollector
 from pip._internal.index.package_finder import (
     CandidateEvaluator,
     CandidatePreferences,
+    EvaluationResult,
     LinkEvaluator,
     LinkType,
     PackageFinder,
+    _FoundCandidate,
+    _IncompatibleRequiresPython,
+    _YankedReason,
     filter_unallowed_hashes,
 )
 from pip._internal.models.format_control import AllowedFormats, FormatControlBuilder
@@ -25,7 +29,7 @@ from pip._internal.models.target_python import TargetPython
 from pip._internal.network.session import PipSession
 from pip._internal.utils.compatibility_tags import get_supported
 from pip._internal.utils.hashes import Hashes
-from pip._internal.utils.predicates import FragmentMatcher
+from pip._internal.utils.predicates import FragmentMatcher, RequiresPython
 
 from tests.lib import CURRENT_PY_VERSION_INFO
 from tests.lib.index import make_mock_candidate
@@ -124,22 +128,22 @@ class TestLinkEvaluator:
             pytest.param(
                 (3, 6, 5),
                 False,
-                (LinkType.candidate, "1.12"),
+                _FoundCandidate("1.12"),
                 id="compatible",
             ),
             pytest.param(
                 (3, 6, 4),
                 False,
-                (
-                    LinkType.requires_python_mismatch,
-                    "1.12 Requires-Python ==3.6.5,!=3.13.3",
+                _IncompatibleRequiresPython(
+                    "1.12",
+                    RequiresPython.parse("==3.6.5,!=3.13.3"),
                 ),
                 id="requires-python-mismatch",
             ),
             pytest.param(
                 (3, 6, 4),
                 True,
-                (LinkType.candidate, "1.12"),
+                _FoundCandidate("1.12"),
                 id="requires-python-mismatch-ignored",
             ),
         ],
@@ -148,7 +152,7 @@ class TestLinkEvaluator:
         self,
         py_version_info: tuple[int, int, int],
         ignore_requires_python: bool,
-        expected: tuple[LinkType, str],
+        expected: EvaluationResult,
     ) -> None:
         target_python = TargetPython(py_version_info=py_version_info)
         evaluator = LinkEvaluator(
@@ -168,29 +172,26 @@ class TestLinkEvaluator:
     @pytest.mark.parametrize(
         "yanked_reason, allow_yanked, expected",
         [
-            (None, True, (LinkType.candidate, "1.12")),
-            (None, False, (LinkType.candidate, "1.12")),
-            ("", True, (LinkType.candidate, "1.12")),
+            (None, True, _FoundCandidate("1.12")),
+            (None, False, _FoundCandidate("1.12")),
+            ("", True, _FoundCandidate("1.12")),
             (
                 "",
                 False,
-                (LinkType.yanked, "yanked for reason: <none given>"),
+                _YankedReason(None),
             ),
-            ("bad metadata", True, (LinkType.candidate, "1.12")),
+            ("bad metadata", True, _FoundCandidate("1.12")),
             (
                 "bad metadata",
                 False,
-                (LinkType.yanked, "yanked for reason: bad metadata"),
+                _YankedReason("bad metadata"),
             ),
             # Test a unicode string with a non-ascii character.
-            ("curly quote: \u2018", True, (LinkType.candidate, "1.12")),
+            ("curly quote: \u2018", True, _FoundCandidate("1.12")),
             (
                 "curly quote: \u2018",
                 False,
-                (
-                    LinkType.yanked,
-                    "yanked for reason: curly quote: \u2018",
-                ),
+                _YankedReason("curly quote: \u2018"),
             ),
         ],
     )
@@ -198,7 +199,7 @@ class TestLinkEvaluator:
         self,
         yanked_reason: str,
         allow_yanked: bool,
-        expected: tuple[LinkType, str],
+        expected: EvaluationResult,
     ) -> None:
         target_python = TargetPython(py_version_info=(3, 6, 4))
         evaluator = LinkEvaluator(
@@ -229,12 +230,12 @@ class TestLinkEvaluator:
         )
         link = Link("https://example.com/sample-1.0-py2.py3-none-any.whl")
         actual = evaluator.evaluate_link(link)
+        assert actual.kind == LinkType.platform_mismatch
         expected = (
-            LinkType.platform_mismatch,
             "none of the wheel's tags (py2-none-any, py3-none-any) are compatible "
-            "(run pip debug --verbose to show compatible tags)",
+            "(run pip debug --verbose to show compatible tags)"
         )
-        assert actual == expected
+        assert str(actual) == expected
 
 
 @pytest.mark.parametrize(

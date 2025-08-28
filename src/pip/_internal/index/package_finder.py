@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import abc
 import enum
 import functools
 import itertools
@@ -68,6 +69,167 @@ class LinkType(enum.Enum):
     format_invalid = enum.auto()
     platform_mismatch = enum.auto()
     requires_python_mismatch = enum.auto()
+
+
+class EvaluationResult(metaclass=abc.ABCMeta):
+    @property
+    @abc.abstractmethod
+    def kind(self) -> LinkType: ...
+
+
+@dataclass(frozen=True)
+class _FoundCandidate(EvaluationResult):
+    version: str
+
+    kind: ClassVar[LinkType] = LinkType.candidate
+
+
+class EvaluationFailure(EvaluationResult):
+    @abc.abstractmethod
+    def detail(self) -> str: ...
+
+    def __str__(self) -> str:
+        return self.detail()
+
+
+@dataclass(frozen=True)
+class EvalFailureSet:
+    failures: tuple[EvaluationFailure, ...]
+
+    def __bool__(self) -> bool:
+        return len(self.failures) > 0
+
+    def __str__(self) -> str:
+        if not self.failures:
+            return "none"
+        return "; ".join(sorted(map(str, self.failures)))
+
+
+class _InvalidWheelFilename(EvaluationFailure):
+    kind: ClassVar[LinkType] = LinkType.format_invalid
+
+    def detail(self) -> str:
+        return "invalid wheel filename"
+
+
+@dataclass(frozen=True)
+class _WrongName(EvaluationFailure):
+    project_name: str
+
+    kind: ClassVar[LinkType] = LinkType.different_project
+
+    def detail(self) -> str:
+        return f"wrong project name (not {self.project_name})"
+
+
+@dataclass(frozen=True)
+class _UnsupportedTags(EvaluationFailure):
+    info: WheelInfo
+
+    kind: ClassVar[LinkType] = LinkType.platform_mismatch
+
+    def detail(self) -> str:
+        # Include the wheel's tags in the reason string to
+        # simplify troubleshooting compatibility issues.
+        file_tags = ", ".join(self.info.sorted_tag_strings)
+        return (
+            f"none of the wheel's tags ({file_tags}) are compatible "
+            "(run pip debug --verbose to show compatible tags)"
+        )
+
+
+class _PyVerMismatch(EvaluationFailure):
+    kind: ClassVar[LinkType] = LinkType.platform_mismatch
+
+    def detail(self) -> str:
+        return "Python version is incorrect"
+
+
+@dataclass(frozen=True)
+class _PyTagParseError(EvaluationFailure):
+    py_tag_string: str
+
+    kind: ClassVar[LinkType] = LinkType.platform_mismatch
+
+    def detail(self) -> str:
+        return f"Could not parse python tags: {self.py_tag_string!r}"
+
+
+class _NotAFile(EvaluationFailure):
+    kind: ClassVar[LinkType] = LinkType.format_unsupported
+
+    def detail(self) -> str:
+        return "not a file"
+
+
+@dataclass(frozen=True)
+class _UnsupportedArchive(EvaluationFailure):
+    ext: str
+
+    kind: ClassVar[LinkType] = LinkType.format_unsupported
+
+    def detail(self) -> str:
+        return f"unsupported archive format: {self.ext}"
+
+
+@dataclass(frozen=True)
+class _NoBinariesAllowed(EvaluationFailure):
+    project_name: str
+
+    kind: ClassVar[LinkType] = LinkType.format_unsupported
+
+    def detail(self) -> str:
+        return f"No binaries permitted for {self.project_name}"
+
+
+class _MacOSX10(EvaluationFailure):
+    kind: ClassVar[LinkType] = LinkType.format_unsupported
+
+    def detail(self) -> str:
+        return "macosx10 one"
+
+
+@dataclass(frozen=True)
+class _NoSourcesAllowed(EvaluationFailure):
+    project_name: str
+
+    kind: ClassVar[LinkType] = LinkType.format_unsupported
+
+    def detail(self) -> str:
+        return f"No sources permitted for {self.project_name}"
+
+
+@dataclass(frozen=True)
+class _MissingVersion(EvaluationFailure):
+    project_name: str
+
+    kind: ClassVar[LinkType] = LinkType.format_invalid
+
+    def detail(self) -> str:
+        return f"Missing project version for {self.project_name}"
+
+
+@dataclass(frozen=True)
+class _YankedReason(EvaluationFailure):
+    yanked_reason: str | None
+
+    kind: ClassVar[LinkType] = LinkType.yanked
+
+    def detail(self) -> str:
+        reason = self.yanked_reason or "<none given>"
+        return f"yanked for reason: {reason}"
+
+
+@dataclass(frozen=True)
+class _IncompatibleRequiresPython(EvaluationFailure):
+    version: str
+    predicate: RequiresPython
+
+    kind: ClassVar[LinkType] = LinkType.requires_python_mismatch
+
+    def detail(self) -> str:
+        descriptor = self.predicate.to_sorted_string()
+        return f"{self.version} Requires-Python {descriptor}"
 
 
 @dataclass(frozen=True)
@@ -137,33 +299,22 @@ class LinkEvaluator:
 
     def _parse_wheel(
         self, filename: str
-    ) -> tuple[str | None, tuple[LinkType, str] | None]:
+    ) -> tuple[str | None, EvaluationFailure | None]:
         try:
             wheel = WheelInfo.parse_filename(filename)
         except InvalidWheelFilename:
-            return None, (
-                LinkType.format_invalid,
-                "invalid wheel filename",
-            )
+            return None, _InvalidWheelFilename()
         if wheel.name != self._canonical_name:
-            reason = f"wrong project name (not {self.project_name})"
-            return None, (LinkType.different_project, reason)
+            return None, _WrongName(self.project_name)
 
         # FIXME: optimize this!
         if not wheel.supported(self.target_python.unsorted_tags):
-            # Include the wheel's tags in the reason string to
-            # simplify troubleshooting compatibility issues.
-            file_tags = ", ".join(wheel.sorted_tag_strings)
-            reason = (
-                f"none of the wheel's tags ({file_tags}) are compatible "
-                f"(run pip debug --verbose to show compatible tags)"
-            )
-            return None, (LinkType.platform_mismatch, reason)
+            return None, _UnsupportedTags(wheel)
         return wheel.version, None
 
     def _split_version_and_py(
         self, version: str
-    ) -> tuple[str | None, tuple[LinkType, str] | None]:
+    ) -> tuple[str | None, EvaluationFailure | None]:
         py_ver_match = self._py_version_re.search(version)
         if not py_ver_match:
             return version, None
@@ -172,28 +323,20 @@ class LinkEvaluator:
 
         if single_version := self._single_py_version.match(py_tag_string):
             if single_version.group(1) != self.target_python.py_version:
-                return None, (
-                    LinkType.platform_mismatch,
-                    "Python version is incorrect",
-                )
+                return None, _PyVerMismatch()
             return version, None
 
         try:
             py_tag = parse_tag(py_tag_string)
         except ValueError:
-            return None, (
-                LinkType.platform_mismatch,
-                f"Could not parse python tags: {py_tag_string!r}",
-            )
+            return None, _PyTagParseError(py_tag_string)
         raise ValueError(f"unexpected tag string: {py_tag!r} from version {version!r}")
 
     @functools.cached_property
     def _fragment_matcher(self) -> FragmentMatcher:
         return FragmentMatcher(self._canonical_name)
 
-    def _parse_version(
-        self, link: Link
-    ) -> tuple[str | None, tuple[LinkType, str] | None]:
+    def _parse_version(self, link: Link) -> tuple[str | None, EvaluationFailure | None]:
         version: str | None = None
 
         if link.egg_fragment:
@@ -202,17 +345,13 @@ class LinkEvaluator:
         else:
             egg_info, ext = link.splitext()
             if not ext:
-                return None, (LinkType.format_unsupported, "not a file")
+                return None, _NotAFile()
             if ext not in SUPPORTED_EXTENSIONS:
-                return None, (
-                    LinkType.format_unsupported,
-                    f"unsupported archive format: {ext}",
-                )
+                return None, _UnsupportedArchive(ext)
             if not self.formats.allows_binary() and ext == WHEEL_EXTENSION:
-                reason = f"No binaries permitted for {self.project_name}"
-                return None, (LinkType.format_unsupported, reason)
+                return None, _NoBinariesAllowed(self.project_name)
             if "macosx10" in link.path and ext == ".zip":
-                return None, (LinkType.format_unsupported, "macosx10 one")
+                return None, _MacOSX10()
             if ext == WHEEL_EXTENSION:
                 version, result = self._parse_wheel(link.filename)
                 if result is not None:
@@ -220,16 +359,14 @@ class LinkEvaluator:
 
         # This should be up by the self.ok_binary check, but see issue 2700.
         if not self.formats.allows_source() and ext != WHEEL_EXTENSION:
-            reason = f"No sources permitted for {self.project_name}"
-            return None, (LinkType.format_unsupported, reason)
+            return None, _NoSourcesAllowed(self.project_name)
 
         if version is None:
             version = self._fragment_matcher.extract_version_from_fragment(
                 egg_info,
             )
         if version is None:
-            reason = f"Missing project version for {self.project_name}"
-            return None, (LinkType.format_invalid, reason)
+            return None, _MissingVersion(self.project_name)
 
         version, result = self._split_version_and_py(version)
         if result is not None:
@@ -239,10 +376,10 @@ class LinkEvaluator:
         return version, None
 
     @functools.cached_property
-    def _evaluations(self) -> dict[Link, tuple[LinkType, str]]:
+    def _evaluations(self) -> dict[Link, EvaluationResult]:
         return {}
 
-    def evaluate_link(self, link: Link) -> tuple[LinkType, str]:
+    def evaluate_link(self, link: Link) -> EvaluationResult:
         if (result := self._evaluations.get(link)) is not None:
             return result
         new_result = self._do_evaluate_link(link)
@@ -284,7 +421,7 @@ class LinkEvaluator:
         )
         return False, predicate
 
-    def _do_evaluate_link(self, link: Link) -> tuple[LinkType, str]:
+    def _do_evaluate_link(self, link: Link) -> EvaluationResult:
         """
         Determine whether a link is a candidate for installation.
 
@@ -296,8 +433,7 @@ class LinkEvaluator:
         """
         version: str | None = None
         if link.is_yanked and not self.allow_yanked:
-            reason = link.yanked_reason or "<none given>"
-            return (LinkType.yanked, f"yanked for reason: {reason}")
+            return _YankedReason(link.yanked_reason or None)
 
         version, result = self._parse_version(link)
         if result is not None:
@@ -309,13 +445,11 @@ class LinkEvaluator:
         )
         if not is_compatible:
             assert predicate is not None
-            descriptor = predicate.to_sorted_string()
-            reason = f"{version} Requires-Python {descriptor}"
-            return (LinkType.requires_python_mismatch, reason)
+            return _IncompatibleRequiresPython(version, predicate)
 
         logger.debug("Found link %s, version: %s", link, version)
 
-        return (LinkType.candidate, version)
+        return _FoundCandidate(version)
 
 
 def filter_unallowed_hashes(
@@ -662,7 +796,8 @@ class PackageFinder:
         self.format_control = format_control.build()
 
         # These are boring links that have already been logged somehow.
-        self._logged_links: set[tuple[Link, LinkType, str]] = set()
+        self._logged_links: set[Link] = set()
+        self._requires_python_skipped_reasons: list[EvaluationFailure] = []
 
     # Don't include an allow_yanked default value to make sure each call
     # site considers whether yanked releases are allowed. This also causes
@@ -757,13 +892,8 @@ class PackageFinder:
     def set_prefer_binary(self) -> None:
         self._candidate_prefs.prefer_binary = True
 
-    def requires_python_skipped_reasons(self) -> list[str]:
-        reasons = {
-            detail
-            for _, result, detail in self._logged_links
-            if result == LinkType.requires_python_mismatch
-        }
-        return sorted(reasons)
+    def requires_python_skipped_reasons(self) -> EvalFailureSet:
+        return EvalFailureSet(tuple(self._requires_python_skipped_reasons))
 
     def make_link_evaluator(self, project_name: str) -> LinkEvaluator:
         return LinkEvaluator(
@@ -790,13 +920,14 @@ class PackageFinder:
                     no_eggs.append(link)
         return tuple(no_eggs) + tuple(eggs)
 
-    def _log_skipped_link(self, link: Link, result: LinkType, detail: str) -> None:
-        entry = (link, result, detail)
-        if entry not in self._logged_links:
+    def _log_skipped_link(self, link: Link, result: EvaluationFailure) -> None:
+        if link not in self._logged_links:
             # Put the link at the end so the reason is more visible and because
             # the link string is usually very long.
-            logger.debug("Skipping link: %s: %s", detail, link)
-            self._logged_links.add(entry)
+            logger.debug("Skipping link: %s: %s", result, link)
+            self._logged_links.add(link)
+        if result.kind == LinkType.requires_python_mismatch:
+            self._requires_python_skipped_reasons.append(result)
 
     def get_install_candidate(
         self, link_evaluator: LinkEvaluator, link: Link
@@ -805,16 +936,19 @@ class PackageFinder:
         If the link is a candidate for install, convert it to an
         InstallationCandidate and return it. Otherwise, return None.
         """
-        result, detail = link_evaluator.evaluate_link(link)
-        if result != LinkType.candidate:
-            self._log_skipped_link(link, result, detail)
+        result = link_evaluator.evaluate_link(link)
+        if result.kind != LinkType.candidate:
+            assert isinstance(result, EvaluationFailure), result
+            self._log_skipped_link(link, result)
             return None
+        assert isinstance(result, _FoundCandidate), result
+        version = result.version
 
         try:
             return InstallationCandidate(
                 name=link_evaluator.project_name,
                 link=link,
-                version=detail,
+                version=version,
             )
         except InvalidVersion:
             return None

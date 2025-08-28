@@ -11,12 +11,14 @@ from pip._vendor.packaging.utils import (
     InvalidSdistFilename,
     InvalidWheelFilename,
     canonicalize_name,
-    parse_sdist_filename,
-    parse_wheel_filename,
 )
 
 from pip._internal.models.candidate import InstallationCandidate
 from pip._internal.models.link import Link
+from pip._internal.utils.filename_parsing import (
+    parse_sdist_filename,
+    parse_wheel_filename,
+)
 from pip._internal.utils.urls import ParsedUrl, path_to_url, url_to_path
 from pip._internal.vcs import try_parse_url
 

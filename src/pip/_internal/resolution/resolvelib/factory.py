@@ -697,7 +697,7 @@ class Factory:
             logger.critical(
                 "Ignored the following versions that require a different python "
                 "version: %s",
-                "; ".join(skipped_by_requires_python) or "none",
+                skipped_by_requires_python,
             )
         logger.critical(
             "Could not find a version that satisfies the requirement %s "

@@ -15,6 +15,7 @@ from pip._internal.index.package_finder import (
     Link,
     LinkEvaluator,
     LinkType,
+    _FoundCandidate,
 )
 from pip._internal.models.format_control import AllowedFormats
 from pip._internal.models.target_python import TargetPython
@@ -498,7 +499,7 @@ class TestLinkEvaluator:
         link = Link(url)
         evaluator = self.make_test_link_evaluator(formats=AllowedFormats.AnyFormat)
         actual = evaluator.evaluate_link(link)
-        assert actual == (LinkType.candidate, expected_version)
+        assert actual == _FoundCandidate(expected_version)
 
     @pytest.mark.parametrize(
         "url, link_type, fail_reason",
@@ -527,7 +528,8 @@ class TestLinkEvaluator:
         link = Link(url)
         evaluator = self.make_test_link_evaluator(formats=AllowedFormats.AnyFormat)
         actual = evaluator.evaluate_link(link)
-        assert actual == (link_type, fail_reason)
+        assert actual.kind == link_type
+        assert str(actual) == fail_reason
 
 
 def test_process_project_url(data: TestData) -> None:

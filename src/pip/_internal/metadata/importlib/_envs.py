@@ -13,10 +13,10 @@ from pip._vendor.packaging.utils import (
     InvalidWheelFilename,
     NormalizedName,
     canonicalize_name,
-    parse_wheel_filename,
 )
 
 from pip._internal.metadata.base import BaseDistribution, BaseEnvironment
+from pip._internal.utils.filename_parsing import parse_wheel_filename
 from pip._internal.utils.filetypes import WHEEL_EXTENSION
 
 from ._compat import BadMetadata, BasePath, get_dist_canonical_name, get_info_location

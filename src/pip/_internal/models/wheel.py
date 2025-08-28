@@ -8,23 +8,22 @@ import functools
 import re
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, ClassVar, NewType, Protocol, cast
+from typing import TYPE_CHECKING, ClassVar, Protocol
 
 from pip._vendor.packaging.tags import Tag
 from pip._vendor.packaging.utils import (
     BuildTag,
     NormalizedName,
     canonicalize_name,
-    canonicalize_version,
-    parse_wheel_filename,
 )
 from pip._vendor.packaging.utils import (
     InvalidWheelFilename as _PackagingInvalidWheelFilename,
 )
-from pip._vendor.packaging.version import Version
 
 from pip._internal.exceptions import InvalidWheelFilename
 from pip._internal.utils.deprecation import deprecated
+from pip._internal.utils.filename_parsing import parse_wheel_filename
+from pip._internal.utils.version import ParsedVersion
 
 if TYPE_CHECKING:
     from typing_extensions import Self
@@ -40,17 +39,6 @@ if TYPE_CHECKING:
 # (2) Fix build_tag():
 # > NB: On main, we fail to address the case of no build tag in Wheel.build_tag().
 # >     That is a valid result and indeed the common case.
-
-MaybeCanonicalVersion = NewType("MaybeCanonicalVersion", str)
-
-
-def canonicalize_version_string(version: Version | str) -> MaybeCanonicalVersion:
-    """Return a canonical version string, with trailing .0 components stripped.
-
-    This will not normalize version strings that cannot be parsed as
-    packaging.version.Version."""
-    ver_str = canonicalize_version(version, strip_trailing_zero=True)
-    return cast(MaybeCanonicalVersion, ver_str)
 
 
 class _ParsedWheelInfo(Protocol):
@@ -163,7 +151,7 @@ class WheelInfo:
 @dataclass(frozen=True)
 class _NormalizedWheelInfo:
     name: NormalizedName
-    _version: Version
+    _version: ParsedVersion
     build_tag: BuildTag
     tag_set: frozenset[Tag]
 

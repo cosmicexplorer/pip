@@ -41,7 +41,7 @@ class TestTargetPython:
         assert target_python._given_py_version_info == py_version_info
 
         assert target_python.py_version_info == expected_py_version_info
-        assert target_python.py_version == expected_py_version
+        assert str(target_python.py_version) == expected_py_version
 
     def test_init__py_version_info_none(self) -> None:
         """
@@ -52,7 +52,7 @@ class TestTargetPython:
         assert target_python._given_py_version_info is None
 
         assert target_python.py_version_info == CURRENT_PY_VERSION_INFO
-        assert target_python.py_version == pyversion
+        assert str(target_python.py_version) == pyversion
 
     @pytest.mark.parametrize(
         "kwargs, expected",
