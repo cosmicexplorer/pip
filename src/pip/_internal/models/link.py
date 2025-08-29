@@ -21,7 +21,7 @@ from pip._internal.utils.hashes import Hashes
 from pip._internal.utils.misc import (
     splitext,
 )
-from pip._internal.utils.urls import ParsedUrl, path_to_url, url_to_path
+from pip._internal.utils.urls import ParsedUrl, path_to_url, url_to_path, _PreQuotedUrl
 
 if TYPE_CHECKING:
     from pip._internal.index.collector import IndexContent
@@ -112,7 +112,7 @@ def supported_hashes(hashes: dict[str, str] | None) -> dict[str, str] | None:
 
 @dataclass(frozen=True)
 class PersistentLinkCacheArgs:
-    url: str
+    url: ParsedUrl
     comes_from: str | None = None
     requires_python: str | None = None
     yanked_reason: str | None = None
@@ -121,7 +121,15 @@ class PersistentLinkCacheArgs:
 
     def to_json(self) -> dict[str, Any]:
         return {
-            "url": self.url,
+            "url": (
+                self.url.scheme,
+                self.url.netloc,
+                self.url.path,
+                self.url.params,
+                self.url.query,
+                self.url.fragment,
+                self.url._quoted_path,
+            ),
             "comes_from": self.comes_from,
             "requires_python": self.requires_python,
             "yanked_reason": self.yanked_reason,
@@ -134,7 +142,7 @@ class PersistentLinkCacheArgs:
     @classmethod
     def from_json(cls, cache_info: dict[str, Any]) -> PersistentLinkCacheArgs:
         return cls(
-            url=cache_info["url"],
+            url=_PreQuotedUrl._cached_create(*tuple(cache_info["url"])),
             comes_from=cache_info["comes_from"],
             requires_python=cache_info["requires_python"],
             yanked_reason=cache_info["yanked_reason"],
@@ -279,7 +287,7 @@ class Link:
 
     def cache_args(self) -> PersistentLinkCacheArgs:
         return PersistentLinkCacheArgs(
-            url=self.url,
+            url=self._parsed_url,
             comes_from=(str(self.comes_from) if self.comes_from else None),
             requires_python=self.requires_python,
             yanked_reason=self.yanked_reason,

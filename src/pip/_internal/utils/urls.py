@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import abc
-import dataclasses
 import functools
 import itertools
 import os
@@ -10,6 +9,7 @@ import string
 import urllib.parse
 import urllib.request
 from collections.abc import Iterable, Iterator
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar, NewType, cast
 
 from pip._internal.utils.misc import pairwise, redact_netloc, split_auth_from_netloc
@@ -78,7 +78,7 @@ class PathSegments(metaclass=abc.ABCMeta):
     def path_segments(self) -> Iterable[PathComponent]: ...
 
 
-@dataclasses.dataclass
+@dataclass
 class UrlPath:
     segments: list[PathComponent]
 
@@ -139,7 +139,7 @@ class UrlPath:
         return "/".join(resolved_path) or "/"
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclass(frozen=True)
 class ParsedUrl(PathSegments):
     scheme: str
     netloc: str
@@ -495,6 +495,36 @@ class ParsedUrl(PathSegments):
 
     def without_fragment(self) -> ParsedUrl:
         return self._as_no_fragment
+
+
+@dataclass(frozen=True)
+class _PreQuotedUrl(ParsedUrl):
+    _quoted_path: str
+
+    @property
+    def _as_quoted_path(self) -> Self:
+        return self
+
+    @staticmethod
+    @functools.cache
+    def _cached_create(
+        scheme: str,
+        netloc: str,
+        path: str,
+        params: str,
+        query: str,
+        fragment: str,
+        _quoted_path: str,
+    ) -> _PreQuotedUrl:
+        return _PreQuotedUrl(
+            scheme=scheme,
+            netloc=netloc,
+            path=path,
+            params=params,
+            query=query,
+            fragment=fragment,
+            _quoted_path=_quoted_path,
+        )
 
 
 class _PathKind(abc.ABC):
