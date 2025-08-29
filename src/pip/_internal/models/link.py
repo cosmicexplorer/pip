@@ -21,7 +21,7 @@ from pip._internal.utils.hashes import Hashes
 from pip._internal.utils.misc import (
     splitext,
 )
-from pip._internal.utils.urls import ParsedUrl, path_to_url, url_to_path, _PreQuotedUrl
+from pip._internal.utils.urls import ParsedUrl, _PreQuotedUrl, path_to_url, url_to_path
 
 if TYPE_CHECKING:
     from pip._internal.index.collector import IndexContent
@@ -129,6 +129,7 @@ class PersistentLinkCacheArgs:
                 self.url.query,
                 self.url.fragment,
                 self.url._quoted_path,
+                self.url._fragments,
             ),
             "comes_from": self.comes_from,
             "requires_python": self.requires_python,
@@ -142,7 +143,7 @@ class PersistentLinkCacheArgs:
     @classmethod
     def from_json(cls, cache_info: dict[str, Any]) -> PersistentLinkCacheArgs:
         return cls(
-            url=_PreQuotedUrl._cached_create(*tuple(cache_info["url"])),
+            url=_PreQuotedUrl(*tuple(cache_info["url"])),
             comes_from=cache_info["comes_from"],
             requires_python=cache_info["requires_python"],
             yanked_reason=cache_info["yanked_reason"],
@@ -227,9 +228,9 @@ class Link:
 
         self.egg_fragment = self._egg_fragment()
 
-    @functools.cached_property
+    @property
     def _fragments(self) -> dict[str, list[str]]:
-        return urllib.parse.parse_qs(self._parsed_url.fragment, keep_blank_values=True)
+        return self._parsed_url._fragments
 
     @classmethod
     def from_json(

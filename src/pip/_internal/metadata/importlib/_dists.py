@@ -130,6 +130,9 @@ class Distribution(BaseDistribution):
         filename: str,
         project_name: str,
     ) -> BaseDistribution:
+        # FIXME: optimize this to avoid fs i/o! unfortunately this seems like it may
+        #        require turning the importlib.metadata library inside out.
+        #        See https://importlib-metadata.readthedocs.io/en/latest/.
         # Generate temp dir to contain the metadata file, and write the file contents.
         temp_dir = pathlib.Path(
             TempDirectory(kind="metadata", globally_managed=True).path

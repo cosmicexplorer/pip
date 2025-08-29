@@ -255,6 +255,36 @@ class ParsedUrl(PathSegments):
     def __str__(self) -> str:
         return self._unparsed_output
 
+    @functools.cached_property
+    def _hash(self) -> int:
+        return hash(
+            (
+                self.scheme,
+                self.netloc,
+                self.path,
+                self.params,
+                self.query,
+                self.fragment,
+            )
+        )
+
+    def __hash__(self) -> int:
+        return self._hash
+
+    def __eq__(self, other: Any) -> bool:
+        if not isinstance(other, self.__class__):
+            return NotImplemented
+        return (
+            hash(self) == hash(other)
+            and self.scheme == other.scheme
+            and self.netloc == other.netloc
+            and self.path == other.path
+            # NB: we have intentionally reordered the fields here for short-circuiting.
+            and self.fragment == other.fragment
+            and self.query == other.query
+            and self.params == other.params
+        )
+
     _uses_relative: ClassVar[frozenset[str]] = frozenset(urllib.parse.uses_relative)
 
     @staticmethod
@@ -496,35 +526,27 @@ class ParsedUrl(PathSegments):
     def without_fragment(self) -> ParsedUrl:
         return self._as_no_fragment
 
+    @functools.cached_property
+    def _fragments(self) -> dict[str, list[str]]:
+        return urllib.parse.parse_qs(self.fragment, keep_blank_values=True)
+
 
 @dataclass(frozen=True)
 class _PreQuotedUrl(ParsedUrl):
     _quoted_path: str
+    _fragments: dict[str, list[str]]
 
     @property
     def _as_quoted_path(self) -> Self:
         return self
 
-    @staticmethod
-    @functools.cache
-    def _cached_create(
-        scheme: str,
-        netloc: str,
-        path: str,
-        params: str,
-        query: str,
-        fragment: str,
-        _quoted_path: str,
-    ) -> _PreQuotedUrl:
-        return _PreQuotedUrl(
-            scheme=scheme,
-            netloc=netloc,
-            path=path,
-            params=params,
-            query=query,
-            fragment=fragment,
-            _quoted_path=_quoted_path,
-        )
+    def __hash__(self) -> int:
+        return self._hash
+
+    def __eq__(self, other: Any) -> bool:
+        if not isinstance(other, ParsedUrl):
+            return NotImplemented
+        return ParsedUrl.__eq__(self, other)
 
 
 class _PathKind(abc.ABC):
