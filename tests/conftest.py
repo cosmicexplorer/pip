@@ -813,6 +813,9 @@ class FakePackage:
     requires_dist: tuple[str, ...] = ()
     # This will override the Name specified in the actual dist's METADATA.
     metadata_name: str | None = None
+    # Whether to delete the file this points to, which causes any attempt to fetch this
+    # package to fail unless it is processed as a metadata-only dist.
+    delete_linked_file: bool = False
 
     @property
     def filename(self) -> str:
@@ -963,6 +966,31 @@ def fake_packages(session_script: PipTestEnvironment) -> dict[str, list[FakePack
                 MetadataKind.No,
             ),
         ],
+        "complex-dist": [
+            FakePackage(
+                "complex-dist",
+                "0.1",
+                FakePackageSource.shared_data_package(
+                    "complex_dist-0.1-py2.py3-none-any.whl"
+                ),
+                MetadataKind.Unhashed,
+                # Validate that the wheel isn't fetched if metadata is available and
+                # --dry-run is on, when the metadata presents no hash itself.
+                delete_linked_file=True,
+            ),
+        ],
+        "corruptwheel": [
+            FakePackage(
+                "corruptwheel",
+                "1.0",
+                FakePackageSource.shared_data_package(
+                    "corruptwheel-1.0-py2.py3-none-any.whl"
+                ),
+                # Validate that the wheel isn't fetched if metadata is available and
+                # --dry-run is on, when the metadata *does* present a hash.
+                MetadataKind.Sha256,
+            ),
+        ],
         "has-script": [
             # Ensure we check PEP 658 metadata hashing errors for wheel files.
             FakePackage(
@@ -1066,10 +1094,9 @@ def html_index_for_packages(
             # (3.2) Copy over the corresponding file in `shared_data.packages`, or the
             #       generated wheel path if provided.
             source_path = package_link.source_path(shared_data)
-            shutil.copy(
-                source_path,
-                pkg_subdir / package_link.filename,
-            )
+            new_file = pkg_subdir / package_link.filename
+            if not package_link.delete_linked_file:
+                shutil.copy(source_path, new_file)
             # (3.3) Write a metadata file, if applicable.
             if package_link.metadata != MetadataKind.NoFile:
                 with open(pkg_subdir / package_link.metadata_filename(), "wb") as f:

@@ -7,6 +7,7 @@ import os
 import zipfile
 from collections.abc import Collection, Iterable, Iterator, Mapping
 from typing import (
+    TYPE_CHECKING,
     NamedTuple,
 )
 
@@ -24,9 +25,11 @@ from .base import (
     BaseDistribution,
     BaseEntryPoint,
     BaseEnvironment,
-    InfoPath,
     Wheel,
 )
+
+if TYPE_CHECKING:
+    from .base import InfoPath
 
 __all__ = ["NAME", "Distribution", "Environment"]
 
@@ -77,8 +80,9 @@ class InMemoryMetadata:
 
 
 class Distribution(BaseDistribution):
-    def __init__(self, dist: pkg_resources.Distribution) -> None:
+    def __init__(self, dist: pkg_resources.Distribution, concrete: bool) -> None:
         self._dist = dist
+        self._concrete = concrete
         # This is populated lazily, to avoid loading metadata for all possible
         # distributions eagerly.
         self.__extra_mapping: Mapping[NormalizedName, str] | None = None
@@ -91,6 +95,10 @@ class Distribution(BaseDistribution):
             }
 
         return self.__extra_mapping
+
+    @property
+    def is_concrete(self) -> bool:
+        return self._concrete
 
     @classmethod
     def from_directory(cls, directory: str) -> BaseDistribution:
@@ -110,7 +118,7 @@ class Distribution(BaseDistribution):
             dist_name = os.path.splitext(dist_dir_name)[0].split("-")[0]
 
         dist = dist_cls(base_dir, project_name=dist_name, metadata=metadata)
-        return cls(dist)
+        return cls(dist, concrete=True)
 
     @classmethod
     def from_metadata_file_contents(
@@ -127,7 +135,7 @@ class Distribution(BaseDistribution):
             metadata=InMemoryMetadata(metadata_dict, filename),
             project_name=project_name,
         )
-        return cls(dist)
+        return cls(dist, concrete=False)
 
     @classmethod
     def from_wheel(cls, wheel: Wheel, name: str) -> BaseDistribution:
@@ -148,7 +156,7 @@ class Distribution(BaseDistribution):
             metadata=InMemoryMetadata(metadata_dict, wheel.location),
             project_name=name,
         )
-        return cls(dist)
+        return cls(dist, concrete=wheel.is_concrete)
 
     @property
     def location(self) -> str | None:
@@ -260,7 +268,7 @@ class Environment(BaseEnvironment):
 
     def _iter_distributions(self) -> Iterator[BaseDistribution]:
         for dist in self._ws:
-            yield Distribution(dist)
+            yield Distribution(dist, concrete=True)
 
     def _search_distribution(self, name: str) -> BaseDistribution | None:
         """Find a distribution matching the ``name`` in the environment.

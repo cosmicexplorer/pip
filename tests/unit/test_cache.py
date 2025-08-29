@@ -5,9 +5,11 @@ from collections.abc import Iterable
 from pathlib import Path
 from unittest.mock import Mock
 
+import pytest
+
 from pip._vendor.packaging.tags import Tag, interpreter_name, interpreter_version
 
-from pip._internal.cache import CacheEntry, WheelCache, _hash_dict
+from pip._internal.cache import CacheEntry, WheelCache, _contains_egg_info, _hash_dict
 from pip._internal.models.link import Link
 from pip._internal.utils.misc import ensure_dir
 from pip._internal.utils.urls import ParsedUrl
@@ -31,6 +33,24 @@ def _get_cache_entry(
         sorted_tags=tags, tag_preferences={tag: idx for idx, tag in enumerate(tags)}
     )
     return cache.get_cache_entry(link, name, mock)
+
+
+@pytest.mark.parametrize(
+    "s, expected",
+    [
+        # Trivial.
+        ("pip-18.0", True),
+        # Ambiguous.
+        ("foo-2-2", True),
+        ("im-valid", True),
+        # Invalid.
+        ("invalid", False),
+        ("im_invalid", False),
+    ],
+)
+def test_contains_egg_info(s: str, expected: bool) -> None:
+    result = _contains_egg_info(s)
+    assert result == expected
 
 
 def test_falsey_path_none() -> None:
