@@ -16,7 +16,7 @@ from pip._vendor.packaging.utils import (
 )
 
 from pip._internal.metadata.base import BaseDistribution, BaseEnvironment
-from pip._internal.utils.filetypes import WHEEL_EXTENSION
+from pip._internal.utils.filetypes import FileExtensions
 from pip._internal.utils.packaging.filename_parsing import parse_wheel_filename
 
 from ._compat import BadMetadata, BasePath, get_dist_canonical_name, get_info_location
@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 
 def _looks_like_wheel(location: str) -> bool:
-    if not location.endswith(WHEEL_EXTENSION):
+    if not location.endswith(FileExtensions.WHEEL_EXTENSION):
         return False
     if not os.path.isfile(location):
         return False

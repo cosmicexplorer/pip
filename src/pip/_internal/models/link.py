@@ -16,7 +16,7 @@ from typing import (
 )
 
 from pip._internal.utils.deprecation import deprecated
-from pip._internal.utils.filetypes import WHEEL_EXTENSION
+from pip._internal.utils.filetypes import FileExtensions
 from pip._internal.utils.hashes import Hashes
 from pip._internal.utils.misc import (
     splitext,
@@ -451,7 +451,7 @@ class Link:
 
     @property
     def is_wheel(self) -> bool:
-        return self.ext == WHEEL_EXTENSION
+        return self.ext == FileExtensions.WHEEL_EXTENSION
 
     @property
     def is_vcs(self) -> bool:

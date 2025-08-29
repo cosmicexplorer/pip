@@ -33,7 +33,7 @@ from pip._internal.models.link import Link
 from pip._internal.models.search_scope import SearchScope
 from pip._internal.network.session import PipSession
 from pip._internal.network.utils import raise_for_status
-from pip._internal.utils.filetypes import is_archive_file
+from pip._internal.utils.filetypes import FileExtensions
 from pip._internal.utils.misc import redact_auth_from_url
 from pip._internal.utils.urls import ParsedUrl
 from pip._internal.vcs import vcs
@@ -123,7 +123,7 @@ def _get_simple_response(url: str, session: PipSession) -> Response:
     3. Check the Content-Type header to make sure we got a Simple API response,
        and raise `_NotAPIContent` otherwise.
     """
-    if is_archive_file(Link(url).filename):
+    if FileExtensions.archive_file_extension(Link(url).filename):
         _ensure_api_response(url, session=session)
 
     logger.debug("Getting page %s", redact_auth_from_url(url))

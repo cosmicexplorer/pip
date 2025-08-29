@@ -13,23 +13,18 @@ from collections.abc import Iterable
 from zipfile import ZipInfo
 
 from pip._internal.exceptions import InstallationError
-from pip._internal.utils.filetypes import (
-    BZ2_EXTENSIONS,
-    TAR_EXTENSIONS,
-    XZ_EXTENSIONS,
-    ZIP_EXTENSIONS,
-)
+from pip._internal.utils.filetypes import FileExtensions
 from pip._internal.utils.misc import ensure_dir
 
 logger = logging.getLogger(__name__)
 
 
-SUPPORTED_EXTENSIONS = ZIP_EXTENSIONS + TAR_EXTENSIONS
+SUPPORTED_EXTENSIONS = FileExtensions.ZIP_EXTENSIONS + FileExtensions.TAR_EXTENSIONS
 
 try:
     import bz2  # noqa
 
-    SUPPORTED_EXTENSIONS += BZ2_EXTENSIONS
+    SUPPORTED_EXTENSIONS += FileExtensions.BZ2_EXTENSIONS
 except ImportError:
     logger.debug("bz2 module is not available")
 
@@ -37,7 +32,7 @@ try:
     # Only for Python 3.3+
     import lzma  # noqa
 
-    SUPPORTED_EXTENSIONS += XZ_EXTENSIONS
+    SUPPORTED_EXTENSIONS += FileExtensions.XZ_EXTENSIONS
 except ImportError:
     logger.debug("lzma module is not available")
 
@@ -164,9 +159,9 @@ def untar_file(filename: str, location: str) -> None:
     ensure_dir(location)
     if filename.lower().endswith(".gz") or filename.lower().endswith(".tgz"):
         mode = "r:gz"
-    elif filename.lower().endswith(BZ2_EXTENSIONS):
+    elif filename.lower().endswith(FileExtensions.BZ2_EXTENSIONS):
         mode = "r:bz2"
-    elif filename.lower().endswith(XZ_EXTENSIONS):
+    elif filename.lower().endswith(FileExtensions.XZ_EXTENSIONS):
         mode = "r:xz"
     elif filename.lower().endswith(".tar"):
         mode = "r"
@@ -314,14 +309,18 @@ def unpack_file(
     filename = os.path.realpath(filename)
     if (
         content_type == "application/zip"
-        or filename.lower().endswith(ZIP_EXTENSIONS)
+        or filename.lower().endswith(FileExtensions.ZIP_EXTENSIONS)
         or zipfile.is_zipfile(filename)
     ):
         unzip_file(filename, location, flatten=not filename.endswith(".whl"))
     elif (
         content_type == "application/x-gzip"
         or tarfile.is_tarfile(filename)
-        or filename.lower().endswith(TAR_EXTENSIONS + BZ2_EXTENSIONS + XZ_EXTENSIONS)
+        or filename.lower().endswith(
+            FileExtensions.TAR_EXTENSIONS
+            + FileExtensions.BZ2_EXTENSIONS
+            + FileExtensions.XZ_EXTENSIONS
+        )
     ):
         untar_file(filename, location)
     else:

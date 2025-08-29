@@ -32,8 +32,7 @@ from pip._internal.operations.build.build_tracker import get_build_tracker
 from pip._internal.operations.prepare import RequirementPreparer
 from pip._internal.req import InstallRequirement, RequirementSet
 from pip._internal.req.constructors import (
-    _get_url_from_path,
-    _looks_like_path,
+    _ResourcePathMatcher,
     install_req_drop_extras,
     install_req_extend_extras,
     install_req_from_editable,
@@ -53,6 +52,14 @@ from pip._internal.utils.packaging.requirements import Requirement
 from pip._internal.utils.urls import ParsedUrl, path_to_url
 
 from tests.lib import TestData, make_test_finder, requirements_file, wheel
+
+
+def _get_url_from_path(path: str, name: str) -> ParsedUrl | None:
+    return _ResourcePathMatcher.get_path_or_url(path, name)
+
+
+def _looks_like_path(name: str) -> bool:
+    return _ResourcePathMatcher.looks_like_path(name)
 
 
 def get_processed_req_from_line(

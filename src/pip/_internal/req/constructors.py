@@ -16,6 +16,7 @@ import os
 import re
 from collections.abc import Collection
 from dataclasses import dataclass
+from typing import ClassVar
 
 from pip._vendor.packaging.requirements import InvalidRequirement
 
@@ -25,7 +26,7 @@ from pip._internal.models.link import Link
 from pip._internal.models.wheel import WheelInfo
 from pip._internal.req.req_file import ParsedRequirement
 from pip._internal.req.req_install import InstallRequirement
-from pip._internal.utils.filetypes import is_archive_file
+from pip._internal.utils.filetypes import FileExtensions
 from pip._internal.utils.misc import is_installable_dir
 from pip._internal.utils.packaging.markers import Marker
 from pip._internal.utils.packaging.requirements import Requirement
@@ -108,7 +109,7 @@ def parse_editable(editable_req: str) -> tuple[Link, frozenset[str]]:
         # Treating it as code that has already been checked out
         parsed_url = path_to_url(url_no_extras)
         return Link(parsed_url), convert_extras(extras)
-    if _looks_like_path(url_no_extras):
+    if _ResourcePathMatcher.looks_like_path(url_no_extras):
         logger.debug(
             "editable requirement '%s' was converted to file-like URL '%s', "
             "but it did not point to an existing directory path",
@@ -238,59 +239,92 @@ def install_req_from_editable(
     )
 
 
-def _looks_like_path(name: str) -> bool:
-    """Checks whether the string "looks like" a path on the filesystem.
-
-    This does not check whether the target actually exists, only judge from the
-    appearance.
-
-    Returns true if any of the following conditions is true:
-    * a path separator is found (either os.path.sep or os.path.altsep);
-    * a dot is found (which represents the current directory).
-    """
-    if os.path.sep in name:
-        return True
-    if os.path.altsep is not None and os.path.altsep in name:
-        return True
-    if name.startswith("."):
-        return True
-    return False
-
-
-def _get_url_from_path(path: str, name: str) -> ParsedUrl | None:
-    """
-    First, it checks whether a provided path is an installable directory. If it
-    is, returns the path.
-
-    If false, check if the path is an archive file (such as a .whl).
-    The function checks if the path is a file. If false, if the path has
-    an @, it will treat it as a PEP 440 URL requirement and return the path.
-    """
-    path = coerce_file_uri_to_path(path)
-    name = coerce_file_uri_to_path(name)
-    if _looks_like_path(name) and os.path.isdir(path):
-        if is_installable_dir(path):
-            return path_to_url(path)
-        # TODO: The is_installable_dir test here might not be necessary
-        #       now that it is done in load_pyproject_toml too.
-        raise InstallationError(
-            f"Directory {name!r} is not installable. Neither 'setup.py' "
-            "nor 'pyproject.toml' found."
+class _ResourcePathMatcher:
+    _path_like_regex: ClassVar[re.Pattern[str]] = re.compile(
+        "|".join(
+            [
+                r"^\.",
+                re.escape(os.path.sep),
+                *([re.escape(os.path.altsep)] if os.path.altsep is not None else []),
+            ]
         )
-    if not is_archive_file(path):
-        return None
-    if os.path.isfile(path):
-        return path_to_url(path)
-    urlreq_parts = name.split("@", 1)
-    if len(urlreq_parts) >= 2 and not _looks_like_path(urlreq_parts[0]):
-        # If the path contains '@' and the part before it does not look
-        # like a path, try to treat it as a PEP 440 URL req instead.
-        return None
-    logger.warning(
-        "Requirement %r looks like a filename, but the file does not exist",
-        name,
     )
-    return path_to_url(path)
+
+    @staticmethod
+    def looks_like_path(name: str) -> bool:
+        """Checks whether the string "looks like" a path on the filesystem.
+
+        This does not check whether the target actually exists, only judge from the
+        appearance.
+
+        Returns true if any of the following conditions is true:
+        * a path separator is found (either os.path.sep or os.path.altsep);
+        * a dot is found (which represents the current directory).
+        """
+        return _ResourcePathMatcher._path_like_regex.search(name) is not None
+
+    _pep_440_url_heuristic_regex: ClassVar[re.Pattern[str]] = re.compile(
+        r"^.*(?=@)",
+        flags=re.DOTALL,
+    )
+
+    # NB: This commit 16af35c61345866d582b43abfc649a0d79b16c9c inverted all of the logic
+    #     in this method and and made it extremely difficult to follow.
+    #     See 5b93c0919912efc548caa3e71df5e8bdf9706d2d which introduces the original
+    #     version of this logic which the below implementation attempts to revert to.
+    @staticmethod
+    def get_path_or_url(path: str, name: str) -> ParsedUrl | None:
+        """
+        First, it checks whether a provided path is an installable directory. If it
+        is, returns the path.
+
+        If false, check if the path is an archive file (such as a .whl).
+        The function checks if the path is a file. If false, if the path has
+        an @, it will treat it as a PEP 440 URL requirement and return the path.
+        """
+        if _ResourcePathMatcher.looks_like_path(name) and os.path.isdir(path):
+            if not is_installable_dir(path):
+                raise InstallationError(
+                    f"Requirement string {name!r} points to a readable directory "
+                    f"at {path!r}, but that directory is not installable. "
+                    "For example, neither 'setup.py' nor 'pyproject.toml' were found."
+                )
+            return path_to_url(path)
+
+        if FileExtensions.archive_file_extension(path):
+            # The file ends in an archive-like file extension.
+
+            if os.path.isfile(path):
+                # It was a real file!
+                return path_to_url(path)
+
+            if pre_at := _ResourcePathMatcher._pep_440_url_heuristic_regex.match(name):
+                if _ResourcePathMatcher.looks_like_path(pre_at.group(0)):
+                    url_path = path_to_url(path)
+                    logger.warning(
+                        "Requirement %r looks like an archive filename "
+                        "(before the @: %r), but the file at path %r does not exist. "
+                        "Interpreting it as a url: %r.",
+                        name,
+                        pre_at,
+                        path,
+                        url_path,
+                    )
+                    return url_path
+            else:
+                url_path = path_to_url(path)
+                logger.warning(
+                    "Requirement %r looks like an archive filename, "
+                    "but the file at path %r does not exist. "
+                    "Interpreting it as a url: %r.",
+                    name,
+                    path,
+                    url_path,
+                )
+                return url_path
+
+        # No such luck!
+        return None
 
 
 def parse_req_from_line(name: str, line_source: str | None) -> RequirementParts:
@@ -317,7 +351,7 @@ def parse_req_from_line(name: str, line_source: str | None) -> RequirementParts:
         link = Link(name)
     else:
         p, extras_as_string = _strip_extras(name)
-        url = _get_url_from_path(p, name)
+        url = _ResourcePathMatcher.get_path_or_url(p, name)
         if url is not None:
             link = Link(url)
 

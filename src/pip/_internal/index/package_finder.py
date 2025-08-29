@@ -39,7 +39,7 @@ from pip._internal.models.target_python import TargetPython
 from pip._internal.models.wheel import WheelInfo
 from pip._internal.req import InstallRequirement
 from pip._internal.utils._log import getLogger
-from pip._internal.utils.filetypes import WHEEL_EXTENSION
+from pip._internal.utils.filetypes import FileExtensions
 from pip._internal.utils.hashes import Hashes
 from pip._internal.utils.logging import indent_log
 from pip._internal.utils.misc import build_netloc
@@ -347,17 +347,20 @@ class LinkEvaluator:
                 return None, _NotAFile()
             if ext not in SUPPORTED_EXTENSIONS:
                 return None, _UnsupportedArchive(ext)
-            if not self.formats.allows_binary() and ext == WHEEL_EXTENSION:
+            if (
+                not self.formats.allows_binary()
+                and ext == FileExtensions.WHEEL_EXTENSION
+            ):
                 return None, _NoBinariesAllowed(self.project_name)
             if "macosx10" in link.path and ext == ".zip":
                 return None, _MacOSX10()
-            if ext == WHEEL_EXTENSION:
+            if ext == FileExtensions.WHEEL_EXTENSION:
                 version, result = self._parse_wheel(link.filename)
                 if result is not None:
                     return None, result
 
         # This should be up by the self.ok_binary check, but see issue 2700.
-        if not self.formats.allows_source() and ext != WHEEL_EXTENSION:
+        if not self.formats.allows_source() and ext != FileExtensions.WHEEL_EXTENSION:
             return None, _NoSourcesAllowed(self.project_name)
 
         if version is None:
