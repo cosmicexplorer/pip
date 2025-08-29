@@ -4,6 +4,7 @@ import abc
 import functools
 import itertools
 import os
+import posixpath
 import re
 import string
 import urllib.parse
@@ -12,7 +13,12 @@ from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar, NewType, cast
 
-from pip._internal.utils.misc import pairwise, redact_netloc, split_auth_from_netloc
+from pip._internal.utils.misc import (
+    pairwise,
+    redact_netloc,
+    split_auth_from_netloc,
+    splitext,
+)
 
 from .compat import WINDOWS
 
@@ -510,6 +516,25 @@ class ParsedUrl(PathSegments):
             path = path[1:]
 
         return path
+
+    @functools.cached_property
+    def _base_name(self) -> str:
+        return posixpath.basename(self._unquoted_path.rstrip("/"))
+
+    @functools.cached_property
+    def _filename(self) -> str:
+        if name := self._base_name:
+            return name
+        # Make sure we don't leak auth information if the netloc
+        # includes a username and password.
+        return self._netloc_without_auth_info
+
+    @functools.cached_property
+    def _splitext(self) -> tuple[str, str]:
+        return splitext(self._base_name)
+
+    def splitext(self) -> tuple[str, str]:
+        return self._splitext
 
     @functools.cached_property
     def _as_no_fragment(self) -> ParsedUrl:

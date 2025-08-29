@@ -418,9 +418,9 @@ class TestInstallUnpackedWheel:
         because wheelpath is typically the result of a local build.
         """
         self.prep(data, tmpdir)
-        direct_url = DirectUrl(
+        direct_url = DirectUrl.create(
             url="file:///home/user/archive.tgz",
-            info=ArchiveInfo(),
+            info=ArchiveInfo.parse(),
         )
         wheel.install_wheel(
             self.name,

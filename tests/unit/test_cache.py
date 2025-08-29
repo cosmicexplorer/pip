@@ -9,7 +9,7 @@ import pytest
 
 from pip._vendor.packaging.tags import Tag, interpreter_name, interpreter_version
 
-from pip._internal.cache import CacheEntry, WheelCache, _contains_egg_info, _hash_dict
+from pip._internal.cache import Cache, CacheEntry, WheelCache, _CacheabilityJudge
 from pip._internal.models.link import Link
 from pip._internal.utils.misc import ensure_dir
 from pip._internal.utils.urls import ParsedUrl
@@ -49,7 +49,7 @@ def _get_cache_entry(
     ],
 )
 def test_contains_egg_info(s: str, expected: bool) -> None:
-    result = _contains_egg_info(s)
+    result = _CacheabilityJudge.contains_egg_info(s)
     assert result == expected
 
 
@@ -88,11 +88,11 @@ def test_wheel_name_filter(tmpdir: Path) -> None:
 
 
 def test_cache_hash() -> None:
-    h = _hash_dict({"url": "https://g.c/o/r"})
+    h = Cache._hash_dict({"url": "https://g.c/o/r"})
     assert h == "72aa79d3315c181d2cc23239d7109a782de663b6f89982624d8c1e86"
-    h = _hash_dict({"url": "https://g.c/o/r", "subdirectory": "sd"})
+    h = Cache._hash_dict({"url": "https://g.c/o/r", "subdirectory": "sd"})
     assert h == "8b13391b6791bf7f3edeabb41ea4698d21bcbdbba7f9c7dc9339750d"
-    h = _hash_dict({"subdirectory": "/\xe9e"})
+    h = Cache._hash_dict({"subdirectory": "/\xe9e"})
     assert h == "f83b32dfa27a426dec08c21bf006065dd003d0aac78e7fc493d9014d"
 
 
@@ -113,7 +113,7 @@ def test_link_to_cache(tmpdir: Path) -> None:
         "interpreter_name": i_name,
         "interpreter_version": i_version,
     }
-    expected_hash = _hash_dict(key_parts)
+    expected_hash = Cache._hash_dict(key_parts)
     parts = [
         expected_hash[:2],
         expected_hash[2:4],

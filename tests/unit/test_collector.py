@@ -17,14 +17,9 @@ from pip._vendor import requests
 
 from pip._internal.exceptions import NetworkConnectionError
 from pip._internal.index.collector import (
+    ApiSemantics,
     IndexContent,
     LinkCollector,
-    _get_index_content,
-    _get_simple_response,
-    _make_index_content,
-    _NotAPIContent,
-    _NotHTTP,
-    parse_links,
 )
 from pip._internal.index.sources import _FlatDirectorySource, _IndexDirectorySource
 from pip._internal.models.candidate import InstallationCandidate
@@ -67,8 +62,10 @@ def test_get_simple_response_archive_to_naive_scheme(url: str) -> None:
     `_get_simple_response()` should error on an archive-like URL if the scheme
     does not allow "poking" without getting data.
     """
-    with pytest.raises(_NotHTTP):
-        _get_simple_response(url, session=mock.Mock(PipSession))
+    with pytest.raises(ApiSemantics._NotHTTP):
+        ApiSemantics._get_simple_response(
+            ParsedUrl.parse(url), session=mock.Mock(PipSession)
+        )
 
 
 @pytest.mark.parametrize(
@@ -94,8 +91,8 @@ def test_get_simple_response_archive_to_http_scheme(
         }
     )
 
-    with pytest.raises(_NotAPIContent) as ctx:
-        _get_simple_response(url, session=session)
+    with pytest.raises(ApiSemantics._NotAPIContent) as ctx:
+        ApiSemantics._get_simple_response(ParsedUrl.parse(url), session=session)
 
     session.assert_has_calls(
         [
@@ -124,7 +121,7 @@ def test_get_index_content_invalid_content_type_archive(
 
     session = mock.Mock(PipSession)
 
-    assert _get_index_content(link, session=session) is None
+    assert ApiSemantics._get_index_content(link, session=session) is None
     assert (
         "pip._internal.index.collector",
         logging.WARNING,
@@ -157,7 +154,7 @@ def test_get_simple_response_archive_to_http_scheme_is_html(
     )
     session.get.return_value = mock.Mock(headers={"Content-Type": "text/html"})
 
-    resp = _get_simple_response(url, session=session)
+    resp = ApiSemantics._get_simple_response(ParsedUrl.parse(url), session=session)
 
     assert resp is not None
     assert session.mock_calls == [
@@ -203,7 +200,7 @@ def test_get_simple_response_no_head(
         )
     )
 
-    resp = _get_simple_response(url, session=session)
+    resp = ApiSemantics._get_simple_response(ParsedUrl.parse(url), session=session)
 
     assert resp is not None
     assert session.head.call_count == 0
@@ -242,8 +239,8 @@ def test_get_simple_response_dont_log_clear_text_password(
 
     caplog.set_level(logging.DEBUG)
 
-    resp = _get_simple_response(
-        "https://user:my_password@example.com/simple/", session=session
+    resp = ApiSemantics._get_simple_response(
+        ParsedUrl.parse("https://user:my_password@example.com/simple/"), session=session
     )
 
     assert resp is not None
@@ -446,7 +443,7 @@ def _test_parse_links_data_attribute(
         # the page content isn't cached.
         url=f"https://example.com/simple-{uuid.uuid4()}/",
     )
-    links = list(parse_links(page))
+    links = list(page.parse_links())
     (link,) = links
     actual = getattr(link, attr)
     assert actual == expected
@@ -538,7 +535,7 @@ def test_parse_links_json() -> None:
         # the page content isn't cached.
         url=f"https://example.com/simple-{uuid.uuid4()}/",
     )
-    links = list(parse_links(page))
+    links = list(page.parse_links())
 
     assert links == [
         Link(
@@ -708,14 +705,14 @@ def test_parse_links_caches_same_page_by_url() -> None:
         url=url,
     )
 
-    parsed_links_1 = list(parse_links(page_1))
+    parsed_links_1 = list(page_1.parse_links())
     assert len(parsed_links_1) == 1
     assert "pkg1" in parsed_links_1[0].url
 
-    parsed_links_2 = list(parse_links(page_2))
+    parsed_links_2 = list(page_2.parse_links())
     assert parsed_links_2 == parsed_links_1
 
-    parsed_links_3 = list(parse_links(page_3))
+    parsed_links_3 = list(page_3.parse_links())
     assert len(parsed_links_3) == 1
     assert parsed_links_3 != parsed_links_1
     assert "pkg2" in parsed_links_3[0].url
@@ -730,7 +727,7 @@ def test_request_http_error(
     session = mock.Mock(PipSession)
     session.get.return_value = mock.Mock()
     mock_raise_for_status.side_effect = NetworkConnectionError("Http error")
-    assert _get_index_content(link, session=session) is None
+    assert ApiSemantics._get_index_content(link, session=session) is None
     assert "Could not fetch URL http://localhost: Http error - skipping" in caplog.text
 
 
@@ -739,7 +736,7 @@ def test_request_retries(caplog: pytest.LogCaptureFixture) -> None:
     link = Link("http://localhost")
     session = mock.Mock(PipSession)
     session.get.side_effect = requests.exceptions.RetryError("Retry error")
-    assert _get_index_content(link, session=session) is None
+    assert ApiSemantics._get_index_content(link, session=session) is None
     assert "Could not fetch URL http://localhost: Retry error - skipping" in caplog.text
 
 
@@ -751,7 +748,7 @@ def test_make_index_content() -> None:
         headers=headers,
     )
 
-    actual = _make_index_content(response)
+    actual = ApiSemantics._make_index_content(response)
     assert actual.content == b"<content>"
     assert actual.encoding == "UTF-8"
     assert str(actual.url) == "https://example.com/index.html"
@@ -772,7 +769,7 @@ def test_get_index_content_invalid_scheme(
     Only file:, http:, https:, and ftp: are allowed.
     """
     with caplog.at_level(logging.WARNING):
-        page = _get_index_content(Link(url), session=mock.Mock(PipSession))
+        page = ApiSemantics._get_index_content(Link(url), session=mock.Mock(PipSession))
 
     assert page is None
     assert caplog.record_tuples == [
@@ -812,7 +809,7 @@ def test_get_index_content_invalid_content_type(
             "headers": {"Content-Type": content_type},
         }
     )
-    assert _get_index_content(link, session=session) is None
+    assert ApiSemantics._get_index_content(link, session=session) is None
     mock_raise_for_status.assert_called_once_with(session.get.return_value)
     assert (
         "pip._internal.index.collector",
@@ -848,10 +845,12 @@ def test_get_index_content_directory_append_index(tmpdir: Path) -> None:
 
     session = mock.Mock(PipSession)
     fake_response = make_fake_html_response(expected_url)
-    mock_func = mock.patch("pip._internal.index.collector._get_simple_response")
+    mock_func = mock.patch(
+        "pip._internal.index.collector.ApiSemantics._get_simple_response"
+    )
     with mock_func as mock_func:
         mock_func.return_value = fake_response
-        actual = _get_index_content(Link(dir_url), session=session)
+        actual = ApiSemantics._get_index_content(Link(dir_url), session=session)
         assert mock_func.mock_calls == [
             mock.call(expected_url, headers=None, session=session),
         ], f"actual calls: {mock_func.mock_calls}"
@@ -948,7 +947,7 @@ def check_links_include(links: list[Link], names: list[str]) -> None:
 
 
 class TestLinkCollector:
-    @mock.patch("pip._internal.index.collector._get_simple_response")
+    @mock.patch("pip._internal.index.collector.ApiSemantics._get_simple_response")
     def test_fetch_response(self, mock_get_simple_response: mock.Mock) -> None:
         url = "https://pypi.org/simple/twine/"
 
@@ -957,7 +956,6 @@ class TestLinkCollector:
 
         location = Link(
             url,
-            # cache_link_parsing=False,
         )
         link_collector = make_test_link_collector()
         actual = link_collector.fetch_response(location)
@@ -1013,7 +1011,6 @@ class TestLinkCollector:
 
         assert [page.link for page in pages] == [Link("https://pypi.org/simple/twine/")]
         # Check that index URLs are marked as *un*cacheable.
-        # assert not pages[0].link.cache_link_parsing
 
         expected_message = dedent(
             """\

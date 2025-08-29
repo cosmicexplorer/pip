@@ -37,7 +37,7 @@ from pip._internal.exceptions import (
     DistributionNotFound,
     InvalidWheelFilename,
 )
-from pip._internal.index.collector import IndexContent, LinkCollector, parse_links
+from pip._internal.index.collector import IndexContent, LinkCollector
 from pip._internal.models.candidate import InstallationCandidate
 from pip._internal.models.format_control import (
     AllowedFormats,
@@ -1285,10 +1285,10 @@ class PackageFinder:
         if index_response is None:
             return []
 
-        page_links = parse_links(index_response)
-
         with indent_log():
-            package_links = self._evaluate_links(link_evaluator, links=page_links)
+            package_links = self._evaluate_links(
+                link_evaluator, links=index_response.parse_links()
+            )
         return package_links
 
     def process_project_url(
@@ -1312,6 +1312,7 @@ class PackageFinder:
             # Wipe any other Cache-Control headers away--we are explicitly managing the
             # caching here.
             "Cache-Control": "",
+            # "Cache-Control": "no-cache",
         }
         # NB: mutates headers!
         prev_etag, _prev_date, prev_checksum = self._try_load_http_cache_headers(
@@ -1371,7 +1372,7 @@ class PackageFinder:
             )
             page_links = self._write_parsed_links_cache(
                 parsed_links_path,
-                parse_links(index_response),
+                index_response.parse_links(),
             )
 
         with indent_log():

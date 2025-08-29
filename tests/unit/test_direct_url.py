@@ -1,3 +1,5 @@
+import dataclasses
+
 import pytest
 
 from pip._internal.models.direct_url import (
@@ -18,9 +20,9 @@ def test_from_json() -> None:
 
 
 def test_to_json() -> None:
-    direct_url = DirectUrl(
+    direct_url = DirectUrl.create(
         url="file:///home/user/archive.tgz",
-        info=ArchiveInfo(),
+        info=ArchiveInfo.parse(),
     )
     direct_url.validate()
     assert direct_url.to_json() == (
@@ -113,18 +115,18 @@ def test_parsing_validation() -> None:
 
 def test_redact_url() -> None:
     def _redact_git(url: str) -> str:
-        direct_url = DirectUrl(
+        direct_url = DirectUrl.create(
             url=url,
             info=VcsInfo(vcs="git", commit_id="1"),
         )
-        return direct_url.redacted_url
+        return str(direct_url.redacted_url)
 
     def _redact_archive(url: str) -> str:
-        direct_url = DirectUrl(
+        direct_url = DirectUrl.create(
             url=url,
-            info=ArchiveInfo(),
+            info=ArchiveInfo.parse(),
         )
-        return direct_url.redacted_url
+        return str(direct_url.redacted_url)
 
     assert (
         _redact_git("https://user:password@g.c/u/p.git@branch#egg=pkg")
@@ -143,28 +145,33 @@ def test_redact_url() -> None:
 
 
 def test_hash_to_hashes() -> None:
-    direct_url = DirectUrl(url="https://e.c/archive.tar.gz", info=ArchiveInfo())
+    direct_url = DirectUrl.create(
+        url="https://e.c/archive.tar.gz", info=ArchiveInfo.parse()
+    )
     assert isinstance(direct_url.info, ArchiveInfo)
-    direct_url.info.hash = "sha256=abcdef"
+    direct_url = dataclasses.replace(
+        direct_url, info=ArchiveInfo.parse(hash="sha256=abcdef")
+    )
+    assert isinstance(direct_url.info, ArchiveInfo)
     assert direct_url.info.hashes == {"sha256": "abcdef"}
 
 
 def test_hash_to_hashes_constructor() -> None:
-    direct_url = DirectUrl(
-        url="https://e.c/archive.tar.gz", info=ArchiveInfo(hash="sha256=abcdef")
+    direct_url = DirectUrl.create(
+        url="https://e.c/archive.tar.gz", info=ArchiveInfo.parse(hash="sha256=abcdef")
     )
     assert isinstance(direct_url.info, ArchiveInfo)
     assert direct_url.info.hashes == {"sha256": "abcdef"}
-    direct_url = DirectUrl(
+    direct_url = DirectUrl.create(
         url="https://e.c/archive.tar.gz",
-        info=ArchiveInfo(hash="sha256=abcdef", hashes={"sha512": "123456"}),
+        info=ArchiveInfo.parse(hash="sha256=abcdef", hashes={"sha512": "123456"}),
     )
     assert isinstance(direct_url.info, ArchiveInfo)
     assert direct_url.info.hashes == {"sha256": "abcdef", "sha512": "123456"}
     # In case of conflict between hash and hashes, hashes wins.
-    direct_url = DirectUrl(
+    direct_url = DirectUrl.create(
         url="https://e.c/archive.tar.gz",
-        info=ArchiveInfo(
+        info=ArchiveInfo.parse(
             hash="sha256=abcdef", hashes={"sha256": "012345", "sha512": "123456"}
         ),
     )

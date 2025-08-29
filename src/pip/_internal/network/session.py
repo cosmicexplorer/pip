@@ -14,14 +14,11 @@ import os
 import re
 import urllib.parse
 import warnings
-from collections.abc import Generator, Mapping, Sequence
 from typing import (
     TYPE_CHECKING,
     Any,
     Callable,
     ClassVar,
-    Optional,
-    Union,
 )
 
 from pip._vendor import requests, urllib3
@@ -40,7 +37,7 @@ from pip._internal.utils.misc import build_url_from_netloc, parse_netloc
 from pip._internal.utils.urls import ParsedUrl, url_to_path
 
 if TYPE_CHECKING:
-    from collections.abc import Set
+    from collections.abc import Iterator, Mapping, Sequence, Set
     from ssl import SSLContext
     from types import ModuleType
 
@@ -50,7 +47,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-SecureOrigin = tuple[str, str, Optional[Union[int, str]]]
+SecureOrigin = tuple[str, str, int | str | None]
 
 
 # Ignore warning raised when using --trusted-host.
@@ -579,7 +576,7 @@ class PipSession(requests.Session):
             # Mount wildcard ports for the same host.
             self.mount(build_url_from_netloc(host) + ":", self._trusted_host_adapter)
 
-    def iter_secure_origins(self) -> Generator[SecureOrigin, None, None]:
+    def iter_secure_origins(self) -> Iterator[SecureOrigin]:
         yield from SECURE_ORIGINS
         for host, port in self.pip_trusted_origins:
             yield ("*", host, "*" if port is None else port)

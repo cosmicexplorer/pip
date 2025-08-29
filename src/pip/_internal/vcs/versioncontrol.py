@@ -28,6 +28,7 @@ from pip._internal.utils.misc import (
     is_installable_dir,
     rmtree,
 )
+from pip._internal.utils.packaging.requirements import Requirement
 from pip._internal.utils.subprocess import (
     CommandArgs,
     call_subprocess,
@@ -71,7 +72,7 @@ def try_parse_url(name: str) -> ParsedUrl | None:
 
 def make_vcs_requirement_url(
     repo_url: str, rev: str, project_name: str, subdir: str | None = None
-) -> str:
+) -> Requirement:
     """
     Return the URL for a VCS requirement.
 
@@ -84,7 +85,7 @@ def make_vcs_requirement_url(
     if subdir:
         req += f"&subdirectory={subdir}"
 
-    return req
+    return Requirement.parse(req)
 
 
 def find_path_to_project_root_from_repo_root(
@@ -298,7 +299,7 @@ class VersionControl:
         return cls.get_revision(repo_dir)
 
     @classmethod
-    def get_src_requirement(cls, repo_dir: str, project_name: str) -> str:
+    def get_src_requirement(cls, repo_dir: str, project_name: str) -> Requirement:
         """
         Return the requirement string to use to redownload the files
         currently at the given repository directory.

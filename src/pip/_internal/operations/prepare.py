@@ -18,7 +18,7 @@ from pip._vendor.packaging.utils import canonicalize_name
 from pip._vendor.requests.exceptions import InvalidSchema
 
 from pip._internal.build_env import BuildEnvironmentInstaller
-from pip._internal.cache import LinkMetadataCache, should_cache
+from pip._internal.cache import LinkMetadataCache, _CacheabilityJudge
 from pip._internal.cli.progress_bars import ProgressBarType
 from pip._internal.distributions import make_distribution_for_install_requirement
 from pip._internal.exceptions import (
@@ -57,7 +57,6 @@ from pip._internal.utils.hashes import Hashes, MissingHashes
 from pip._internal.utils.logging import indent_log
 from pip._internal.utils.misc import (
     display_path,
-    hash_file,
     hide_url,
     redact_auth_from_requirement,
 )
@@ -97,7 +96,7 @@ def _get_prepared_distribution(
     tracker_id = abstract_dist.build_tracker_id
     builds_metadata = tracker_id is not None
     if builds_metadata:
-        with build_tracker.track(req, tracker_id):
+        with build_tracker.track(req, str(tracker_id)):
             abstract_dist.prepare_distribution_metadata(
                 build_env_installer, build_isolation, check_build_deps
             )
@@ -663,7 +662,7 @@ class RequirementPreparer:
         )
         try:
             return dist_from_wheel_url(
-                name, req.link.url_without_fragment, self._session
+                name, req.link.url_without_fragment(), self._session
             )
         except HTTPRangeRequestUnsupported as e:
             logger.debug(
@@ -896,7 +895,7 @@ class RequirementPreparer:
         assert req.is_concrete
         assert req.get_dist() is dist
 
-        if builds_metadata and should_cache(req):
+        if builds_metadata and _CacheabilityJudge.should_cache(req):
             self._cache_metadata(req, dist)
 
         return dist
@@ -940,15 +939,8 @@ class RequirementPreparer:
         # URL, it will have been verified and we can rely on it. Otherwise we
         # compute it from the downloaded file.
         # FIXME: https://github.com/pypa/pip/issues/11943
-        if (
-            isinstance(req.download_info.info, ArchiveInfo)
-            and not req.download_info.info.hashes
-            and req.local_file_path
-        ):
-            hash = hash_file(req.local_file_path)[0].hexdigest()
-            # We populate info.hash for backward compatibility.
-            # This will automatically populate info.hashes.
-            req.download_info.info.hash = f"sha256={hash}"
+        if isinstance(req.download_info.info, ArchiveInfo):
+            req.download_info.info.try_compute_hash_from_local_file(req.local_file_path)
 
     def save_linked_requirement(self, req: InstallRequirement) -> None:
         assert self.download_dir is not None

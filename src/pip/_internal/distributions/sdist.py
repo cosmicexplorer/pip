@@ -10,6 +10,7 @@ from pip._internal.exceptions import InstallationError
 from pip._internal.metadata import BaseDistribution, get_directory_distribution
 from pip._internal.utils.packaging.requirements import Requirement
 from pip._internal.utils.subprocess import runner_with_spinner_message
+from pip._internal.utils.urls import ParsedUrl
 
 if TYPE_CHECKING:
     from pip._internal.build_env import BuildEnvironmentInstaller
@@ -25,10 +26,10 @@ class SourceDistribution(AbstractDistribution):
     """
 
     @property
-    def build_tracker_id(self) -> str:
+    def build_tracker_id(self) -> ParsedUrl:
         """Identify this requirement uniquely by its link."""
         assert self.req.link
-        return self.req.link.url_without_fragment
+        return self.req.link.url_without_fragment()
 
     def get_metadata_distribution(self) -> BaseDistribution:
         assert (

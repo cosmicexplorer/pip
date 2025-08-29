@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import abc
+import functools
 import hashlib
 import json
 import logging
@@ -10,7 +11,7 @@ import os
 import re
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from pip._vendor.packaging.tags import interpreter_name, interpreter_version
 from pip._vendor.packaging.utils import canonicalize_name
@@ -27,61 +28,64 @@ from pip._internal.vcs import vcs
 
 logger = logging.getLogger(__name__)
 
-_egg_info_re = re.compile(r"([a-z0-9_.]+)-([a-z0-9_.!+-]+)", re.IGNORECASE)
-
 ORIGIN_JSON_NAME = "origin.json"
 
 
-def _contains_egg_info(s: str) -> bool:
-    """Determine whether the string looks like an egg_info.
+class _CacheabilityJudge:
+    _egg_info_re: ClassVar[re.Pattern[str]] = re.compile(
+        r"([a-z0-9_.]+)-([a-z0-9_.!+-]+)",
+        flags=re.IGNORECASE,
+    )
 
-    :param s: The string to parse. E.g. foo-2.1
-    """
-    return bool(_egg_info_re.search(s))
+    @staticmethod
+    def contains_egg_info(s: str) -> bool:
+        """Determine whether the string looks like an egg_info.
 
+        :param s: The string to parse. E.g. foo-2.1
+        """
+        return bool(_CacheabilityJudge._egg_info_re.search(s))
 
-def should_cache(
-    req: InstallRequirement,
-) -> bool:
-    """
-    Return whether a built InstallRequirement can be stored in the persistent
-    wheel cache, assuming the wheel cache is available, and _should_build()
-    has determined a wheel needs to be built.
-    """
-    if not req.link:
-        return False
+    @staticmethod
+    def should_cache(
+        req: InstallRequirement,
+    ) -> bool:
+        """
+        Return whether a built InstallRequirement can be stored in the persistent wheel
+        cache, assuming the wheel cache is available, and wheel_builder._should_build()
+        has determined a wheel needs to be built.
+        """
+        if not req.link:
+            return False
 
-    if req.link.is_wheel:
-        return False
+        if req.link.is_wheel:
+            return False
 
-    if req.editable or not req.source_dir:
-        # never cache editable requirements
-        return False
+        if req.editable or not req.source_dir:
+            # never cache editable requirements
+            return False
 
-    if req.link and req.link.is_vcs:
-        # VCS checkout. Do not cache
-        # unless it points to an immutable commit hash.
-        assert not req.editable
-        assert req.source_dir
-        vcs_backend = vcs.get_backend_for_scheme(req.link.scheme)
-        assert vcs_backend
-        if vcs_backend.is_immutable_rev_checkout(req.link.url, req.source_dir):
+        if req.link and req.link.is_vcs:
+            # VCS checkout. Do not cache
+            # unless it points to an immutable commit hash.
+            assert not req.editable
+            assert req.source_dir
+            vcs_backend = vcs.get_backend_for_scheme(req.link.scheme)
+            assert vcs_backend
+            if vcs_backend.is_immutable_rev_checkout(
+                # FIXME: optimize this!
+                str(req.link.parsed_url),
+                req.source_dir,
+            ):
+                return True
+            return False
+
+        assert req.link
+        base, _ = req.link.splitext()
+        if _CacheabilityJudge.contains_egg_info(base):
             return True
+
+        # Otherwise, do not cache.
         return False
-
-    assert req.link
-    base, ext = req.link.splitext()
-    if _contains_egg_info(base):
-        return True
-
-    # Otherwise, do not cache.
-    return False
-
-
-def _hash_dict(d: dict[str, str]) -> str:
-    """Return a stable sha224 of a dictionary."""
-    s = json.dumps(d, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
-    return hashlib.sha224(s.encode("ascii")).hexdigest()
 
 
 class Cache(abc.ABC):
@@ -95,19 +99,59 @@ class Cache(abc.ABC):
         assert not cache_dir or os.path.isabs(cache_dir)
         self.cache_dir = cache_dir or None
 
-    def _get_cache_path_parts(
-        self, link: Link, *, interpreter_dependent: bool
-    ) -> list[str]:
-        """Get parts of part that must be os.path.joined with cache_dir"""
+    @staticmethod
+    def _hash_dict(d: dict[str, str]) -> str:
+        """Return a stable sha224 of a dictionary."""
+        s = json.dumps(d, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+        return hashlib.sha224(s.encode("ascii")).hexdigest()
 
-        # We want to generate an url to use as our cache key, we don't want to
-        # just reuse the URL because it might have other items in the fragment
-        # and we don't care about those.
-        key_parts = {"url": link.url_without_fragment}
+    @classmethod
+    def split_hash_into_nested_dirs(cls, hashed: str) -> tuple[str, str, str, str]:
+        """Split a single sha224 hashed output into fixed-width non-empty components.
+
+        We use this output for deduplicated nested directory paths.
+
+        Note: We want to nest the directories some to prevent having a ton of top level
+              directories, where we might run out of sub directories on some FS.
+
+        Note 2: The overall combined path length is fixed to the size of our hash
+                output. Operating systems can also raise an error for overly-long path
+                strings, even if the underlying filesystem supports arbitrary-length
+                combined paths.
+        """
+        if len(hashed) != 56:
+            raise TypeError(f"expected sha224 hexdigest string, but got: {hashed!r}")
+        return hashed[:2], hashed[2:4], hashed[4:6], hashed[6:]
+
+    @staticmethod
+    @functools.cache
+    def _interpreter_keys() -> dict[str, str]:
+        # NB: dict objects are mutable, but this method is cached!
+        return {
+            "interpreter_name": interpreter_name(),
+            "interpreter_version": interpreter_version(),
+        }
+
+    @staticmethod
+    def _link_key_dict(link: Link) -> dict[str, str]:
+        """
+        We want to generate an url to use as our cache key, we don't want to
+        just reuse the URL because it might have other items in the fragment
+        and we don't care about those.
+        """
+        key_parts = {"url": str(link.url_without_fragment())}
         if link.hash_name is not None and link.hash is not None:
             key_parts[link.hash_name] = link.hash
         if link.subdirectory_fragment:
             key_parts["subdirectory"] = link.subdirectory_fragment
+        return key_parts
+
+    @classmethod
+    def _get_cache_path_parts(
+        cls, link: Link, *, interpreter_dependent: bool
+    ) -> tuple[str, ...]:
+        """Get parts of part that must be os.path.joined with cache_dir"""
+        key_parts = cls._link_key_dict(link)
 
         if interpreter_dependent:
             # Include interpreter name, major and minor version in cache key
@@ -115,21 +159,18 @@ class Cache(abc.ABC):
             # depending on the python version their setup.py is being run on,
             # and don't encode the difference in compatibility tags.
             # https://github.com/pypa/pip/issues/7296
-            key_parts["interpreter_name"] = interpreter_name()
-            key_parts["interpreter_version"] = interpreter_version()
+            key_parts.update(**cls._interpreter_keys())
 
         # Encode our key url with sha224, we'll use this because it has similar
         # security properties to sha256, but with a shorter total output (and
         # thus less secure). However the differences don't make a lot of
         # difference for our use case here.
-        hashed = _hash_dict(key_parts)
+        hashed = cls._hash_dict(key_parts)
 
         # We want to nest the directories some to prevent having a ton of top
         # level directories where we might run out of sub directories on some
         # FS.
-        parts = [hashed[:2], hashed[2:4], hashed[4:6], hashed[6:]]
-
-        return parts
+        return cls.split_hash_into_nested_dirs(hashed)
 
     @abc.abstractmethod
     def get_path_for_link(self, link: Link) -> str:
@@ -167,7 +208,7 @@ class FetchResolveCache(Cache):
         return os.path.join(self.cache_dir, "fetch-resolve", *parts)
 
     def hashed_entry_path(self, link: Link, entry: SerializableEntry) -> Path:
-        hashed = _hash_dict(entry.serialize())
+        hashed = self.__class__._hash_dict(entry.serialize())
         return self.cache_path(link) / f"{hashed}{entry.suffix()}"
 
     def clear_hashed_entries(
@@ -342,7 +383,7 @@ class WheelCache(WheelCacheBase):
         downloaded wheel should be stored."""
         cache_available = bool(self.cache_dir)
         assert req.link, req
-        if cache_available and should_cache(req):
+        if cache_available and _CacheabilityJudge.should_cache(req):
             return self.get_path_for_link(req.link)
         return self.get_ephem_path_for_link(req.link)
 

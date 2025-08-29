@@ -3,8 +3,8 @@ from __future__ import annotations
 import collections
 import logging
 import os
-from collections.abc import Container, Generator, Iterable
-from dataclasses import dataclass, field
+from collections.abc import Container, Generator
+from dataclasses import dataclass
 from typing import NamedTuple
 
 from pip._vendor.packaging.utils import NormalizedName, canonicalize_name
@@ -18,13 +18,14 @@ from pip._internal.req.constructors import (
 )
 from pip._internal.req.req_file import COMMENT_RE
 from pip._internal.utils.direct_url_helpers import direct_url_as_pep440_direct_reference
+from pip._internal.utils.packaging.requirements import Requirement
 
 logger = logging.getLogger(__name__)
 
 
 class _EditableInfo(NamedTuple):
-    requirement: str
-    comments: list[str]
+    requirement: Requirement
+    comments: tuple[str, ...]
 
 
 def freeze(
@@ -148,14 +149,14 @@ def freeze(
             yield str(installation).rstrip()
 
 
-def _format_as_name_version(dist: BaseDistribution) -> str:
+def _format_as_name_version(dist: BaseDistribution) -> Requirement:
     try:
         dist_version = dist.version
     except InvalidVersion:
         # legacy version
-        return f"{dist.raw_name}==={dist.raw_version}"
+        return Requirement.parse(f"{dist.raw_name}==={dist.raw_version}")
     else:
-        return f"{dist.raw_name}=={dist_version}"
+        return Requirement.parse(f"{dist.raw_name}=={dist_version}")
 
 
 def _get_editable_info(dist: BaseDistribution) -> _EditableInfo:
@@ -179,8 +180,8 @@ def _get_editable_info(dist: BaseDistribution) -> _EditableInfo:
             location,
         )
         return _EditableInfo(
-            requirement=location,
-            comments=[f"# Editable install with no version control ({display})"],
+            requirement=Requirement.parse(location),
+            comments=(f"# Editable install with no version control ({display})",),
         )
 
     vcs_name = type(vcs_backend).__name__
@@ -190,18 +191,18 @@ def _get_editable_info(dist: BaseDistribution) -> _EditableInfo:
     except RemoteNotFoundError:
         display = _format_as_name_version(dist)
         return _EditableInfo(
-            requirement=location,
-            comments=[f"# Editable {vcs_name} install with no remote ({display})"],
+            requirement=Requirement.parse(location),
+            comments=(f"# Editable {vcs_name} install with no remote ({display})",),
         )
     except RemoteNotValidError as ex:
         display = _format_as_name_version(dist)
         return _EditableInfo(
-            requirement=location,
-            comments=[
+            requirement=Requirement.parse(location),
+            comments=(
                 f"# Editable {vcs_name} install ({display}) with either a deleted "
                 f"local remote or invalid URI:",
                 f"# '{ex.url}'",
-            ],
+            ),
         )
     except BadCommand:
         logger.warning(
@@ -210,26 +211,26 @@ def _get_editable_info(dist: BaseDistribution) -> _EditableInfo:
             location,
             vcs_backend.name,
         )
-        return _EditableInfo(requirement=location, comments=[])
+        return _EditableInfo(requirement=Requirement.parse(location), comments=())
     except InstallationError as exc:
         logger.warning("Error when trying to get requirement for VCS system %s", exc)
     else:
-        return _EditableInfo(requirement=req, comments=[])
+        return _EditableInfo(requirement=req, comments=())
 
     logger.warning("Could not determine repository location of %s", location)
 
     return _EditableInfo(
-        requirement=location,
-        comments=["## !! Could not determine repository location"],
+        requirement=Requirement.parse(location),
+        comments=("## !! Could not determine repository location",),
     )
 
 
 @dataclass(frozen=True)
 class FrozenRequirement:
     name: str
-    req: str
+    req: Requirement
     editable: bool
-    comments: Iterable[str] = field(default_factory=tuple)
+    comments: tuple[str, ...] = ()
 
     @property
     def canonical_name(self) -> NormalizedName:
@@ -241,7 +242,7 @@ class FrozenRequirement:
         if editable:
             req, comments = _get_editable_info(dist)
         else:
-            comments = []
+            comments = ()
             direct_url = dist.direct_url
             if direct_url:
                 # if PEP 610 metadata is present, use it
@@ -253,7 +254,7 @@ class FrozenRequirement:
         return cls(dist.raw_name, req, editable, comments=comments)
 
     def __str__(self) -> str:
-        req = self.req
+        req = str(self.req)
         if self.editable:
             req = f"-e {req}"
-        return "\n".join(list(self.comments) + [str(req)]) + "\n"
+        return "\n".join((*self.comments, req)) + "\n"

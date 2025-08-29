@@ -7,6 +7,7 @@ import email.message
 import logging
 import mimetypes
 import os
+import posixpath
 import time
 from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager
@@ -61,10 +62,11 @@ def _get_http_response_etag_or_last_modified(resp: Response) -> str | None:
 
 def _format_download_log_url(link: Link) -> str:
     if link.netloc == PyPI.file_storage_domain:
-        url = link.show_url
+        url = posixpath.basename(str(link.parsed_url.with_no_fragment_or_query()))
     else:
-        url = link.url_without_fragment
+        url = str(link.url_without_fragment())
 
+    # FIXME: optimize this!
     return redact_auth_from_url(url)
 
 
@@ -234,7 +236,8 @@ class _CacheSemantics:
         cache as though it was downloaded in a single request, so that future
         requests can use the cache.
         """
-        url = download.link.url_without_fragment
+        # TODO: optimize this?
+        url = str(download.link.url_without_fragment())
         adapter = self._session.get_adapter(url)
 
         # Check if the adapter is the CacheControlAdapter (i.e. caching is enabled)
@@ -294,7 +297,7 @@ class _CacheSemantics:
         return self.http_get(download.link, headers)
 
     def http_get(self, link: Link, headers: Mapping[str, str] = HEADERS) -> Response:
-        target_url = link.url_without_fragment
+        target_url = str(link.url_without_fragment())
         try:
             resp = self._session.get(target_url, headers=headers, stream=True)
             raise_for_status(resp)

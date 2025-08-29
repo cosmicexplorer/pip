@@ -1,3 +1,4 @@
+import dataclasses
 import os
 from functools import partial
 from pathlib import Path
@@ -13,23 +14,27 @@ from pip._internal.vcs.git import Git
 
 
 def test_as_pep440_requirement_archive() -> None:
-    direct_url = DirectUrl(
+    direct_url = DirectUrl.create(
         url="file:///home/user/archive.tgz",
-        info=ArchiveInfo(),
+        info=ArchiveInfo.parse(),
     )
     direct_url.validate()
     assert (
         direct_url_as_pep440_direct_reference(direct_url, "pkg")
         == "pkg @ file:///home/user/archive.tgz"
     )
-    direct_url.subdirectory = "subdir"
+    direct_url = dataclasses.replace(direct_url, subdirectory="subdir")
     direct_url.validate()
     assert (
         direct_url_as_pep440_direct_reference(direct_url, "pkg")
         == "pkg @ file:///home/user/archive.tgz#subdirectory=subdir"
     )
     assert isinstance(direct_url.info, ArchiveInfo)
-    direct_url.info.hash = "sha1=1b8c5bc61a86f377fea47b4276c8c8a5842d2220"
+    direct_url = dataclasses.replace(
+        direct_url,
+        info=ArchiveInfo.parse(hash="sha1=1b8c5bc61a86f377fea47b4276c8c8a5842d2220"),
+    )
+    assert isinstance(direct_url.info, ArchiveInfo)
     direct_url.validate()
     assert (
         direct_url_as_pep440_direct_reference(direct_url, "pkg")
@@ -39,7 +44,7 @@ def test_as_pep440_requirement_archive() -> None:
 
 
 def test_as_pep440_requirement_dir() -> None:
-    direct_url = DirectUrl(
+    direct_url = DirectUrl.create(
         url="file:///home/user/project",
         info=DirInfo(editable=False),
     )
@@ -54,7 +59,7 @@ def test_as_pep440_requirement_editable_dir() -> None:
     # direct_url_as_pep440_direct_reference behaves the same
     # irrespective of the editable flag. It's the responsibility of
     # callers to render it as editable
-    direct_url = DirectUrl(
+    direct_url = DirectUrl.create(
         url="file:///home/user/project",
         info=DirInfo(editable=True),
     )
@@ -66,7 +71,7 @@ def test_as_pep440_requirement_editable_dir() -> None:
 
 
 def test_as_pep440_requirement_vcs() -> None:
-    direct_url = DirectUrl(
+    direct_url = DirectUrl.create(
         url="https:///g.c/u/p.git",
         info=VcsInfo(vcs="git", commit_id="1b8c5bc61a86f377fea47b4276c8c8a5842d2220"),
     )
@@ -76,7 +81,7 @@ def test_as_pep440_requirement_vcs() -> None:
         == "pkg @ git+https:///g.c/u/p.git"
         "@1b8c5bc61a86f377fea47b4276c8c8a5842d2220"
     )
-    direct_url.subdirectory = "subdir"
+    direct_url = dataclasses.replace(direct_url, subdirectory="subdir")
     direct_url.validate()
     assert (
         direct_url_as_pep440_direct_reference(direct_url, "pkg")

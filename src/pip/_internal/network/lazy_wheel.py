@@ -13,7 +13,6 @@ from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from tempfile import NamedTemporaryFile
 from typing import Any, BinaryIO, ClassVar, cast
-from urllib.parse import urlparse
 from zipfile import BadZipFile, ZipFile
 
 from pip._vendor.packaging.utils import canonicalize_name
@@ -26,6 +25,7 @@ from pip._internal.metadata import BaseDistribution, MemoryWheel, get_wheel_dist
 from pip._internal.network.session import PipSession
 from pip._internal.network.utils import HEADERS
 from pip._internal.utils.logging import indent_log
+from pip._internal.utils.urls import ParsedUrl
 
 __all__ = ["HTTPRangeRequestUnsupported", "dist_from_wheel_url", "LazyWheelOverHTTP"]
 
@@ -36,7 +36,9 @@ class HTTPRangeRequestUnsupported(Exception):
     """Raised when the remote server appears unable to support byte ranges."""
 
 
-def dist_from_wheel_url(name: str, url: str, session: PipSession) -> BaseDistribution:
+def dist_from_wheel_url(
+    name: str, url: ParsedUrl, session: PipSession
+) -> BaseDistribution:
     """Return a distribution object from the given wheel URL.
 
     This uses HTTP range requests to only fetch the portion of the wheel
@@ -57,7 +59,7 @@ def dist_from_wheel_url(name: str, url: str, session: PipSession) -> BaseDistrib
         # We assume that these errors have occurred because the wheel contents themself
         # are invalid, not because we've messed up our bookkeeping and produced an
         # invalid file that pip would otherwise process normally.
-        raise InvalidWheel(url, name, context=str(e))
+        raise InvalidWheel(str(url), name, context=str(e))
 
 
 class MergeIntervals:
@@ -396,7 +398,7 @@ class LazyHTTPFile(FixedSizeLazyResource):
 
     def __init__(
         self,
-        url: str,
+        url: ParsedUrl,
         session: PipSession,
         delete_backing_file: bool = True,
     ) -> None:
@@ -640,7 +642,7 @@ class LazyWheelOverHTTP(LazyHTTPFile):
         self, initial_chunk_size: int
     ) -> tuple[int, Response | None]:
         """Get the Content-Length of the remote file, and possibly a chunk of it."""
-        domain = urlparse(self._url).netloc
+        domain = self._url.netloc
         if domain in self._domains_without_negative_range:
             return (self._content_length_from_head(), None)
 

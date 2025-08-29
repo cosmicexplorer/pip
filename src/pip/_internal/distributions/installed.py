@@ -7,6 +7,7 @@ from pip._internal.metadata import BaseDistribution
 
 if TYPE_CHECKING:
     from pip._internal.build_env import BuildEnvironmentInstaller
+    from pip._internal.utils.urls import ParsedUrl
 
 
 class InstalledDistribution(AbstractDistribution):
@@ -17,7 +18,7 @@ class InstalledDistribution(AbstractDistribution):
     """
 
     @property
-    def build_tracker_id(self) -> str | None:
+    def build_tracker_id(self) -> ParsedUrl | None:
         return None
 
     def get_metadata_distribution(self) -> BaseDistribution:

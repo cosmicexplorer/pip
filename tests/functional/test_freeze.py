@@ -1,3 +1,4 @@
+import dataclasses
 import os
 import re
 import sys
@@ -1045,7 +1046,11 @@ def test_freeze_pep610_editable(script: PipTestEnvironment) -> None:
     with open(direct_url_path) as f:
         direct_url = DirectUrl.from_json(f.read())
     assert isinstance(direct_url.info, DirInfo)
-    direct_url.info.editable = True
+    direct_url = dataclasses.replace(
+        direct_url,
+        info=dataclasses.replace(direct_url.info, editable=True),
+    )
+    assert isinstance(direct_url.info, DirInfo)
     with open(direct_url_path, "w") as f:
         f.write(direct_url.to_json())
     result = script.pip("freeze")

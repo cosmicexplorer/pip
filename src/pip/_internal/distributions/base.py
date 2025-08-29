@@ -8,6 +8,7 @@ from pip._internal.req import InstallRequirement
 
 if TYPE_CHECKING:
     from pip._internal.build_env import BuildEnvironmentInstaller
+    from pip._internal.utils.urls import ParsedUrl
 
 
 class AbstractDistribution(metaclass=abc.ABCMeta):
@@ -34,7 +35,7 @@ class AbstractDistribution(metaclass=abc.ABCMeta):
         self.req = req
 
     @abc.abstractproperty
-    def build_tracker_id(self) -> str | None:
+    def build_tracker_id(self) -> ParsedUrl | None:
         """A string that uniquely identifies this requirement to the build tracker.
 
         If None, then this dist has no work to do in the build tracker, and

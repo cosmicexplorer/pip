@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
+import abc
 import functools
 import json
 import re
-import urllib.parse
-from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, ClassVar, TypeVar, Union
+from typing import TYPE_CHECKING, Any, ClassVar, TypeVar
 
+from pip._internal.utils.misc import hash_file
 from pip._internal.utils.urls import ParsedUrl
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator, Mapping
+
+    from typing_extensions import Self
 
 __all__ = [
     "DirectUrl",
@@ -23,7 +28,6 @@ __all__ = [
 T = TypeVar("T")
 
 DIRECT_URL_METADATA_NAME = "direct_url.json"
-ENV_VAR_RE = re.compile(r"^\$\{[A-Za-z0-9-_]+\}(:\$\{[A-Za-z0-9-_]+\})?$")
 
 
 class DirectUrlValidationError(Exception):
@@ -31,7 +35,7 @@ class DirectUrlValidationError(Exception):
 
 
 def _get(
-    d: dict[str, Any], expected_type: type[T], key: str, default: T | None = None
+    d: Mapping[str, Any], expected_type: type[T], key: str, default: T | None = None
 ) -> T | None:
     """Get value from dictionary and verify expected type."""
     if key not in d:
@@ -45,7 +49,7 @@ def _get(
 
 
 def _get_required(
-    d: dict[str, Any], expected_type: type[T], key: str, default: T | None = None
+    d: Mapping[str, Any], expected_type: type[T], key: str, default: T | None = None
 ) -> T:
     value = _get(d, expected_type, key, default)
     if value is None:
@@ -53,8 +57,8 @@ def _get_required(
     return value
 
 
-def _exactly_one_of(infos: Iterable[InfoType | None]) -> InfoType:
-    infos = [info for info in infos if info is not None]
+def _exactly_one_of(parsed_infos: Iterator[InfoType | None]) -> InfoType:
+    infos = tuple(filter(None, parsed_infos))
     if not infos:
         raise DirectUrlValidationError(
             "missing one of archive_info, dir_info, vcs_info"
@@ -63,7 +67,6 @@ def _exactly_one_of(infos: Iterable[InfoType | None]) -> InfoType:
         raise DirectUrlValidationError(
             "more than one of archive_info, dir_info, vcs_info"
         )
-    assert infos[0] is not None
     return infos[0]
 
 
@@ -72,16 +75,29 @@ def _filter_none(**kwargs: Any) -> dict[str, Any]:
     return {k: v for k, v in kwargs.items() if v is not None}
 
 
-@dataclass
-class VcsInfo:
-    name: ClassVar = "vcs_info"
+class InfoType(metaclass=abc.ABCMeta):
+    @property
+    @abc.abstractmethod
+    def name(self) -> str: ...
+
+    @classmethod
+    @abc.abstractmethod
+    def _from_dict(cls, d: Mapping[str, Any] | None) -> Self | None: ...
+
+    @abc.abstractmethod
+    def _to_dict(self) -> dict[str, Any]: ...
+
+
+@dataclass(frozen=True)
+class VcsInfo(InfoType):
+    name: ClassVar[str] = "vcs_info"
 
     vcs: str
     commit_id: str
     requested_revision: str | None = None
 
     @classmethod
-    def _from_dict(cls, d: dict[str, Any] | None) -> VcsInfo | None:
+    def _from_dict(cls, d: Mapping[str, Any] | None) -> Self | None:
         if d is None:
             return None
         return cls(
@@ -98,58 +114,77 @@ class VcsInfo:
         )
 
 
-class ArchiveInfo:
-    name = "archive_info"
+@dataclass(frozen=True)
+class ArchiveInfo(InfoType):
+    name: ClassVar[str] = "archive_info"
 
-    def __init__(
-        self,
-        hash: str | None = None,
-        hashes: dict[str, str] | None = None,
-    ) -> None:
-        # set hashes before hash, since the hash setter will further populate hashes
-        self.hashes = hashes
-        self.hash = hash
+    hash: str | None
+    hashes: dict[str, str] | None
 
-    @property
-    def hash(self) -> str | None:
-        return self._hash
+    def __post_init__(self) -> None:
+        if self.hash is not None:
+            assert self.hash
+        if self.hashes is not None:
+            assert self.hashes
 
-    @hash.setter
-    def hash(self, value: str | None) -> None:
-        if value is not None:
-            # Auto-populate the hashes key to upgrade to the new format automatically.
-            # We don't back-populate the legacy hash key from hashes.
-            try:
-                hash_name, hash_value = value.split("=", 1)
-            except ValueError:
-                raise DirectUrlValidationError(
-                    f"invalid archive_info.hash format: {value!r}"
-                )
-            if self.hashes is None:
-                self.hashes = {hash_name: hash_value}
-            elif hash_name not in self.hashes:
-                self.hashes = self.hashes.copy()
-                self.hashes[hash_name] = hash_value
-        self._hash = value
+    def try_compute_hash_from_local_file(self, local_file_path: str | None) -> None:
+        """
+        Make sure we have a hash in download_info. If we got it as part of the
+        URL, it will have been verified and we can rely on it. Otherwise we
+        compute it from the downloaded file.
+
+        FIXME: https://github.com/pypa/pip/issues/11943
+        """
+        if self.hashes:
+            return
+        if local_file_path is None:
+            return
+        hash = hash_file(local_file_path)[0].hexdigest()
+        # We populate info.hash for backward compatibility.
+        object.__setattr__(self, "hash", f"sha256={hash}")
+        # We're working around the immutable parse() method, so we have to copy its
+        # logic again here.
+        object.__setattr__(self, "hashes", {"sha256": hash})
 
     @classmethod
-    def _from_dict(cls, d: dict[str, Any] | None) -> ArchiveInfo | None:
+    def parse(
+        cls,
+        hash: str | None = None,
+        hashes: Mapping[str, str] | None = None,
+    ) -> Self:
+        # Auto-populate the hashes key to upgrade to the new format automatically.
+        # We don't back-populate the legacy hash key from hashes.
+        if hash is not None:
+            try:
+                hash_name, hash_value = hash.split("=", 1)
+            except ValueError:
+                raise DirectUrlValidationError(
+                    f"invalid archive_info.hash format: {hash!r}"
+                )
+            if hashes is None:
+                hashes = {hash_name: hash_value}
+            elif hash_name not in hashes:
+                hashes = {**hashes, hash_name: hash_value}
+        return cls(hash=hash, hashes=dict(hashes) if hashes else None)
+
+    @classmethod
+    def _from_dict(cls, d: Mapping[str, Any] | None) -> ArchiveInfo | None:
         if d is None:
             return None
-        return cls(hash=_get(d, str, "hash"), hashes=_get(d, dict, "hashes"))
+        return cls.parse(hash=_get(d, str, "hash"), hashes=_get(d, dict, "hashes"))
 
     def _to_dict(self) -> dict[str, Any]:
         return _filter_none(hash=self.hash, hashes=self.hashes)
 
 
-@dataclass
-class DirInfo:
-    name: ClassVar = "dir_info"
+@dataclass(frozen=True)
+class DirInfo(InfoType):
+    name: ClassVar[str] = "dir_info"
 
     editable: bool = False
 
     @classmethod
-    def _from_dict(cls, d: dict[str, Any] | None) -> DirInfo | None:
+    def _from_dict(cls, d: Mapping[str, Any] | None) -> Self | None:
         if d is None:
             return None
         return cls(editable=_get_required(d, bool, "editable", default=False))
@@ -158,18 +193,34 @@ class DirInfo:
         return _filter_none(editable=self.editable or None)
 
 
-InfoType = Union[ArchiveInfo, DirInfo, VcsInfo]
-
-
-@dataclass
+@dataclass(frozen=True)
 class DirectUrl:
-    url: str
+    url: ParsedUrl
     info: InfoType
-    subdirectory: str | None = None
+    subdirectory: str | None
 
-    @functools.cached_property
-    def parsed_url(self) -> ParsedUrl:
-        return ParsedUrl.parse(self.url)
+    def __post_init__(self) -> None:
+        if self.subdirectory is not None:
+            assert self.subdirectory
+
+    @classmethod
+    def create(
+        cls,
+        url: str | ParsedUrl,
+        info: InfoType,
+        subdirectory: str | None = None,
+    ) -> Self:
+        if isinstance(url, str):
+            url = ParsedUrl.parse(url)
+        return cls(
+            url=url,
+            info=info,
+            subdirectory=subdirectory or None,
+        )
+
+    ENV_VAR_RE: ClassVar[re.Pattern[str]] = re.compile(
+        r"^\$\{[A-Za-z0-9-_]+\}(:\$\{[A-Za-z0-9-_]+\})?$"
+    )
 
     def _remove_auth_from_netloc(self, netloc: str) -> str:
         if "@" not in netloc:
@@ -181,50 +232,46 @@ class DirectUrl:
             and user_pass == "git"
         ):
             return netloc
-        if ENV_VAR_RE.match(user_pass):
+        if self.__class__.ENV_VAR_RE.match(user_pass):
             return netloc
         return netloc_no_user_pass
 
-    @property
-    def redacted_url(self) -> str:
+    @functools.cached_property
+    def redacted_url(self) -> ParsedUrl:
         """url with user:password part removed unless it is formed with
         environment variables as specified in PEP 610, or it is ``git``
         in the case of a git URL.
         """
-        purl = urllib.parse.urlsplit(self.url)
-        netloc = self._remove_auth_from_netloc(purl.netloc)
-        surl = urllib.parse.urlunsplit(
-            (purl.scheme, netloc, purl.path, purl.query, purl.fragment)
-        )
-        return surl
+        netloc = self._remove_auth_from_netloc(self.url.netloc)
+        return self.url.with_netloc(netloc=netloc)
 
     def validate(self) -> None:
         self.from_dict(self.to_dict())
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> DirectUrl:
-        return DirectUrl(
+    def _try_parse_infos(cls, d: Mapping[str, Any]) -> Iterator[InfoType | None]:
+        yield ArchiveInfo._from_dict(_get(d, dict, "archive_info"))
+        yield DirInfo._from_dict(_get(d, dict, "dir_info"))
+        yield VcsInfo._from_dict(_get(d, dict, "vcs_info"))
+
+    @classmethod
+    def from_dict(cls, d: Mapping[str, Any]) -> Self:
+        return cls.create(
             url=_get_required(d, str, "url"),
             subdirectory=_get(d, str, "subdirectory"),
-            info=_exactly_one_of(
-                [
-                    ArchiveInfo._from_dict(_get(d, dict, "archive_info")),
-                    DirInfo._from_dict(_get(d, dict, "dir_info")),
-                    VcsInfo._from_dict(_get(d, dict, "vcs_info")),
-                ]
-            ),
+            info=_exactly_one_of(cls._try_parse_infos(d)),
         )
 
     def to_dict(self) -> dict[str, Any]:
         res = _filter_none(
-            url=self.redacted_url,
+            url=str(self.redacted_url),
             subdirectory=self.subdirectory,
         )
         res[self.info.name] = self.info._to_dict()
         return res
 
     @classmethod
-    def from_json(cls, s: str) -> DirectUrl:
+    def from_json(cls, s: str) -> Self:
         return cls.from_dict(json.loads(s))
 
     def to_json(self) -> str:

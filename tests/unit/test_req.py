@@ -460,7 +460,7 @@ class TestRequirementSet:
         cache_entry_dir = wheel_cache.get_path_for_link(Link(url))
         Path(cache_entry_dir).mkdir(parents=True)
         Path(cache_entry_dir).joinpath("origin.json").write_text(
-            DirectUrl(url, ArchiveInfo(hash=hash)).to_json()
+            DirectUrl.create(url, ArchiveInfo.parse(hash=hash)).to_json()
         )
         wheel.make_wheel(name="simple", version="1.0").save_to_dir(cache_entry_dir)
         with self._basic_resolver(finder, wheel_cache=wheel_cache) as resolver:
@@ -507,7 +507,7 @@ class TestRequirementSet:
             assert len(reqset.all_requirements) == 1
             req = reqset.all_requirements[0]
             assert req.download_info
-            assert req.download_info.url.startswith("file://")
+            assert req.download_info.url.scheme == "file"
             assert isinstance(req.download_info.info, ArchiveInfo)
             assert (
                 req.download_info.info.hash == "sha256="
@@ -524,7 +524,7 @@ class TestRequirementSet:
             assert len(reqset.all_requirements) == 1
             req = reqset.all_requirements[0]
             assert req.download_info
-            assert req.download_info.url.startswith("file://")
+            assert req.download_info.url.scheme == "file"
             assert isinstance(req.download_info.info, DirInfo)
 
     def test_download_info_local_editable_dir(
@@ -548,7 +548,7 @@ class TestRequirementSet:
             assert len(reqset.all_requirements) == 1
             req = reqset.all_requirements[0]
             assert req.download_info
-            assert req.download_info.url.startswith("file://")
+            assert req.download_info.url.scheme == "file"
             assert isinstance(req.download_info.info, DirInfo)
             assert req.download_info.info.editable
 

@@ -4,7 +4,6 @@ import dataclasses
 import functools
 import logging
 import os
-import posixpath
 import re
 import urllib.parse
 from collections.abc import Mapping
@@ -18,9 +17,6 @@ from typing import (
 from pip._internal.utils.deprecation import deprecated
 from pip._internal.utils.filetypes import FileExtensions
 from pip._internal.utils.hashes import Hashes
-from pip._internal.utils.misc import (
-    splitext,
-)
 from pip._internal.utils.urls import ParsedUrl, _PreQuotedUrl, path_to_url, url_to_path
 
 if TYPE_CHECKING:
@@ -404,19 +400,11 @@ class Link:
 
     @property
     def redacted_url(self) -> str:
-        return str(self._parsed_url.with_redacted_auth_info())
-
-    @functools.cached_property
-    def _base_name(self) -> str:
-        return posixpath.basename(self.path.rstrip("/"))
+        return self._parsed_url._netloc_with_redacted_auth_info
 
     @property
     def filename(self) -> str:
-        if name := self._base_name:
-            return name
-        # Make sure we don't leak auth information if the netloc
-        # includes a username and password.
-        return self._parsed_url.with_removed_auth_info().netloc
+        return self._parsed_url._filename
 
     @property
     def file_path(self) -> str:
@@ -437,20 +425,15 @@ class Link:
     def path(self) -> str:
         return self._parsed_url.unquoted_path()
 
-    @functools.cached_property
-    def _splitext(self) -> tuple[str, str]:
-        return splitext(self._base_name)
-
     def splitext(self) -> tuple[str, str]:
-        return self._splitext
+        return self._parsed_url.splitext()
 
     @property
     def ext(self) -> str:
-        return self._splitext[1]
+        return self.splitext()[1]
 
-    @property
-    def url_without_fragment(self) -> str:
-        return str(self._parsed_url.without_fragment())
+    def url_without_fragment(self) -> ParsedUrl:
+        return self._parsed_url.without_fragment()
 
     # Per PEP 508.
     _project_name_re = re.compile(
@@ -481,42 +464,50 @@ class Link:
             return subdir
         return None
 
-    def metadata_link(self) -> Link | None:
-        """Return a link to the associated core metadata file (if any)."""
+    @functools.cached_property
+    def _as_metadata_link(self) -> Link | None:
         if self.metadata_file_data is None:
             return None
-        metadata_url = f"{self.url_without_fragment}.metadata"
+        metadata_url = f"{self.url_without_fragment()}.metadata"
         if self.metadata_file_data.hashes is None:
             return Link(metadata_url)
         return Link(metadata_url, hashes=self.metadata_file_data.hashes)
 
-    def as_hashes(self) -> Hashes:
+    def metadata_link(self) -> Link | None:
+        """Return a link to the associated core metadata file (if any)."""
+        return self._as_metadata_link
+
+    @functools.cached_property
+    def _gen_hashes(self) -> Hashes:
         return Hashes({k: [v] for k, v in self._hashes.items()})
 
-    @property
+    def as_hashes(self) -> Hashes:
+        return self._gen_hashes
+
+    @functools.cached_property
     def hash(self) -> str | None:
         return next(iter(self._hashes.values()), None)
 
-    @property
+    @functools.cached_property
     def hash_name(self) -> str | None:
         return next(iter(self._hashes), None)
-
-    @property
-    def show_url(self) -> str:
-        return posixpath.basename(str(self._parsed_url.with_no_fragment_or_query()))
 
     @property
     def is_file(self) -> bool:
         return self.scheme == "file"
 
-    def is_existing_dir(self) -> bool:
+    @functools.cached_property
+    def _as_existing_dir(self) -> bool:
         return self.is_file and os.path.isdir(self.file_path)
+
+    def is_existing_dir(self) -> bool:
+        return self._as_existing_dir
 
     @property
     def is_wheel(self) -> bool:
         return self.ext == FileExtensions.WHEEL_EXTENSION
 
-    @property
+    @functools.cached_property
     def is_vcs(self) -> bool:
         from pip._internal.vcs import vcs
 

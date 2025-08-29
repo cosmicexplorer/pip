@@ -191,7 +191,7 @@ class BaseDistribution(Protocol):
         direct_url = self.direct_url
         if direct_url:
             if direct_url.is_local_editable():
-                return url_to_path(direct_url.parsed_url)
+                return url_to_path(direct_url.url)
         else:
             # Search for an .egg-link file by walking sys.path, as it was
             # done before by dist_is_editable().

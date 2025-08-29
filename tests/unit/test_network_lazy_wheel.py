@@ -9,11 +9,12 @@ from pip._internal.network.lazy_wheel import (
 )
 from pip._internal.network.session import PipSession
 from pip._internal.utils.packaging.version import ParsedVersion
+from pip._internal.utils.urls import ParsedUrl
 
 from tests.lib import TestData
 from tests.lib.server import MockServer, file_response, make_mock_server
 
-MYPY_0_782_WHL = (
+MYPY_0_782_WHL = ParsedUrl.parse(
     "https://files.pythonhosted.org/packages/9d/65/"
     "b96e844150ce18b9892b155b780248955ded13a2581d31872e7daa90a503/"
     "mypy-0.782-py3-none-any.whl"
@@ -45,12 +46,12 @@ def mypy_mock_server() -> Iterator[MockServer]:
 @pytest.fixture(scope="session")
 def mypy_whl_no_range(
     mypy_mock_server: MockServer, shared_data: TestData
-) -> Iterator[str]:
+) -> Iterator[ParsedUrl]:
     mypy_whl = shared_data.packages / "mypy-0.782-py3-none-any.whl"
     mypy_mock_server.set_responses([file_response(mypy_whl)])
     mypy_mock_server.start()
     base_address = f"http://{mypy_mock_server.host}:{mypy_mock_server.port}"
-    yield "{}/{}".format(base_address, "mypy-0.782-py3-none-any.whl")
+    yield ParsedUrl.parse("{}/{}".format(base_address, "mypy-0.782-py3-none-any.whl"))
     mypy_mock_server.stop()
 
 
@@ -66,7 +67,7 @@ def test_dist_from_wheel_url(session: PipSession) -> None:
 
 
 def test_dist_from_wheel_url_no_range(
-    session: PipSession, mypy_whl_no_range: str
+    session: PipSession, mypy_whl_no_range: ParsedUrl
 ) -> None:
     """Test handling when HTTP range requests are not supported."""
     with pytest.raises(HTTPRangeRequestUnsupported):
@@ -77,4 +78,6 @@ def test_dist_from_wheel_url_no_range(
 def test_dist_from_wheel_url_not_zip(session: PipSession) -> None:
     """Test handling with the given URL does not point to a ZIP."""
     with pytest.raises(InvalidWheel):
-        dist_from_wheel_url("python", "https://www.python.org/", session)
+        dist_from_wheel_url(
+            "python", ParsedUrl.parse("https://www.python.org/"), session
+        )
