@@ -188,9 +188,9 @@ class Link:
         self.cache_link_parsing = cache_link_parsing
         self.egg_fragment = self._egg_fragment()
 
-    @functools.cached_property
+    @property
     def _fragments(self) -> dict[str, list[str]]:
-        return urllib.parse.parse_qs(self._parsed_url.fragment, keep_blank_values=True)
+        return self._parsed_url._fragments
 
     @classmethod
     def from_json(

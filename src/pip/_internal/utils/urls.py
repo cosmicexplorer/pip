@@ -417,14 +417,6 @@ class ParsedUrl(PathSegments):
         return self._as_quoted_path
 
     @functools.cached_property
-    def _unquoted_path(self) -> str:
-        "The .path property is hot, so calculate its value ahead of time."
-        return urllib.parse.unquote(self.path)
-
-    def unquoted_path(self) -> str:
-        return self._unquoted_path
-
-    @functools.cached_property
     def _netloc_without_auth_info(self) -> str:
         netloc, _ = split_auth_from_netloc(self.netloc)
         return netloc
@@ -496,6 +488,28 @@ class ParsedUrl(PathSegments):
     def without_fragment(self) -> ParsedUrl:
         return self._as_no_fragment
 
+    @staticmethod
+    @functools.cache
+    def _unquote_path_str(path: str) -> str:
+        return _UrlPath._do_unquote(path)
+
+    @functools.cached_property
+    def _unquoted_path(self) -> str:
+        "The .path property is hot, so calculate its value ahead of time."
+        return self.__class__._unquote_path_str(self.path)
+
+    def unquoted_path(self) -> str:
+        return self._unquoted_path
+
+    @staticmethod
+    @functools.cache
+    def _split_fragment(fragment: str) -> dict[str, list[str]]:
+        return urllib.parse.parse_qs(fragment, keep_blank_values=True)
+
+    @functools.cached_property
+    def _fragments(self) -> dict[str, list[str]]:
+        return self.__class__._split_fragment(self.fragment)
+
 
 class _PathKind(abc.ABC):
     # So we can consider caching.
@@ -554,10 +568,10 @@ class _PathSanitizer:
 class _FilePath(_PathKind):
     # This has no instance state.
     def __hash__(self) -> int:
-        return hash(id(type(self)))
+        return hash(id(self.__class__))
 
     def __eq__(self, rhs: Any) -> bool:
-        return type(self) is type(rhs)
+        return type(rhs) is self.__class__
 
     @staticmethod
     def _clean_file_url_path(path_part: str) -> str:
@@ -581,12 +595,52 @@ class _FilePath(_PathKind):
 
 
 class _UrlPath(_PathKind):
+    @staticmethod
+    def _do_unquote(path: str) -> str:
+        """Unquote, but try to short-circuit if possible."""
+        if "%" not in path:
+            return path
+        return urllib.parse.unquote(path)
+
+    _gen_delims: ClassVar[tuple[str, ...]] = (
+        # "/" is mentioned in RFC 3986, but ignored here (see urllib.parse.quote).
+        ":",
+        "?",
+        "#",
+        "[",
+        "]",
+        "@",
+    )
+    _sub_delims: ClassVar[tuple[str, ...]] = (
+        "!",
+        "$",
+        "&",
+        "'",
+        "(",
+        ")",
+        "*",
+        "+",
+        ",",
+        ";",
+        "=",
+    )
+    _url_reserved_regex: ClassVar[re.Pattern[str]] = re.compile(
+        "|".join(map(re.escape, _gen_delims + _sub_delims))
+    )
+
+    @staticmethod
+    def _do_quote(path: str) -> str:
+        """Quote, but try to short-circuit if possible."""
+        if not _UrlPath._url_reserved_regex.search(path):
+            return path
+        return urllib.parse.quote(path)
+
     # This has no instance state.
     def __hash__(self) -> int:
-        return hash(id(type(self)))
+        return hash(id(self.__class__))
 
     def __eq__(self, rhs: Any) -> bool:
-        return type(self) is type(rhs)
+        return type(rhs) is self.__class__
 
     @staticmethod
     def _clean_url_path_part(path_part: str) -> str:
@@ -594,7 +648,7 @@ class _UrlPath(_PathKind):
         Clean a "part" of a URL path (i.e. after splitting on "@" characters).
         """
         # We unquote prior to quoting to make sure nothing is double quoted.
-        return urllib.parse.quote(urllib.parse.unquote(path_part))
+        return _UrlPath._do_quote(_UrlPath._do_unquote(path_part))
 
     def clean_path_part(self, path_part: str) -> str:
         return type(self)._clean_url_path_part(path_part)
