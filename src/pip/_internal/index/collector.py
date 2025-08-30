@@ -41,7 +41,7 @@ from pip._internal.vcs import vcs
 from .sources import CandidatesFromPage, LinkSource, build_source
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator, MutableMapping, Sequence
+    from collections.abc import Iterable, Iterator, MutableMapping, Sequence
 
     from typing_extensions import Self
 
@@ -100,17 +100,17 @@ class ApiSemantics:
         """
         content_type = response.headers.get("Content-Type", "Unknown")
 
-        if cls._api_header_regex().match(content_type):
-            return
-
-        raise cls._NotAPIContent(content_type, response.request.method)
+        if not cls._api_header_regex().match(content_type):
+            raise cls._NotAPIContent(content_type, response.request.method)
 
     class _NotHTTP(Exception):
         pass
 
+    _allowed_simple_api_schemes: ClassVar[frozenset[str]] = frozenset(["http", "https"])
+
     @classmethod
     def _ensure_api_response(
-        cls, url: ParsedUrl, session: PipSession, headers: dict[str, str] | None = None
+        cls, url: ParsedUrl, session: PipSession, headers: ResponseHeaders | None = None
     ) -> None:
         """
         Send a HEAD request to the URL, and ensure the response contains a simple
@@ -119,7 +119,7 @@ class ApiSemantics:
         Raises `_NotHTTP` if the URL is not available for a HEAD request, or
         `_NotAPIContent` if the content type is not a valid content type.
         """
-        if url.scheme not in {"http", "https"}:
+        if url.scheme not in cls._allowed_simple_api_schemes:
             raise cls._NotHTTP()
 
         resp = session.head(str(url), allow_redirects=True, headers=headers)
@@ -127,9 +127,196 @@ class ApiSemantics:
 
         cls._ensure_api_header(resp)
 
+    @staticmethod
+    def _format_weighted_content_types(
+        weighted_types: Iterable[tuple[str, float | None]],
+    ) -> str:
+        """
+        Specify a set of content types understood for a request and assign them relative
+        weights or "quality values". The value for a given type defaults to 1.0 if
+        not provided.
+
+        See https://www.rfc-editor.org/rfc/rfc9110.html#name-quality-values.
+        """
+        # NB: the comma is a stronger delimiter than the semicolon in this context!
+        return ", ".join(
+            ty if weight is None else f"{ty}; q={weight}"
+            for ty, weight in weighted_types
+        )
+
+    PREFERRED_INDEX_CONTENT: ClassVar[tuple[tuple[str, float | None], ...]] = (
+        # We prefer json over parsing HTML if at all possible.
+        ("application/vnd.pypi.simple.v1+json", None),
+        ("application/vnd.pypi.simple.v1+html", 0.1),
+        ("text/html", 0.01),
+    )
+
+    DEFAULT_INDEX_HEADERS: ClassVar[dict[str, str]] = {
+        "Accept": _format_weighted_content_types(PREFERRED_INDEX_CONTENT),
+        # This workflow can be tested against PyPI with a curl command:
+        #
+        # > curl --write-out '%{stderr}%{http_code}\n%{stdout}%{header_json}' \
+        #        -H 'Accept: application/vnd.pypi.simple.v1+json' \
+        #        'https://pypi.org/simple/setuptools/' \
+        #        -o pypi-setuptools.json \
+        #   | jq
+        # 200
+        # {
+        #   "date": [
+        #     "Sat, 30 Aug 2025 00:08:59 GMT"
+        #   ],
+        #   "cache-control": [
+        #     "max-age=600, public"
+        #   ],
+        #   "etag": [
+        #     "\"u2vXpcVCamYifjmRb05NcA\""
+        #   ],
+        # }
+        # > sha256sum pypi-setuptools.json
+        # de48e8e6382ebe353ab61550cc627a50a125d5f4964c49ad6992ad820f2bdce8  pypi-setuptools.json # noqa: E501
+        # > jq -C <pypi-setuptools.json | less -R
+        # {
+        #   "alternate-locations": [],
+        #   "files": [
+        #     {
+        #       "core-metadata": false,
+        #       "data-dist-info-metadata": false,
+        #       "filename": "setuptools-0.6b1-py2.3.egg",
+        #       "hashes": {
+        #         "sha256": "ae0a6ec6090a92d08fe7f3dbf9f1b2ce889bce2a3d7724b62322a29b92cf93f0" # noqa: E501
+        #       },
+        #     },
+        #   ],
+        # }
+        "Cache-Control": "no-cache",
+        # NB: This is very counterintuitive, but "no-cache" in *request* headers means
+        #     "always check for updates, but 304 if nothing changed since last time".
+        #
+        #     (See pypa/pip#5670 for the previous iteration of this.)
+        #
+        # We record the 'ETag' and 'Date' headers from every index response and write
+        # these values (if provided by the server) to file paths within a subdirectory
+        # of pip's cache dir (e.g. ~/.cache/pip) generated from hashing the Link object
+        # (see pip._internal.cache.Cache.cache_path()).
+        #
+        # Unlike the default HTTPAdapter in the cachecontrol library, we cache these
+        # (very small) metadata strings *separately* from the response itself. This
+        # allows us to retrieve the ETag and Date from the most recent successful
+        # request to each Link *before* we make the request to that Link, in order to
+        # specify the If-None-Match and If-Modified-Since headers for that request. We
+        # provide both of these in case a server only supports one and not the other.
+        #
+        # This workflow can be tested against PyPI with a curl command:
+        #
+        # > curl --write-out '%{stderr}%{http_code}\n%{stdout}%{header_json}' \
+        #        -H 'Accept: application/vnd.pypi.simple.v1+json' \
+        #        -H 'Cache-Control: no-cache' \
+        #        -H 'If-Modified-Since: Fri, 29 Aug 2025 23:05:25 GMT' \
+        #        -H 'If-None-Match: "u2vXpcVCamYifjmRb05NcA"' \
+        #        'https://pypi.org/simple/setuptools/' \
+        #        -o pypi-setuptools.json \
+        #   | jq
+        # 304
+        # {
+        #   "date": [
+        #     "Sat, 30 Aug 2025 00:08:59 GMT"
+        #   ],
+        #   "cache-control": [
+        #     "max-age=600, public"
+        #   ],
+        #   "etag": [
+        #     "\"u2vXpcVCamYifjmRb05NcA\""
+        #   ],
+        #   "x-served-by": [
+        #     "cache-iad-kcgs7200038-IAD"
+        #   ],
+        #   "x-cache": [
+        #     "HIT"
+        #   ],
+        # }
+        # > sha256sum pypi-setuptools.json
+        # de48e8e6382ebe353ab61550cc627a50a125d5f4964c49ad6992ad820f2bdce8  pypi-setuptools.json # noqa: E501
+        #
+        # MDN also describes the following as mostly equivalent to no-cache:
+        #
+        #         Cache-Control: max-age=0, must-revalidate
+        #
+        # PyPI's behavior is equivalent to no-cache for the above form, but some servers
+        # may respond differently.
+        "Accept-Encoding": "gzip, deflate",
+        # By default, PyPI will not elect to use a compressed transfer encoding, but pip
+        # can count on guaranteed built-in support for at least the gzip and deflate
+        # encodings from our vendored urllib3. This can be simulated on the command line
+        # as well:
+        #
+        # > curl --write-out '%{stderr}%{http_code}\n%{stdout}%{header_json}' \
+        #        -H 'Accept: application/vnd.pypi.simple.v1+json' \
+        #        -H 'Accept-Encoding: gzip, deflate' \
+        #        'https://pypi.org/simple/setuptools/' \
+        #        -o >(gunzip >pypi-setuptools.json) \
+        #   | jq
+        # 200
+        # {
+        #   "content-encoding": [
+        #     "gzip"
+        #   ],
+        #   "content-type": [
+        #     "application/vnd.pypi.simple.v1+json"
+        #   ],
+        #   "vary": [
+        #     "Accept, Accept-Encoding"
+        #   ],
+        # }
+        # > sha256sum pypi-setuptools.json
+        # de48e8e6382ebe353ab61550cc627a50a125d5f4964c49ad6992ad820f2bdce8  pypi-setuptools.json # noqa: E501
+        #
+        # Note that a 304 response will be 0 bytes in size. This is exactly what we want
+        # for pip, but the above command line's shell redirections and output
+        # substitution would truncate the output file if we added the If-Modified-Since
+        # or If-None-Match headers to the curl request to get a successful cache hit.
+        #
+        # Instead, curl has a built-in option --compress which will both send the
+        # Accept-Encoding header as well as transparently decompress any output:
+        #
+        # > curl --write-out '%{stderr}%{http_code}\n%{stdout}%{header_json}' \
+        #        --compressed \
+        #        -H 'Accept: application/vnd.pypi.simple.v1+json' \
+        #        -H 'Cache-Control: no-cache' \
+        #        -H 'If-Modified-Since: Fri, 29 Aug 2025 23:05:25 GMT' \
+        #        'https://pypi.org/simple/setuptools/' \
+        #        -o pypi-setuptools.json \
+        #  | jq
+        # 304
+        # {
+        #   "date": [
+        #     "Sat, 30 Aug 2025 04:02:08 GMT"
+        #   ],
+        #   "etag": [
+        #     "\"wu2HZkJTeVb9z3QVpwD9lQ\""
+        #   ],
+        # }
+        # > sha256sum pypi-setuptools.json
+        # de48e8e6382ebe353ab61550cc627a50a125d5f4964c49ad6992ad820f2bdce8  pypi-setuptools.json # noqa: E501
+        #
+        # Note finally that the ETag header value provided by the server in response to
+        # the request for a compressed transfer encoding will almost definitely be
+        # different than the ETag it generates for the uncompressed version. So while
+        # the cryptographic checksum of the *decompressed* output will remain stable
+        # regardless of the selected transfer encoding, the cached ETag and Date headers
+        # should probably incorporate the selected transfer encoding into their cache
+        # key along with the Link itself.
+        #
+        # Useful references:
+        # - https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Cache-Control#no-cache_2 # noqa: E501
+        # - https://httpwg.org/specs/rfc9111.html#validation.sent
+        # - https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Caching#etagif-none-match # noqa: E501
+        # - https://www.fastly.com/documentation/guides/concepts/shielding/#debugging
+        # - https://www.fastly.com/documentation/guides/full-site-delivery/caching/checking-cache/#using-a-fastly-debug-header-with-curl # noqa: E501
+    }
+
     @classmethod
     def _get_simple_response(
-        cls, url: ParsedUrl, session: PipSession, headers: dict[str, str] | None = None
+        cls, url: ParsedUrl, session: PipSession, headers: ResponseHeaders | None = None
     ) -> Response:
         """Access an Simple API response with GET, and return the response.
 
@@ -143,39 +330,27 @@ class ApiSemantics:
         3. Check the Content-Type header to make sure we got a Simple API response,
            and raise `_NotAPIContent` otherwise.
         """
-        if FileExtensions.archive_file_extension(Link(url).filename):
+        if ext := FileExtensions.archive_file_extension(url._filename):
+            logger.warning(
+                "Prospective URL '%s' has extension '%s' "
+                "and may not be a simple API endpoint. "
+                "Sending a HEAD response first to confirm.",
+                url,
+                ext,
+            )
             cls._ensure_api_response(url, session=session, headers=headers)
 
         logger.debug("Getting page %s", url.with_redacted_auth_info())
 
-        logger.debug("headers: %s", headers)
+        if headers:
+            logger.debug("(additional) headers: %s", headers)
         if headers is None:
             headers = {}
         resp = session.get(
             url,
             headers={
-                "Accept": ", ".join(
-                    [
-                        "application/vnd.pypi.simple.v1+json",
-                        "application/vnd.pypi.simple.v1+html; q=0.1",
-                        "text/html; q=0.01",
-                    ]
-                ),
-                # We don't want to blindly returned cached data for
-                # /simple/, because authors generally expecting that
-                # twine upload && pip install will function, but if
-                # they've done a pip install in the last ~10 minutes
-                # it won't. Thus by setting this to zero we will not
-                # blindly use any cached data, however the benefit of
-                # using max-age=0 instead of no-cache, is that we will
-                # still support conditional requests, so we will still
-                # minimize traffic sent in cases where the page hasn't
-                # changed at all, we will just always incur the round
-                # trip for the conditional GET now instead of only
-                # once per 10 minutes.
-                # For more information, please see pypa/pip#5670.
-                "Cache-Control": "max-age=0",
-                **headers,
+                **cls.DEFAULT_INDEX_HEADERS,
+                **(headers or {}),
             },
         )
         raise_for_status(resp)
@@ -236,7 +411,7 @@ class ApiSemantics:
 
     @classmethod
     def _get_index_content(
-        cls, link: Link, *, session: PipSession, headers: dict[str, str] | None = None
+        cls, link: Link, *, session: PipSession, headers: ResponseHeaders | None = None
     ) -> IndexContent | None:
         url = link.url_without_fragment()
 
@@ -459,7 +634,7 @@ class LinkCollector:
         return self.search_scope.find_links
 
     def fetch_response(
-        self, location: Link, headers: dict[str, str] | None = None
+        self, location: Link, headers: ResponseHeaders | None = None
     ) -> IndexContent | None:
         """
         Fetch an HTML page containing package links.
