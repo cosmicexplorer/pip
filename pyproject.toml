@@ -388,3 +388,6 @@ git-only = [
   ".mailmap",
   ".readthedocs-custom-redirects.yml"
 ]
+
+[tool.codespell]
+ignore-words-list = "unparseable"
