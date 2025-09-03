@@ -749,6 +749,7 @@ def test_make_index_content() -> None:
     )
 
     actual = ApiSemantics._make_index_content(response)
+    assert isinstance(actual, IndexContent)
     assert actual.content == b"<content>"
     assert actual.encoding == "UTF-8"
     assert str(actual.url) == "https://example.com/index.html"
@@ -856,6 +857,7 @@ def test_get_index_content_directory_append_index(tmpdir: Path) -> None:
         ], f"actual calls: {mock_func.mock_calls}"
 
         assert actual is not None
+        assert isinstance(actual, IndexContent)
         assert actual.content == fake_response.content
         assert actual.encoding is None
         assert str(actual.url) == expected_url
@@ -961,6 +963,7 @@ class TestLinkCollector:
         actual = link_collector.fetch_response(location)
 
         assert actual is not None
+        assert isinstance(actual, IndexContent)
         assert actual.content == fake_response.content
         assert actual.encoding is None
         assert str(actual.url) == url

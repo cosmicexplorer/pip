@@ -400,7 +400,7 @@ class Link:
 
     @property
     def redacted_url(self) -> str:
-        return self._parsed_url._netloc_with_redacted_auth_info
+        return str(self._parsed_url.with_redacted_auth_info())
 
     @property
     def filename(self) -> str:

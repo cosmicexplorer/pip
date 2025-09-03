@@ -15,9 +15,7 @@ import os
 import re
 import time
 from collections import defaultdict
-from collections.abc import Iterable
 from dataclasses import dataclass
-from hashlib import sha256
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
@@ -37,7 +35,10 @@ from pip._internal.exceptions import (
     DistributionNotFound,
     InvalidWheelFilename,
 )
-from pip._internal.index.collector import IndexContent, LinkCollector
+from pip._internal.index.collector import (
+    IndexContent,
+    LinkCollector,
+)
 from pip._internal.models.candidate import InstallationCandidate
 from pip._internal.models.format_control import (
     AllowedFormats,
@@ -61,6 +62,8 @@ from pip._internal.utils.predicates import FragmentMatcher, RequiresPython
 from pip._internal.utils.unpacking import SUPPORTED_EXTENSIONS
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable, MutableMapping
+
     from typing_extensions import Self, TypeGuard
 
     CandidateSortingKey = tuple[int, int, int, ParsedVersion, int | None, BuildTag, int]
@@ -1035,8 +1038,14 @@ class PackageFinder:
         date_path: Path,
         checksum_path: Path,
         project_url: Link,
-        headers: dict[str, str],
+        headers: MutableMapping[str, str],
     ) -> tuple[str | None, datetime.datetime | None, bytes | None]:
+        """Reads ETag and Date values from cache paths to update request headers.
+
+        If either or neither path is a readable file, the headers are unchanged. They
+        will be populated with the ETag and Date headers from the server response, if
+        the server provides these headers in its response.
+        """
         etag: str | None = None
         try:
             etag = etag_path.read_text()
@@ -1095,20 +1104,13 @@ class PackageFinder:
     def _write_http_cache_info(
         cls,
         etag_path: Path,
+        new_etag: str | None,
         date_path: Path,
-        checksum_path: Path,
+        date_str: str | None,
         project_url: Link,
-        index_response: IndexContent,
         prev_etag: str | None,
-        prev_checksum: bytes | None,
-    ) -> tuple[str | None, datetime.datetime | None, bytes, bool]:
-        hasher = sha256()
-        hasher.update(index_response.content)
-        new_checksum = hasher.digest()
-        checksum_path.write_bytes(new_checksum)
-        page_unmodified = new_checksum == prev_checksum
-
-        new_etag: str | None = index_response.etag
+        page_unmodified: bool,
+    ) -> None:
         if new_etag is None:
             logger.debug("no etag returned from fetch for url %s", project_url.url)
             try:
@@ -1132,7 +1134,6 @@ class PackageFinder:
                 assert page_unmodified
 
         new_date: datetime.datetime | None = None
-        date_str: str | None = index_response.date
         if date_str is None:
             logger.debug(
                 "no date header was provided in response for url %s", project_url
@@ -1182,22 +1183,20 @@ class PackageFinder:
             except OSError:
                 pass
 
-        return (new_etag, new_date, new_checksum, page_unmodified)
-
     @staticmethod
     def _try_load_parsed_links_cache(parsed_links_path: Path) -> list[Link] | None:
-        page_links: list[Link] | None = None
         try:
+            page_links: list[Link] = []
             with bz2.open(parsed_links_path, mode="rt", encoding="utf-8") as f:
                 logger.debug("reading page links from cache %s", parsed_links_path)
                 cached_links = json.load(f)
-                page_links = []
                 for cache_info in cached_links:
                     link = Link.from_cache_args(
                         PersistentLinkCacheArgs.from_json(cache_info)
                     )
                     assert link is not None
                     page_links.append(link)
+            return page_links
         except (OSError, json.decoder.JSONDecodeError, KeyError) as e:
             logger.debug(
                 "could not read page links from cache file %s %s(%s)",
@@ -1205,7 +1204,7 @@ class PackageFinder:
                 e.__class__.__name__,
                 str(e),
             )
-        return page_links
+        return None
 
     @staticmethod
     def _write_parsed_links_cache(
@@ -1284,6 +1283,7 @@ class PackageFinder:
         index_response = self._link_collector.fetch_response(project_url)
         if index_response is None:
             return []
+        assert isinstance(index_response, IndexContent), index_response
 
         with indent_log():
             package_links = self._evaluate_links(
@@ -1308,15 +1308,12 @@ class PackageFinder:
             project_url, link_evaluator
         )
 
-        headers: dict[str, str] = {
-            # Wipe any other Cache-Control headers away--we are explicitly managing the
-            # caching here.
-            "Cache-Control": "",
-            # "Cache-Control": "no-cache",
-        }
+        headers: dict[str, str] = {}
         # NB: mutates headers!
-        prev_etag, _prev_date, prev_checksum = self._try_load_http_cache_headers(
-            etag_path, date_path, checksum_path, project_url, headers
+        prev_etag, _prev_date, prev_checksum = (
+            self.__class__._try_load_http_cache_headers(
+                etag_path, date_path, checksum_path, project_url, headers
+            )
         )
 
         logger.debug(
@@ -1324,8 +1321,6 @@ class PackageFinder:
             project_url,
         )
 
-        # A 304 Not Modified is implicitly converted into a reused cached response from
-        # the Cache-Control library, so we won't explicitly check for a 304.
         index_response = self._link_collector.fetch_response(
             project_url,
             headers=headers,
@@ -1333,32 +1328,27 @@ class PackageFinder:
         if index_response is None:
             return []
 
-        (
-            _new_etag,
-            _new_date,
-            _new_checksum,
-            page_unmodified,
-        ) = self._write_http_cache_info(
-            etag_path,
-            date_path,
-            checksum_path,
-            project_url,
-            index_response,
-            prev_etag=prev_etag,
-            prev_checksum=prev_checksum,
-        )
+        if (new_checksum := index_response.calculate_checksum()) is not None:
+            checksum_path.write_bytes(new_checksum)
+            page_unmodified = new_checksum == prev_checksum
+        else:
+            # The only way we wouldn't be able to calculate a checksum is if we received
+            # a 304 (server cached) response.
+            page_unmodified = True
+            # If that's the case, then we must have received a checksum.
+            assert prev_checksum is not None
 
         page_links: list[Link] | None = None
         # Only try our persistent link parsing and evaluation caches if we know the page
         # was unmodified via checksum.
         if page_unmodified:
-            cached_candidates = self._try_load_installation_candidate_cache(
+            cached_candidates = self.__class__._try_load_installation_candidate_cache(
                 cached_candidates_path
             )
             if cached_candidates is not None:
                 return cached_candidates
 
-            page_links = self._try_load_parsed_links_cache(parsed_links_path)
+            page_links = self.__class__._try_load_parsed_links_cache(parsed_links_path)
         else:
             try:
                 parsed_links_path.unlink()
@@ -1370,19 +1360,44 @@ class PackageFinder:
             logger.debug(
                 "extracting new parsed links from index response %s", index_response
             )
-            page_links = self._write_parsed_links_cache(
-                parsed_links_path,
-                index_response.parse_links(),
+            # This is necessary for mypy to allow us to call .parse_links(), but the
+            # correctness is more subtle. This will be true when the response is not
+            # a 304 Not Modified, but rather a 200 OK. When does a 304 occur? When we
+            # have cached ETag and Date parameters which are provided as headers to the
+            # index request. Because we call ._write_http_cache_info() strictly *after*
+            # we call ._write_parsed_links_cache(), we ensure that even in the presence
+            # of parallel pip executions, we never have a cached ETag/Date without also
+            # caching the result of link parsing.
+            assert not page_unmodified and isinstance(index_response, IndexContent), (
+                page_unmodified,
+                index_response,
             )
+            page_links = self.__class__._write_parsed_links_cache(
+                parsed_links_path, index_response.parse_links()
+            )
+        assert page_links is not None
 
         with indent_log():
-            package_links = self._write_installation_candidate_cache(
+            package_links = self.__class__._write_installation_candidate_cache(
                 cached_candidates_path,
                 self._evaluate_links(
                     link_evaluator,
                     links=page_links,
                 ),
             )
+
+        # NB: We have to write these cache entries in reverse order of calculating the
+        #     actual results to avoid an unfortunate race condition where we don't have
+        #     any copy of the previous page when we get a 304!
+        self.__class__._write_http_cache_info(
+            etag_path=etag_path,
+            new_etag=index_response.etag,
+            date_path=date_path,
+            date_str=index_response.date,
+            project_url=project_url,
+            prev_etag=prev_etag,
+            page_unmodified=page_unmodified,
+        )
 
         return package_links
 

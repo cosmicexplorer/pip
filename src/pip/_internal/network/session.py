@@ -25,7 +25,7 @@ from pip._vendor import requests, urllib3
 from pip._vendor.cachecontrol import CacheControlAdapter as _BaseCacheControlAdapter
 from pip._vendor.requests.adapters import DEFAULT_POOLBLOCK, BaseAdapter
 from pip._vendor.requests.adapters import HTTPAdapter as _BaseHTTPAdapter
-from pip._vendor.requests.models import PreparedRequest, Response
+from pip._vendor.requests.models import PreparedRequest, Request, Response
 from pip._vendor.requests.structures import CaseInsensitiveDict
 from pip._vendor.urllib3.connectionpool import ConnectionPool
 from pip._vendor.urllib3.exceptions import InsecureRequestWarning
@@ -430,6 +430,42 @@ class CacheControlAdapter(_SSLContextAdapterMixin, _BaseCacheControlAdapter):
     pass
 
 
+class BasicAdapter(_SSLContextAdapterMixin, _BaseHTTPAdapter):
+    pass
+
+
+class SplitBasicAndCachingAdapter:
+    def __init__(
+        self,
+        cache: SafeFileCache,
+        max_retries: int,
+        ssl_context: SSLContext | None = None,
+    ) -> None:
+        self._caching = CacheControlAdapter(
+            cache=cache,
+            max_retries=max_retries,
+            ssl_context=ssl_context,
+        )
+        self._basic = BasicAdapter(
+            max_retries=max_retries,
+            ssl_context=ssl_context,
+        )
+
+    def send(
+        self,
+        *args: Any,
+        avoid_cache_control_logic: bool = False,
+        **kw: Any,
+    ) -> Response:
+        if avoid_cache_control_logic:
+            return self._basic.send(*args, **kw)
+        return self._caching.send(*args, **kw)
+
+    def close(self) -> None:
+        self._caching.close()
+        self._basic.close()
+
+
 class InsecureHTTPAdapter(HTTPAdapter):
     def cert_verify(
         self,
@@ -450,6 +486,44 @@ class InsecureCacheControlAdapter(CacheControlAdapter):
         cert: str | tuple[str, str] | None,
     ) -> None:
         super().cert_verify(conn=conn, url=url, verify=False, cert=cert)
+
+
+class InsecureBasicAdapter(_BaseHTTPAdapter):
+    def cert_verify(
+        self,
+        conn: ConnectionPool,
+        url: str,
+        verify: bool | str,
+        cert: str | tuple[str, str] | None,
+    ) -> None:
+        super().cert_verify(conn=conn, url=url, verify=False, cert=cert)
+
+
+class InsecureSplitBasicAndCachingAdapter:
+    def __init__(
+        self,
+        cache: SafeFileCache,
+        max_retries: int,
+    ) -> None:
+        self._caching = InsecureCacheControlAdapter(
+            cache=cache,
+            max_retries=max_retries,
+        )
+        self._basic = InsecureBasicAdapter(max_retries=max_retries)
+
+    def send(
+        self,
+        *args: Any,
+        avoid_cache_control_logic: bool = False,
+        **kw: Any,
+    ) -> Response:
+        if avoid_cache_control_logic:
+            return self._basic.send(*args, **kw)
+        return self._caching.send(*args, **kw)
+
+    def close(self) -> None:
+        self._caching.close()
+        self._basic.close()
 
 
 class PipSession(requests.Session):
@@ -514,12 +588,12 @@ class PipSession(requests.Session):
         # origin, and we don't want someone to be able to poison the cache and
         # require manual eviction from the cache to fix it.
         if cache:
-            secure_adapter = CacheControlAdapter(
+            secure_adapter = SplitBasicAndCachingAdapter(
                 cache=SafeFileCache(cache),
                 max_retries=retries,
                 ssl_context=ssl_context,
             )
-            self._trusted_host_adapter = InsecureCacheControlAdapter(
+            self._trusted_host_adapter = InsecureSplitBasicAndCachingAdapter(
                 cache=SafeFileCache(cache),
                 max_retries=retries,
             )
@@ -656,3 +730,50 @@ class PipSession(requests.Session):
 
         # Dispatch the actual request
         return super().request(method, url, *args, **kwargs)
+
+    def get_for_index(
+        self,
+        url: ParsedUrl,
+        params: Any = None,
+        data: Any = None,
+        headers: Any = None,
+        cookies: Any = None,
+        files: Any = None,
+        auth: Any = None,
+        timeout: Any = None,
+        allow_redirects: bool = True,
+        proxies: Any = None,
+        hooks: Any = None,
+        stream: Any = None,
+        verify: Any = None,
+        cert: Any = None,
+        json: Any = None,
+    ) -> Response:
+        # Create the Request.
+        req = Request(
+            method="GET",
+            url=str(url),
+            headers=headers,
+            files=files,
+            data=data or {},
+            json=json,
+            params=params or {},
+            auth=auth,
+            cookies=cookies,
+            hooks=hooks,
+        )
+        prep = self.prepare_request(req)
+
+        proxies = proxies or {}
+
+        settings = self.merge_environment_settings(
+            prep.url, proxies, stream, verify, cert
+        )
+
+        # Send the request.
+        send_kwargs = {
+            "timeout": timeout,
+            "allow_redirects": allow_redirects,
+        }
+        send_kwargs.update(settings)
+        return self.send(prep, avoid_cache_control_logic=True, **send_kwargs)

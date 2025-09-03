@@ -4,6 +4,7 @@ The main purpose of this module is to expose LinkCollector.collect_sources().
 
 from __future__ import annotations
 
+import abc
 import email.message
 import functools
 import itertools
@@ -15,6 +16,7 @@ import urllib.parse
 import urllib.request
 from collections import OrderedDict
 from dataclasses import dataclass
+from hashlib import sha256
 from html.parser import HTMLParser
 from optparse import Values
 from typing import (
@@ -48,6 +50,29 @@ if TYPE_CHECKING:
     ResponseHeaders = MutableMapping[str, str]
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class MaybeCachedResponse(abc.ABC):
+    etag: str | None
+    date: str | None
+
+    @abc.abstractmethod
+    def calculate_checksum(self) -> bytes | None: ...
+
+
+@dataclass(frozen=True, slots=True)
+class ServerCachedResponse(MaybeCachedResponse):
+    @classmethod
+    def parse(cls, resp: Response) -> Self:
+        assert resp.status_code == 304
+        return cls(
+            etag=resp.headers.get("ETag", None),
+            date=resp.headers.get("Date", None),
+        )
+
+    def calculate_checksum(self) -> bytes | None:
+        return None
 
 
 class ApiSemantics:
@@ -188,6 +213,8 @@ class ApiSemantics:
         #     },
         #   ],
         # }
+        # "Cache-Control": "",
+        # "Cache-Control": "max-age=0, must-revalidate",
         "Cache-Control": "no-cache",
         # NB: This is very counterintuitive, but "no-cache" in *request* headers means
         #     "always check for updates, but 304 if nothing changed since last time".
@@ -344,15 +371,15 @@ class ApiSemantics:
 
         if headers:
             logger.debug("(additional) headers: %s", headers)
-        if headers is None:
-            headers = {}
-        resp = session.get(
+        resp = session.get_for_index(
             url,
             headers={
                 **cls.DEFAULT_INDEX_HEADERS,
                 **(headers or {}),
             },
         )
+        if resp.status_code == 304:
+            return resp
         raise_for_status(resp)
 
         # The check for archives above only works if the url ends with
@@ -396,13 +423,18 @@ class ApiSemantics:
     def _make_index_content(
         cls,
         response: Response,
-    ) -> IndexContent:
+    ) -> MaybeCachedResponse:
+        if response.status_code == 304:
+            return ServerCachedResponse.parse(response)
+        assert response.status_code == 200, response
         encoding = cls._get_encoding_from_headers(response.headers)
         return IndexContent.create(
             content=response.content,
             content_type=response.headers["Content-Type"],
             encoding=encoding,
+            content_length=int(response.headers["Content-Length"]),
             url=response.url,
+            content_encoding=response.headers.get("Content-Encoding", None),
             etag=response.headers.get("ETag", None),
             date=response.headers.get("Date", None),
         )
@@ -412,7 +444,7 @@ class ApiSemantics:
     @classmethod
     def _get_index_content(
         cls, link: Link, *, session: PipSession, headers: ResponseHeaders | None = None
-    ) -> IndexContent | None:
+    ) -> MaybeCachedResponse | None:
         url = link.url_without_fragment()
 
         # Check for VCS schemes that do not support lookup as web pages.
@@ -469,7 +501,7 @@ class ApiSemantics:
 
 
 @dataclass(frozen=True, slots=True)
-class IndexContent:
+class IndexContent(MaybeCachedResponse):
     """Represents one response (or page), along with its URL.
 
     :param encoding: the encoding to decode the given content.
@@ -478,12 +510,13 @@ class IndexContent:
     :param date: The ``Date`` header from an HTTP request against ``url``.
     """
 
+    # FIXME: use stream=True and calculate checksum along with incremental link parsing!
     content: bytes
     content_type: str
     encoding: str | None
+    content_length: int
     url: ParsedUrl
-    etag: str | None = None
-    date: str | None = None
+    content_encoding: str | None
 
     @classmethod
     def create(
@@ -492,6 +525,8 @@ class IndexContent:
         content_type: str,
         encoding: str | None,
         url: str | ParsedUrl,
+        content_length: int | None = None,
+        content_encoding: str | None = None,
         etag: str | None = None,
         date: str | None = None,
     ) -> Self:
@@ -502,14 +537,23 @@ class IndexContent:
         if isinstance(url, str):
             url = ParsedUrl.parse(url)
         url = url.with_quoted_path()
+        if content_length is None:
+            content_length = len(content)
         return cls(
+            etag=etag,
+            date=date,
             content=content,
             content_type=content_type,
             encoding=encoding,
+            content_length=content_length,
             url=url,
-            etag=etag,
-            date=date,
+            content_encoding=content_encoding,
         )
+
+    def calculate_checksum(self) -> bytes:
+        hasher = sha256()
+        hasher.update(self.content)
+        return hasher.digest()
 
     def __str__(self) -> str:
         return str(self.url.with_redacted_auth_info())
@@ -635,11 +679,10 @@ class LinkCollector:
 
     def fetch_response(
         self, location: Link, headers: ResponseHeaders | None = None
-    ) -> IndexContent | None:
+    ) -> MaybeCachedResponse | None:
         """
         Fetch an HTML page containing package links.
         """
-        logger.debug("headers: %s", str(headers))
         return ApiSemantics._get_index_content(
             location, session=self.session, headers=headers
         )
