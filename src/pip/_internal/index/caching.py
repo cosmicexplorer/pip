@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import abc
 import datetime
 import enum
 import functools
 import logging
+import re
 import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar
@@ -14,6 +16,31 @@ if TYPE_CHECKING:
     from typing_extensions import Self
 
 logger = logging.getLogger(__name__)
+
+
+class _CacheableHTTPHeader(metaclass=abc.ABCMeta):
+    @classmethod
+    @abc.abstractmethod
+    def response_header_name(cls) -> str: ...
+
+    @abc.abstractmethod
+    def request_caching_header_name(self) -> str: ...
+
+    @abc.abstractmethod
+    def cache_serialize(self) -> bytes: ...
+
+    @classmethod
+    @abc.abstractmethod
+    def cache_deserialize(cls, data: bytes) -> Self: ...
+
+    @abc.abstractmethod
+    def format_http_header(self) -> str: ...
+
+    @classmethod
+    @abc.abstractmethod
+    def parse_http_header(
+        cls, header_str: str | None, url: ParsedUrl
+    ) -> Self | None: ...
 
 
 class _TimestampSanitizer:
@@ -119,58 +146,73 @@ class _TimestampSanitizer:
             return _TimestampSanitizer.TzKind.parse(self.parsed_time)
 
     @dataclass(frozen=True, slots=True)
-    class CacheableTimestamp:
-        timestamp: datetime.datetime
+    class Epoch:
+        epoch: int
 
         def __post_init__(self) -> None:
-            assert self.timestamp.tzname() is not None, (self.timestamp, self)
+            assert self.epoch >= 0, self
 
-        @dataclass(frozen=True, slots=True)
-        class SerializableTimestamp:
-            epoch: int
+        def __str__(self) -> str:
+            return f"epoch({self.epoch})"
 
-            def __post_init__(self) -> None:
-                assert isinstance(self.epoch, int), self
-                assert self.epoch >= 0, self
+        @classmethod
+        def from_timestamp(cls, timestamp: datetime.datetime) -> Self:
+            assert timestamp.tzname() is not None, timestamp
+            epoch = timestamp.timestamp()
+            # The timestamp will only have second resolution according to the parse
+            # format string _HTTP_DATE_FORMAT.
+            assert not (epoch % 1), (epoch, timestamp)
+            return cls(epoch=int(epoch))
 
-            @classmethod
-            def from_timestamp(cls, timestamp: datetime.datetime) -> Self:
-                epoch = timestamp.timestamp()
-                # The timestamp will only have second resolution according to the parse
-                # format string _HTTP_DATE_FORMAT.
-                assert not (epoch % 1), (epoch, timestamp)
-                return cls(epoch=int(epoch))
+        def to_timestamp(self) -> datetime.datetime:
+            return datetime.datetime.fromtimestamp(self.epoch, tz=datetime.timezone.utc)
 
-            def to_timestamp(self) -> datetime.datetime:
-                return datetime.datetime.fromtimestamp(
-                    self.epoch, tz=datetime.timezone.utc
-                )
+        def serialize(self) -> bytes:
+            return self.epoch.to_bytes(length=4, byteorder="big", signed=False)
 
-            def serialize(self) -> bytes:
-                return self.epoch.to_bytes(length=4, byteorder="big", signed=False)
+        @classmethod
+        def deserialize(cls, data: bytes) -> Self:
+            return cls(epoch=int.from_bytes(data, byteorder="big", signed=False))
 
-            @classmethod
-            def deserialize(cls, data: bytes) -> Self:
-                return cls(epoch=int.from_bytes(data, byteorder="big", signed=False))
+    @dataclass(frozen=True, slots=True)
+    class CacheableTimestamp(_CacheableHTTPHeader):
+        epoch: _TimestampSanitizer.Epoch
+
+        @classmethod
+        def response_header_name(cls) -> str:
+            return "Date"
+
+        @classmethod
+        def request_caching_header_name(cls) -> str:
+            return "If-Modified-Since"
 
         def cache_serialize(self) -> bytes:
-            epoch = self.__class__.SerializableTimestamp.from_timestamp(self.timestamp)
-            return epoch.serialize()
+            return self.epoch.serialize()
 
         @classmethod
         def cache_deserialize(cls, data: bytes) -> Self:
-            epoch = cls.SerializableTimestamp.deserialize(data)
-            return cls(timestamp=epoch.to_timestamp())
+            epoch = _TimestampSanitizer.Epoch.deserialize(data)
+            return cls(epoch=epoch)
+
+        @functools.cached_property
+        def _as_datetime(self) -> datetime.datetime:
+            return self.epoch.to_timestamp()
+
+        @functools.cached_property
+        def _as_http_formatted(self) -> str:
+            return self._as_datetime.strftime(_TimestampSanitizer._HTTP_DATE_FORMAT)
+
+        def __str__(self) -> str:
+            return f"<{self.epoch}, synthesized({self._as_http_formatted!r})>"
 
         def format_http_header(self) -> str:
-            return self.timestamp.strftime(_TimestampSanitizer._HTTP_DATE_FORMAT)
+            return self._as_http_formatted
 
         @classmethod
         def parse_http_header(cls, date_str: str | None, url: ParsedUrl) -> Self | None:
-            if parsed_date := cls._parse_http_date_header(
-                date_str, url.with_redacted_auth_info()
-            ):
-                return cls(timestamp=parsed_date)
+            if parsed_date := cls._parse_http_date_header(date_str, url):
+                epoch = _TimestampSanitizer.Epoch.from_timestamp(parsed_date)
+                return cls(epoch=epoch)
             return None
 
         @staticmethod
@@ -178,6 +220,8 @@ class _TimestampSanitizer:
             date_str: str | None,
             url: ParsedUrl,
         ) -> datetime.datetime | None:
+            # FIXME: make this type-safe!!!!!
+            url = url.with_redacted_auth_info()
             if date_str is None:
                 logger.debug(
                     "No 'date' header was provided in response for url %s",
@@ -230,5 +274,97 @@ class _TimestampSanitizer:
                 parsed_timestamp._tz_string,
                 url,
                 _TimestampSanitizer._now_local().name,
+            )
+            return None
+
+
+class _ETagSanitizer:
+    @dataclass(frozen=True, slots=True)
+    class CacheableETag(_CacheableHTTPHeader):
+        etag: str
+
+        # https://httpwg.org/specs/rfc9110.html#field.etag
+        _strict_regex: ClassVar[re.Pattern[str]] = re.compile(
+            "[\x21\x23-\x7e\x80-\xff]*"
+        )
+
+        def __post_init__(self) -> None:
+            assert self.__class__._strict_regex.fullmatch(self.etag), self
+
+        def __str__(self) -> str:
+            return f"<etag({self.etag!r})>"
+
+        @classmethod
+        def response_header_name(cls) -> str:
+            return "ETag"
+
+        @classmethod
+        def request_caching_header_name(cls) -> str:
+            return "If-None-Match"
+
+        def cache_serialize(self) -> bytes:
+            return self.etag.encode("utf-8")
+
+        @classmethod
+        def cache_deserialize(cls, data: bytes) -> Self:
+            return cls(etag=data.decode("utf-8"))
+
+        def format_http_header(self) -> str:
+            return f'"{self.etag}"'
+
+        _etag_regex: ClassVar[re.Pattern[str]] = re.compile(
+            r'(?P<weak>W/)?"(?P<tag>.*)"',
+            flags=re.DOTALL,
+        )
+
+        _http_spec_url: ClassVar[ParsedUrl] = ParsedUrl.parse(
+            "https://httpwg.org/specs/rfc9110.html#field.etag"
+        )
+
+        @classmethod
+        def parse_http_header(cls, etag_str: str | None, url: ParsedUrl) -> Self | None:
+            # FIXME: make this type-safe!!!!!
+            url = url.with_redacted_auth_info()
+            if etag_str is None:
+                logger.debug(
+                    "No 'etag' header was provided in response for url %s",
+                    url,
+                )
+                return None
+
+            if m := cls._etag_regex.fullmatch(etag_str):
+                g = m.groupdict()
+                if g["weak"]:
+                    logger.debug(
+                        "Received a weak etag value %r in response for url %s",
+                        etag_str,
+                        url,
+                    )
+                etag = g["tag"]
+                if cls._strict_regex.fullmatch(etag):
+                    return cls(etag=etag)
+                logger.error(
+                    "'etag' value %r (from header string %r) in response for url %s "
+                    "contained invalid or deprecated characters "
+                    "-- should match pattern %s. "
+                    "See specification: %s",
+                    etag,
+                    etag_str,
+                    url,
+                    cls._strict_regex,
+                    cls._http_spec_url,
+                )
+                return None
+
+            logger.error(
+                "Failed to parse 'etag' header %r in response for url %s "
+                "-- should match pattern %s, "
+                "with characters additionally restricted to %s. "
+                "See specification: %s",
+                etag_str,
+                url,
+                cls._etag_regex,
+                cls._strict_regex,
+                cls._http_spec_url,
             )
             return None
