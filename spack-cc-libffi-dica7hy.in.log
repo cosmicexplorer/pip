@@ -1,0 +1,142 @@
+[cpp] /usr/bin/gcc-14 -E /tmp/cgeiNlvc/dummy.c
+[cpp] /usr/bin/gcc-14 -E /tmp/cgeiNlvc/dummy.c
+[cpp] /usr/bin/gcc-14 -E /tmp/cg2n6atZ/dummy.c
+[cpp] /usr/bin/gcc-14 -E /tmp/cg2n6atZ/dummy.c
+[vcheck] /usr/bin/gcc-14 
+[vcheck] /usr/bin/gcc-14 
+[vcheck] /usr/bin/gcc-14 
+[ccld] /usr/bin/gcc-14 -qversion
+[ccld] /usr/bin/gcc-14 -version
+[ccld] /usr/bin/gcc-14 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest conftest.c
+[cc] /usr/bin/gcc-14 -c conftest.c
+[cc] /usr/bin/gcc-14 -c conftest.c
+[cc] /usr/bin/gcc-14 -c -g conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c conftest.c -o conftest2.o
+[cc] /usr/bin/gcc-14 -c conftest.c -o conftest2.o
+[cc] /usr/bin/gcc-14 -MT sub/conftest.o -MD -MP -MF sub/conftest.TPo -c -o sub/conftest.o sub/conftest.c
+[vcheck] /usr/bin/g++-14 
+[vcheck] /usr/bin/g++-14 
+[vcheck] /usr/bin/g++-14 
+[ccld] /usr/bin/g++-14 -qversion
+[cc] /usr/bin/g++-14 -c conftest.cpp
+[cc] /usr/bin/g++-14 -c -g conftest.cpp
+[cc] /usr/bin/g++-14 -c -g -O2 conftest.cpp
+[cc] /usr/bin/g++-14 -MT sub/conftest.o -MD -MP -MF sub/conftest.TPo -c -o sub/conftest.o sub/conftest.c
+[cc] /usr/bin/gcc-14 -MT sub/conftest.o -MD -MP -MF sub/conftest.TPo -c -o sub/conftest.o sub/conftest.c
+[ccld] /usr/bin/gcc-14 -print-prog-name=ld
+[vcheck] ld 
+[vcheck] ld 
+[cc] /usr/bin/gcc-14 -c conftest.c
+[cc] /usr/bin/gcc-14 -c conftest.c
+[cc] /usr/bin/gcc-14 -c conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest conftest.c conftstm.o
+[cc] /usr/bin/gcc-14 -c conftest.c
+[cc] /usr/bin/gcc-14 -c conftest.c
+[cc] /usr/bin/gcc-14 -c conftest.c
+[cc] /usr/bin/gcc-14 -c conftest.c
+[cc] /usr/bin/gcc-14 -c conftest.c
+[cc] /usr/bin/gcc-14 -c conftest.c
+[cc] /usr/bin/gcc-14 -c conftest.c
+[cc] /usr/bin/gcc-14 -c conftest.c
+[cc] /usr/bin/gcc-14 -c conftest.c
+[cc] /usr/bin/gcc-14 -c conftest.c
+[cc] /usr/bin/gcc-14 -c conftest.c
+[cc] /usr/bin/gcc-14 -c conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest conftest.c
+[cc] /usr/bin/gcc-14 -c -fno-rtti -fno-exceptions conftest.c
+[cc] /usr/bin/gcc-14 -c -fPIC -DPIC -DPIC conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -static conftest.c
+[cc] /usr/bin/gcc-14 -c -o out/conftest2.o conftest.c
+[ld] ld -m elf_x86_64 --help
+[vcheck] ld 
+[ld] ld -m elf_x86_64 --help
+[vcheck] /usr/bin/gcc-14 
+[cc] /usr/bin/gcc-14 -c conftest.c
+[vcheck] /usr/bin/gcc-14 
+[ccld] /usr/bin/gcc-14 -print-search-dirs
+[ccld] /usr/bin/gcc-14 -print-multi-os-directory
+[ccld] /usr/bin/gcc-14 -o conftest -Wl,-rpath -Wl,/foo conftest.c
+[cpp] /usr/bin/g++-14 -E conftest.cpp
+[cpp] /usr/bin/g++-14 -E conftest.cpp
+[cpp] /usr/bin/g++-14 -E conftest.cpp
+[cpp] /usr/bin/g++-14 -E conftest.cpp
+[cc] /usr/bin/g++-14 -c -g -O2 conftest.cpp
+[ccld] /usr/bin/g++-14 -o conftest -g -O2 conftest.cpp
+[ccld] /usr/bin/g++-14 -print-prog-name=ld
+[vcheck] ld 
+[ccld] /usr/bin/g++-14 -print-prog-name=ld
+[ld] ld --help
+[vcheck] /usr/bin/g++-14 
+[cc] /usr/bin/g++-14 -c -g -O2 conftest.cpp
+[vcheck] /usr/bin/g++-14 
+[cc] /usr/bin/g++-14 -c -g -O2 -fPIC -DPIC -DPIC conftest.cpp
+[ccld] /usr/bin/g++-14 -o conftest -g -O2 -static conftest.cpp
+[cc] /usr/bin/g++-14 -c -g -O2 -o out/conftest2.o conftest.cpp
+[ccld] /usr/bin/gcc-14 -o conftest conftest.c
+[cc] /usr/bin/gcc-14 -c conftest.c
+[cc] /usr/bin/gcc-14 -c conftest.c
+[cc] /usr/bin/gcc-14 -c conftest.c
+[cc] /usr/bin/gcc-14 -c conftest.c
+[cc] /usr/bin/gcc-14 -c conftest.c
+[cc] /usr/bin/gcc-14 -c conftest.c
+[cc] /usr/bin/gcc-14 -c conftest.c
+[cc] /usr/bin/gcc-14 -c conftest.c
+[cc] /usr/bin/gcc-14 -c conftest.c
+[cc] /usr/bin/gcc-14 -c conftest.c
+[cc] /usr/bin/gcc-14 -c conftest.c
+[cc] /usr/bin/gcc-14 -c -O3 -fomit-frame-pointer -fstrict-aliasing conftest.c
+[cc] /usr/bin/gcc-14 -c -O3 -fomit-frame-pointer -fstrict-aliasing -ffast-math conftest.c
+[cc] /usr/bin/gcc-14 -c -O3 -fomit-frame-pointer -fstrict-aliasing -ffast-math -O3 -fomit-frame-pointer -fstrict-aliasing -ffast-math conftest.c
+[cc] /usr/bin/gcc-14 -c -Wall -O3 -fomit-frame-pointer -fstrict-aliasing -ffast-math -fexceptions conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -Wall -O3 -fomit-frame-pointer -fstrict-aliasing -ffast-math -fexceptions conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -Wall -O3 -fomit-frame-pointer -fstrict-aliasing -ffast-math -fexceptions conftest.c
+[cc] /usr/bin/gcc-14 -c -Wall -O3 -fomit-frame-pointer -fstrict-aliasing -ffast-math -fexceptions conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -Wall -O3 -fomit-frame-pointer -fstrict-aliasing -ffast-math -fexceptions conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -Wall -O3 -fomit-frame-pointer -fstrict-aliasing -ffast-math -fexceptions conftest.c
+[cc] /usr/bin/gcc-14 -c -Wall -O3 -fomit-frame-pointer -fstrict-aliasing -ffast-math -fexceptions conftest.c
+[cc] /usr/bin/gcc-14 -c -Wall -O3 -fomit-frame-pointer -fstrict-aliasing -ffast-math -fexceptions conftest.c
+[cc] /usr/bin/gcc-14 -c -Wall -O3 -fomit-frame-pointer -fstrict-aliasing -ffast-math -fexceptions conftest.c
+[cc] /usr/bin/gcc-14 -c -Wall -O3 -fomit-frame-pointer -fstrict-aliasing -ffast-math -fexceptions conftest.c
+[cc] /usr/bin/gcc-14 -Wall -O3 -fomit-frame-pointer -fstrict-aliasing -ffast-math -fexceptions -c conftest.s
+[cc] /usr/bin/gcc-14 -c -Wall -O3 -fomit-frame-pointer -fstrict-aliasing -ffast-math -fexceptions conftest.c
+[cc] /usr/bin/gcc-14 -c -Wall -O3 -fomit-frame-pointer -fstrict-aliasing -ffast-math -fexceptions conftest.c
+[cc] /usr/bin/gcc-14 -Wa,--fatal-warnings -Wall -O3 -fomit-frame-pointer -fstrict-aliasing -ffast-math -fexceptions -c conftest1.s
+[ccld] /usr/bin/gcc-14 conftest2.c conftest1.o
+[cc] /usr/bin/gcc-14 -c -Wall -O3 -fomit-frame-pointer -fstrict-aliasing -ffast-math -fexceptions -fno-lto conftest.c
+[cc] /usr/bin/gcc-14 -Wall -O3 -fomit-frame-pointer -fstrict-aliasing -ffast-math -fexceptions -c -fpic -fexceptions -fno-lto -o conftest.o conftest.c
+[as] /usr/bin/gcc-14 -Werror -S conftest.c -o conftest.s
+[ccld] /usr/bin/gcc-14 -Wall -O3 -fomit-frame-pointer -fstrict-aliasing -ffast-math -fexceptions -print-multi-os-directory
+[vcheck] ld 
+[vcheck] ld 
+[vcheck] ld 
+[vcheck] ld 
+[ccld] /usr/bin/gcc-14 -o conftest -lgcc_s conftest.c
+[cpp] /usr/bin/gcc-14 -E /tmp/cgIym59o/dummy.c
+[cpp] /usr/bin/gcc-14 -E /tmp/cgIym59o/dummy.c
+[cpp] /usr/bin/gcc-14 -DHAVE_CONFIG_H -I. -I.. -I. -I../include -Iinclude -I../src -Wall -O3 -fomit-frame-pointer -fstrict-aliasing -ffast-math -fexceptions -DX86_64 -DGENERATE_LIBFFI_MAP -E -x assembler-with-cpp -o libffi.map ../libffi.map.in
+[cc] /usr/bin/gcc-14 -DHAVE_CONFIG_H -I. -I.. -I. -I../include -Iinclude -I../src -Wall -O3 -fomit-frame-pointer -fstrict-aliasing -ffast-math -fexceptions -MT src/types.lo -MD -MP -MF src/.deps/types.Tpo -c ../src/types.c -fPIC -DPIC -o src/.libs/types.o
+[cc] /usr/bin/gcc-14 -DHAVE_CONFIG_H -I. -I.. -I. -I../include -Iinclude -I../src -Wall -O3 -fomit-frame-pointer -fstrict-aliasing -ffast-math -fexceptions -MT src/x86/ffi64.lo -MD -MP -MF src/x86/.deps/ffi64.Tpo -c ../src/x86/ffi64.c -fPIC -DPIC -o src/x86/.libs/ffi64.o
+[cc] /usr/bin/gcc-14 -DHAVE_CONFIG_H -I. -I.. -I. -I../include -Iinclude -I../src -Wall -O3 -fomit-frame-pointer -fstrict-aliasing -ffast-math -fexceptions -MT src/tramp.lo -MD -MP -MF src/.deps/tramp.Tpo -c ../src/tramp.c -fPIC -DPIC -o src/.libs/tramp.o
+[cc] /usr/bin/gcc-14 -DHAVE_CONFIG_H -I. -I.. -I. -I../include -Iinclude -I../src -Wall -O3 -fomit-frame-pointer -fstrict-aliasing -ffast-math -fexceptions -MT src/java_raw_api.lo -MD -MP -MF src/.deps/java_raw_api.Tpo -c ../src/java_raw_api.c -fPIC -DPIC -o src/.libs/java_raw_api.o
+[cc] /usr/bin/gcc-14 -DHAVE_CONFIG_H -I. -I.. -I. -I../include -Iinclude -I../src -Wall -O3 -fomit-frame-pointer -fstrict-aliasing -ffast-math -fexceptions -MT src/closures.lo -MD -MP -MF src/.deps/closures.Tpo -c ../src/closures.c -fPIC -DPIC -o src/.libs/closures.o
+[cc] /usr/bin/gcc-14 -DHAVE_CONFIG_H -I. -I.. -I. -I../include -Iinclude -I../src -Wall -O3 -fomit-frame-pointer -fstrict-aliasing -ffast-math -fexceptions -MT src/x86/ffiw64.lo -MD -MP -MF src/x86/.deps/ffiw64.Tpo -c ../src/x86/ffiw64.c -fPIC -DPIC -o src/x86/.libs/ffiw64.o
+[cc] /usr/bin/gcc-14 -DHAVE_CONFIG_H -I. -I.. -I. -I../include -Iinclude -I../src -Wall -O3 -fomit-frame-pointer -fstrict-aliasing -ffast-math -fexceptions -MT src/prep_cif.lo -MD -MP -MF src/.deps/prep_cif.Tpo -c ../src/prep_cif.c -fPIC -DPIC -o src/.libs/prep_cif.o
+[cc] /usr/bin/gcc-14 -DHAVE_CONFIG_H -I. -I.. -I. -I../include -Iinclude -I../src -Wall -O3 -fomit-frame-pointer -fstrict-aliasing -ffast-math -fexceptions -MT src/raw_api.lo -MD -MP -MF src/.deps/raw_api.Tpo -c ../src/raw_api.c -fPIC -DPIC -o src/.libs/raw_api.o
+[cc] /usr/bin/gcc-14 -DHAVE_CONFIG_H -I. -I.. -I. -I../include -Iinclude -I../src -I. -I../include -Iinclude -I../src -MT src/x86/win64.lo -MD -MP -MF src/x86/.deps/win64.Tpo -c ../src/x86/win64.S -fPIC -DPIC -o src/x86/.libs/win64.o
+[cc] /usr/bin/gcc-14 -DHAVE_CONFIG_H -I. -I.. -I. -I../include -Iinclude -I../src -I. -I../include -Iinclude -I../src -MT src/x86/unix64.lo -MD -MP -MF src/x86/.deps/unix64.Tpo -c ../src/x86/unix64.S -fPIC -DPIC -o src/x86/.libs/unix64.o
+[cc] /usr/bin/gcc-14 -DHAVE_CONFIG_H -I. -I.. -I. -I../include -Iinclude -I../src -I. -I../include -Iinclude -I../src -MT src/x86/win64.lo -MD -MP -MF src/x86/.deps/win64.Tpo -c ../src/x86/win64.S -fPIC -DPIC -o src/x86/win64.o
+[cc] /usr/bin/gcc-14 -DHAVE_CONFIG_H -I. -I.. -I. -I../include -Iinclude -I../src -Wall -O3 -fomit-frame-pointer -fstrict-aliasing -ffast-math -fexceptions -MT src/types.lo -MD -MP -MF src/.deps/types.Tpo -c ../src/types.c -fPIC -DPIC -o src/types.o
+[cc] /usr/bin/gcc-14 -DHAVE_CONFIG_H -I. -I.. -I. -I../include -Iinclude -I../src -I. -I../include -Iinclude -I../src -MT src/x86/unix64.lo -MD -MP -MF src/x86/.deps/unix64.Tpo -c ../src/x86/unix64.S -fPIC -DPIC -o src/x86/unix64.o
+[cc] /usr/bin/gcc-14 -DHAVE_CONFIG_H -I. -I.. -I. -I../include -Iinclude -I../src -Wall -O3 -fomit-frame-pointer -fstrict-aliasing -ffast-math -fexceptions -MT src/raw_api.lo -MD -MP -MF src/.deps/raw_api.Tpo -c ../src/raw_api.c -fPIC -DPIC -o src/raw_api.o
+[cc] /usr/bin/gcc-14 -DHAVE_CONFIG_H -I. -I.. -I. -I../include -Iinclude -I../src -Wall -O3 -fomit-frame-pointer -fstrict-aliasing -ffast-math -fexceptions -MT src/java_raw_api.lo -MD -MP -MF src/.deps/java_raw_api.Tpo -c ../src/java_raw_api.c -fPIC -DPIC -o src/java_raw_api.o
+[cc] /usr/bin/gcc-14 -DHAVE_CONFIG_H -I. -I.. -I. -I../include -Iinclude -I../src -Wall -O3 -fomit-frame-pointer -fstrict-aliasing -ffast-math -fexceptions -MT src/prep_cif.lo -MD -MP -MF src/.deps/prep_cif.Tpo -c ../src/prep_cif.c -fPIC -DPIC -o src/prep_cif.o
+[cc] /usr/bin/gcc-14 -DHAVE_CONFIG_H -I. -I.. -I. -I../include -Iinclude -I../src -Wall -O3 -fomit-frame-pointer -fstrict-aliasing -ffast-math -fexceptions -MT src/tramp.lo -MD -MP -MF src/.deps/tramp.Tpo -c ../src/tramp.c -fPIC -DPIC -o src/tramp.o
+[cc] /usr/bin/gcc-14 -DHAVE_CONFIG_H -I. -I.. -I. -I../include -Iinclude -I../src -Wall -O3 -fomit-frame-pointer -fstrict-aliasing -ffast-math -fexceptions -MT src/x86/ffiw64.lo -MD -MP -MF src/x86/.deps/ffiw64.Tpo -c ../src/x86/ffiw64.c -fPIC -DPIC -o src/x86/ffiw64.o
+[cc] /usr/bin/gcc-14 -DHAVE_CONFIG_H -I. -I.. -I. -I../include -Iinclude -I../src -Wall -O3 -fomit-frame-pointer -fstrict-aliasing -ffast-math -fexceptions -MT src/x86/ffi64.lo -MD -MP -MF src/x86/.deps/ffi64.Tpo -c ../src/x86/ffi64.c -fPIC -DPIC -o src/x86/ffi64.o
+[cc] /usr/bin/gcc-14 -DHAVE_CONFIG_H -I. -I.. -I. -I../include -Iinclude -I../src -Wall -O3 -fomit-frame-pointer -fstrict-aliasing -ffast-math -fexceptions -MT src/closures.lo -MD -MP -MF src/.deps/closures.Tpo -c ../src/closures.c -fPIC -DPIC -o src/closures.o
+[ccld] /usr/bin/gcc-14 -shared -fPIC -DPIC src/.libs/prep_cif.o src/.libs/types.o src/.libs/raw_api.o src/.libs/java_raw_api.o src/.libs/closures.o src/.libs/tramp.o src/x86/.libs/ffi64.o src/x86/.libs/unix64.o src/x86/.libs/ffiw64.o src/x86/.libs/win64.o -O3 -Wl,--version-script -Wl,libffi.map -Wl,-soname -Wl,libffi.so.8 -o .libs/libffi.so.8.1.4
+[cpp] /usr/bin/gcc-14 -E /tmp/cgeab7O9/dummy.c
+[cpp] /usr/bin/gcc-14 -E /tmp/cgeab7O9/dummy.c

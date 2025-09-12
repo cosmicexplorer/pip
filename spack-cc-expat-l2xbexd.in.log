@@ -1,0 +1,141 @@
+[cpp] /usr/bin/gcc-14 -E /tmp/cgwopXp7/dummy.c
+[cpp] /usr/bin/gcc-14 -E /tmp/cgwopXp7/dummy.c
+[vcheck] /usr/bin/gcc-14 
+[vcheck] /usr/bin/gcc-14 
+[vcheck] /usr/bin/gcc-14 
+[ccld] /usr/bin/gcc-14 -qversion
+[ccld] /usr/bin/gcc-14 -version
+[ccld] /usr/bin/gcc-14 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest conftest.c
+[cc] /usr/bin/gcc-14 -c conftest.c
+[cc] /usr/bin/gcc-14 -c conftest.c
+[cc] /usr/bin/gcc-14 -c -g conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c conftest.c -o conftest2.o
+[cc] /usr/bin/gcc-14 -c conftest.c -o conftest2.o
+[cc] /usr/bin/gcc-14 -MT sub/conftest.o -MD -MP -MF sub/conftest.TPo -c -o sub/conftest.o sub/conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[ccld] /usr/bin/gcc-14 -print-prog-name=ld
+[vcheck] ld 
+[vcheck] ld 
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c conftstm.o
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 -fno-rtti -fno-exceptions conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 -fPIC -DPIC -DPIC conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 -static conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 -o out/conftest2.o conftest.c
+[ld] ld -m elf_x86_64 --help
+[vcheck] ld 
+[ld] ld -m elf_x86_64 --help
+[vcheck] /usr/bin/gcc-14 
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[vcheck] /usr/bin/gcc-14 
+[ccld] /usr/bin/gcc-14 -print-search-dirs
+[ccld] /usr/bin/gcc-14 -g -O2 -print-multi-os-directory
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 -Wl,-rpath -Wl,/foo conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 -Werror -Wall conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 -Werror -Wextra conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 -Werror -fexceptions conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 -Werror -fno-strict-aliasing conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 -Werror -Wmissing-prototypes conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 -Werror -Wstrict-prototypes conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 -Werror -pedantic conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 -Werror -Wduplicated-cond conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 -Werror -Wduplicated-branches conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 -Werror -Wlogical-op conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 -Werror -Wrestrict conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 -Werror -Wnull-dereference conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 -Werror -Wjump-misses-init conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 -Werror -Wdouble-promotion conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 -Werror -Wshadow conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 -Werror -Wformat=2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 -Werror -Wno-pedantic-ms-format conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 -Werror -Wmisleading-indentation conftest.c
+[vcheck] /usr/bin/g++-14 
+[vcheck] /usr/bin/g++-14 
+[vcheck] /usr/bin/g++-14 
+[ccld] /usr/bin/g++-14 -qversion
+[cc] /usr/bin/g++-14 -c conftest.cpp
+[cc] /usr/bin/g++-14 -c -g conftest.cpp
+[cc] /usr/bin/g++-14 -c -g -O2 conftest.cpp
+[cc] /usr/bin/g++-14 -MT sub/conftest.o -MD -MP -MF sub/conftest.TPo -c -o sub/conftest.o sub/conftest.c
+[cpp] /usr/bin/g++-14 -E conftest.cpp
+[cpp] /usr/bin/g++-14 -E conftest.cpp
+[cpp] /usr/bin/g++-14 -E conftest.cpp
+[cpp] /usr/bin/g++-14 -E conftest.cpp
+[cc] /usr/bin/g++-14 -c -g -O2 conftest.cpp
+[ccld] /usr/bin/g++-14 -o conftest -g -O2 conftest.cpp
+[ccld] /usr/bin/g++-14 -print-prog-name=ld
+[vcheck] ld 
+[ld] ld -m elf_x86_64 --help
+[vcheck] /usr/bin/g++-14 
+[cc] /usr/bin/g++-14 -c -g -O2 conftest.cpp
+[vcheck] /usr/bin/g++-14 
+[cc] /usr/bin/g++-14 -c -g -O2 -fPIC -DPIC -DPIC conftest.cpp
+[ccld] /usr/bin/g++-14 -o conftest -g -O2 -static conftest.cpp
+[cc] /usr/bin/g++-14 -c -g -O2 -o out/conftest2.o conftest.cpp
+[cc] /usr/bin/g++-14 -c -g -O2 -Werror -Wall conftest.cpp
+[cc] /usr/bin/g++-14 -c -g -O2 -Werror -Wextra conftest.cpp
+[cc] /usr/bin/g++-14 -c -g -O2 -Werror -fexceptions conftest.cpp
+[cc] /usr/bin/g++-14 -c -g -O2 -Werror -fno-strict-aliasing conftest.cpp
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 -fno-strict-aliasing conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 -fvisibility=hidden -Wall -Werror -Wno-unknown-warning-option conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/g++-14 -std=c++11 -c -g -O2 conftest.cpp
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c -lm
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c -lbsd
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c -lbsd
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c -lbsd
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c -lbsd
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c -lbsd
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c -lbsd
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c -lbsd
+[cc] /usr/bin/gcc-14 -DHAVE_CONFIG_H -I. -I.. -DXML_ENABLE_VISIBILITY=1 -Wall -Wextra -fexceptions -fno-strict-aliasing -Wmissing-prototypes -Wstrict-prototypes -pedantic -Wduplicated-cond -Wduplicated-branches -Wlogical-op -Wrestrict -Wnull-dereference -Wjump-misses-init -Wdouble-promotion -Wshadow -Wformat=2 -Wno-pedantic-ms-format -Wmisleading-indentation -fvisibility=hidden -g -O2 -MT xmltok.lo -MD -MP -MF .deps/xmltok.Tpo -c xmltok.c -fPIC -DPIC -o .libs/xmltok.o
+[cc] /usr/bin/gcc-14 -DHAVE_CONFIG_H -I. -I.. -DXML_ENABLE_VISIBILITY=1 -Wall -Wextra -fexceptions -fno-strict-aliasing -Wmissing-prototypes -Wstrict-prototypes -pedantic -Wduplicated-cond -Wduplicated-branches -Wlogical-op -Wrestrict -Wnull-dereference -Wjump-misses-init -Wdouble-promotion -Wshadow -Wformat=2 -Wno-pedantic-ms-format -Wmisleading-indentation -fvisibility=hidden -g -O2 -MT xmlparse.lo -MD -MP -MF .deps/xmlparse.Tpo -c xmlparse.c -fPIC -DPIC -o .libs/xmlparse.o
+[cc] /usr/bin/gcc-14 -DHAVE_CONFIG_H -I. -I.. -DXML_ENABLE_VISIBILITY=1 -Wall -Wextra -fexceptions -fno-strict-aliasing -Wmissing-prototypes -Wstrict-prototypes -pedantic -Wduplicated-cond -Wduplicated-branches -Wlogical-op -Wrestrict -Wnull-dereference -Wjump-misses-init -Wdouble-promotion -Wshadow -Wformat=2 -Wno-pedantic-ms-format -Wmisleading-indentation -fvisibility=hidden -g -O2 -MT xmlrole.lo -MD -MP -MF .deps/xmlrole.Tpo -c xmlrole.c -fPIC -DPIC -o .libs/xmlrole.o
+[cc] /usr/bin/gcc-14 -DHAVE_CONFIG_H -I. -I.. -DXML_TESTING -Wall -Wextra -fexceptions -fno-strict-aliasing -Wmissing-prototypes -Wstrict-prototypes -pedantic -Wduplicated-cond -Wduplicated-branches -Wlogical-op -Wrestrict -Wnull-dereference -Wjump-misses-init -Wdouble-promotion -Wshadow -Wformat=2 -Wno-pedantic-ms-format -Wmisleading-indentation -fvisibility=hidden -g -O2 -MT libtestpat_la-xmlparse.lo -MD -MP -MF .deps/libtestpat_la-xmlparse.Tpo -c xmlparse.c -fPIC -DPIC -o .libs/libtestpat_la-xmlparse.o
+[cc] /usr/bin/gcc-14 -DHAVE_CONFIG_H -I. -I.. -DXML_ENABLE_VISIBILITY=1 -Wall -Wextra -fexceptions -fno-strict-aliasing -Wmissing-prototypes -Wstrict-prototypes -pedantic -Wduplicated-cond -Wduplicated-branches -Wlogical-op -Wrestrict -Wnull-dereference -Wjump-misses-init -Wdouble-promotion -Wshadow -Wformat=2 -Wno-pedantic-ms-format -Wmisleading-indentation -fvisibility=hidden -g -O2 -MT xmlrole.lo -MD -MP -MF .deps/xmlrole.Tpo -c xmlrole.c -o xmlrole.o
+[cc] /usr/bin/gcc-14 -DHAVE_CONFIG_H -I. -I.. -DXML_TESTING -Wall -Wextra -fexceptions -fno-strict-aliasing -Wmissing-prototypes -Wstrict-prototypes -pedantic -Wduplicated-cond -Wduplicated-branches -Wlogical-op -Wrestrict -Wnull-dereference -Wjump-misses-init -Wdouble-promotion -Wshadow -Wformat=2 -Wno-pedantic-ms-format -Wmisleading-indentation -fvisibility=hidden -g -O2 -MT libtestpat_la-xmltok.lo -MD -MP -MF .deps/libtestpat_la-xmltok.Tpo -c xmltok.c -fPIC -DPIC -o .libs/libtestpat_la-xmltok.o
+[cc] /usr/bin/gcc-14 -DHAVE_CONFIG_H -I. -I.. -DXML_ENABLE_VISIBILITY=1 -Wall -Wextra -fexceptions -fno-strict-aliasing -Wmissing-prototypes -Wstrict-prototypes -pedantic -Wduplicated-cond -Wduplicated-branches -Wlogical-op -Wrestrict -Wnull-dereference -Wjump-misses-init -Wdouble-promotion -Wshadow -Wformat=2 -Wno-pedantic-ms-format -Wmisleading-indentation -fvisibility=hidden -g -O2 -MT xmlparse.lo -MD -MP -MF .deps/xmlparse.Tpo -c xmlparse.c -o xmlparse.o
+[cc] /usr/bin/gcc-14 -DHAVE_CONFIG_H -I. -I.. -DXML_TESTING -Wall -Wextra -fexceptions -fno-strict-aliasing -Wmissing-prototypes -Wstrict-prototypes -pedantic -Wduplicated-cond -Wduplicated-branches -Wlogical-op -Wrestrict -Wnull-dereference -Wjump-misses-init -Wdouble-promotion -Wshadow -Wformat=2 -Wno-pedantic-ms-format -Wmisleading-indentation -fvisibility=hidden -g -O2 -MT libtestpat_la-xmlparse.lo -MD -MP -MF .deps/libtestpat_la-xmlparse.Tpo -c xmlparse.c -o libtestpat_la-xmlparse.o
+[cc] /usr/bin/gcc-14 -DHAVE_CONFIG_H -I. -I.. -DXML_ENABLE_VISIBILITY=1 -Wall -Wextra -fexceptions -fno-strict-aliasing -Wmissing-prototypes -Wstrict-prototypes -pedantic -Wduplicated-cond -Wduplicated-branches -Wlogical-op -Wrestrict -Wnull-dereference -Wjump-misses-init -Wdouble-promotion -Wshadow -Wformat=2 -Wno-pedantic-ms-format -Wmisleading-indentation -fvisibility=hidden -g -O2 -MT xmltok.lo -MD -MP -MF .deps/xmltok.Tpo -c xmltok.c -o xmltok.o
+[cc] /usr/bin/gcc-14 -DHAVE_CONFIG_H -I. -I.. -DXML_TESTING -Wall -Wextra -fexceptions -fno-strict-aliasing -Wmissing-prototypes -Wstrict-prototypes -pedantic -Wduplicated-cond -Wduplicated-branches -Wlogical-op -Wrestrict -Wnull-dereference -Wjump-misses-init -Wdouble-promotion -Wshadow -Wformat=2 -Wno-pedantic-ms-format -Wmisleading-indentation -fvisibility=hidden -g -O2 -MT libtestpat_la-xmltok.lo -MD -MP -MF .deps/libtestpat_la-xmltok.Tpo -c xmltok.c -o libtestpat_la-xmltok.o
+[cc] /usr/bin/gcc-14 -DHAVE_CONFIG_H -I. -I.. -DXML_TESTING -Wall -Wextra -fexceptions -fno-strict-aliasing -Wmissing-prototypes -Wstrict-prototypes -pedantic -Wduplicated-cond -Wduplicated-branches -Wlogical-op -Wrestrict -Wnull-dereference -Wjump-misses-init -Wdouble-promotion -Wshadow -Wformat=2 -Wno-pedantic-ms-format -Wmisleading-indentation -fvisibility=hidden -g -O2 -MT libtestpat_la-xmlrole.lo -MD -MP -MF .deps/libtestpat_la-xmlrole.Tpo -c xmlrole.c -fPIC -DPIC -o .libs/libtestpat_la-xmlrole.o
+[ccld] /usr/bin/gcc-14 -shared -fPIC -DPIC .libs/xmlparse.o .libs/xmltok.o .libs/xmlrole.o -lm -lbsd -g -O2 -Wl,-soname -Wl,libexpat.so.1 -o .libs/libexpat.so.1.10.2
+[cc] /usr/bin/gcc-14 -DHAVE_CONFIG_H -I. -I.. -DXML_TESTING -Wall -Wextra -fexceptions -fno-strict-aliasing -Wmissing-prototypes -Wstrict-prototypes -pedantic -Wduplicated-cond -Wduplicated-branches -Wlogical-op -Wrestrict -Wnull-dereference -Wjump-misses-init -Wdouble-promotion -Wshadow -Wformat=2 -Wno-pedantic-ms-format -Wmisleading-indentation -fvisibility=hidden -g -O2 -MT libtestpat_la-xmlrole.lo -MD -MP -MF .deps/libtestpat_la-xmlrole.Tpo -c xmlrole.c -o libtestpat_la-xmlrole.o
+[cc] /usr/bin/gcc-14 -DHAVE_CONFIG_H -I. -I.. -DXML_ENABLE_VISIBILITY=1 -I./../lib -Wall -Wextra -fexceptions -fno-strict-aliasing -Wmissing-prototypes -Wstrict-prototypes -pedantic -Wduplicated-cond -Wduplicated-branches -Wlogical-op -Wrestrict -Wnull-dereference -Wjump-misses-init -Wdouble-promotion -Wshadow -Wformat=2 -Wno-pedantic-ms-format -Wmisleading-indentation -fvisibility=hidden -g -O2 -MT elements.o -MD -MP -MF .deps/elements.Tpo -c -o elements.o elements.c
+[cc] /usr/bin/gcc-14 -DHAVE_CONFIG_H -I. -I.. -DXML_ENABLE_VISIBILITY=1 -I./../lib -Wall -Wextra -fexceptions -fno-strict-aliasing -Wmissing-prototypes -Wstrict-prototypes -pedantic -Wduplicated-cond -Wduplicated-branches -Wlogical-op -Wrestrict -Wnull-dereference -Wjump-misses-init -Wdouble-promotion -Wshadow -Wformat=2 -Wno-pedantic-ms-format -Wmisleading-indentation -fvisibility=hidden -g -O2 -MT element_declarations.o -MD -MP -MF .deps/element_declarations.Tpo -c -o element_declarations.o element_declarations.c
+[cc] /usr/bin/gcc-14 -DHAVE_CONFIG_H -I. -I.. -DXML_ENABLE_VISIBILITY=1 -I./../lib -Wall -Wextra -fexceptions -fno-strict-aliasing -Wmissing-prototypes -Wstrict-prototypes -pedantic -Wduplicated-cond -Wduplicated-branches -Wlogical-op -Wrestrict -Wnull-dereference -Wjump-misses-init -Wdouble-promotion -Wshadow -Wformat=2 -Wno-pedantic-ms-format -Wmisleading-indentation -fvisibility=hidden -g -O2 -MT outline.o -MD -MP -MF .deps/outline.Tpo -c -o outline.o outline.c
+[ccld] /usr/bin/gcc-14 -Wall -Wextra -fexceptions -fno-strict-aliasing -Wmissing-prototypes -Wstrict-prototypes -pedantic -Wduplicated-cond -Wduplicated-branches -Wlogical-op -Wrestrict -Wnull-dereference -Wjump-misses-init -Wdouble-promotion -Wshadow -Wformat=2 -Wno-pedantic-ms-format -Wmisleading-indentation -fvisibility=hidden -g -O2 -fno-strict-aliasing -o .libs/elements elements.o ../lib/.libs/libexpat.so -lm -lbsd -Wl,-rpath -Wl,/home/cosmicexplorer/spack-repos/s2/opt/spack/linux-zen3/expat-2.7.1-l2xbexdxgibwkjaasdudi3sz6m3r7bck/lib
+[ccld] /usr/bin/gcc-14 -Wall -Wextra -fexceptions -fno-strict-aliasing -Wmissing-prototypes -Wstrict-prototypes -pedantic -Wduplicated-cond -Wduplicated-branches -Wlogical-op -Wrestrict -Wnull-dereference -Wjump-misses-init -Wdouble-promotion -Wshadow -Wformat=2 -Wno-pedantic-ms-format -Wmisleading-indentation -fvisibility=hidden -g -O2 -fno-strict-aliasing -o .libs/outline outline.o ../lib/.libs/libexpat.so -lm -lbsd -Wl,-rpath -Wl,/home/cosmicexplorer/spack-repos/s2/opt/spack/linux-zen3/expat-2.7.1-l2xbexdxgibwkjaasdudi3sz6m3r7bck/lib
+[ccld] /usr/bin/gcc-14 -Wall -Wextra -fexceptions -fno-strict-aliasing -Wmissing-prototypes -Wstrict-prototypes -pedantic -Wduplicated-cond -Wduplicated-branches -Wlogical-op -Wrestrict -Wnull-dereference -Wjump-misses-init -Wdouble-promotion -Wshadow -Wformat=2 -Wno-pedantic-ms-format -Wmisleading-indentation -fvisibility=hidden -g -O2 -fno-strict-aliasing -o .libs/element_declarations element_declarations.o ../lib/.libs/libexpat.so -lm -lbsd -Wl,-rpath -Wl,/home/cosmicexplorer/spack-repos/s2/opt/spack/linux-zen3/expat-2.7.1-l2xbexdxgibwkjaasdudi3sz6m3r7bck/lib
+[cc] /usr/bin/gcc-14 -DHAVE_CONFIG_H -I. -I../.. -DXML_ENABLE_VISIBILITY=1 -I./../../lib -Wall -Wextra -fexceptions -fno-strict-aliasing -Wmissing-prototypes -Wstrict-prototypes -pedantic -Wduplicated-cond -Wduplicated-branches -Wlogical-op -Wrestrict -Wnull-dereference -Wjump-misses-init -Wdouble-promotion -Wshadow -Wformat=2 -Wno-pedantic-ms-format -Wmisleading-indentation -fvisibility=hidden -g -O2 -MT benchmark.o -MD -MP -MF .deps/benchmark.Tpo -c -o benchmark.o benchmark.c
+[ccld] /usr/bin/gcc-14 -Wall -Wextra -fexceptions -fno-strict-aliasing -Wmissing-prototypes -Wstrict-prototypes -pedantic -Wduplicated-cond -Wduplicated-branches -Wlogical-op -Wrestrict -Wnull-dereference -Wjump-misses-init -Wdouble-promotion -Wshadow -Wformat=2 -Wno-pedantic-ms-format -Wmisleading-indentation -fvisibility=hidden -g -O2 -fno-strict-aliasing -o .libs/benchmark benchmark.o ../../lib/.libs/libexpat.so -lm -lbsd -Wl,-rpath -Wl,/home/cosmicexplorer/spack-repos/s2/opt/spack/linux-zen3/expat-2.7.1-l2xbexdxgibwkjaasdudi3sz6m3r7bck/lib
+[cc] /usr/bin/gcc-14 -DHAVE_CONFIG_H -I. -I.. -DXML_ENABLE_VISIBILITY=1 -I./../lib -Wall -Wextra -fexceptions -fno-strict-aliasing -Wmissing-prototypes -Wstrict-prototypes -pedantic -Wduplicated-cond -Wduplicated-branches -Wlogical-op -Wrestrict -Wnull-dereference -Wjump-misses-init -Wdouble-promotion -Wshadow -Wformat=2 -Wno-pedantic-ms-format -Wmisleading-indentation -fvisibility=hidden -g -O2 -MT xmlwf-xmlfile.o -MD -MP -MF .deps/xmlwf-xmlfile.Tpo -c -o xmlwf-xmlfile.o xmlfile.c
+[cc] /usr/bin/gcc-14 -DHAVE_CONFIG_H -I. -I.. -DXML_ENABLE_VISIBILITY=1 -I./../lib -Wall -Wextra -fexceptions -fno-strict-aliasing -Wmissing-prototypes -Wstrict-prototypes -pedantic -Wduplicated-cond -Wduplicated-branches -Wlogical-op -Wrestrict -Wnull-dereference -Wjump-misses-init -Wdouble-promotion -Wshadow -Wformat=2 -Wno-pedantic-ms-format -Wmisleading-indentation -fvisibility=hidden -g -O2 -MT xmlwf-unixfilemap.o -MD -MP -MF .deps/xmlwf-unixfilemap.Tpo -c -o xmlwf-unixfilemap.o unixfilemap.c
+[cc] /usr/bin/gcc-14 -DHAVE_CONFIG_H -I. -I.. -DXML_ENABLE_VISIBILITY=1 -I./../lib -Wall -Wextra -fexceptions -fno-strict-aliasing -Wmissing-prototypes -Wstrict-prototypes -pedantic -Wduplicated-cond -Wduplicated-branches -Wlogical-op -Wrestrict -Wnull-dereference -Wjump-misses-init -Wdouble-promotion -Wshadow -Wformat=2 -Wno-pedantic-ms-format -Wmisleading-indentation -fvisibility=hidden -g -O2 -MT xmlwf-xmlwf.o -MD -MP -MF .deps/xmlwf-xmlwf.Tpo -c -o xmlwf-xmlwf.o xmlwf.c
+[cc] /usr/bin/gcc-14 -DHAVE_CONFIG_H -I. -I.. -DXML_ENABLE_VISIBILITY=1 -I./../lib -Wall -Wextra -fexceptions -fno-strict-aliasing -Wmissing-prototypes -Wstrict-prototypes -pedantic -Wduplicated-cond -Wduplicated-branches -Wlogical-op -Wrestrict -Wnull-dereference -Wjump-misses-init -Wdouble-promotion -Wshadow -Wformat=2 -Wno-pedantic-ms-format -Wmisleading-indentation -fvisibility=hidden -g -O2 -MT xmlwf-codepage.o -MD -MP -MF .deps/xmlwf-codepage.Tpo -c -o xmlwf-codepage.o codepage.c
+[ccld] /usr/bin/gcc-14 -Wall -Wextra -fexceptions -fno-strict-aliasing -Wmissing-prototypes -Wstrict-prototypes -pedantic -Wduplicated-cond -Wduplicated-branches -Wlogical-op -Wrestrict -Wnull-dereference -Wjump-misses-init -Wdouble-promotion -Wshadow -Wformat=2 -Wno-pedantic-ms-format -Wmisleading-indentation -fvisibility=hidden -g -O2 -fno-strict-aliasing -o .libs/xmlwf xmlwf-xmlwf.o xmlwf-xmlfile.o xmlwf-codepage.o xmlwf-unixfilemap.o ../lib/.libs/libexpat.so -lm -lbsd -Wl,-rpath -Wl,/home/cosmicexplorer/spack-repos/s2/opt/spack/linux-zen3/expat-2.7.1-l2xbexdxgibwkjaasdudi3sz6m3r7bck/lib

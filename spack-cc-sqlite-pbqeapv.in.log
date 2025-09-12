@@ -1,0 +1,115 @@
+[cpp] /usr/bin/gcc-14 -E /tmp/cgCdWqaA/dummy.c
+[cpp] /usr/bin/gcc-14 -E /tmp/cgCdWqaA/dummy.c
+[cc] /usr/bin/gcc-14 -c -DSQLITE_ENABLE_COLUMN_METADATA=1 conftest__.c -o conftest__.o
+[cc] /usr/bin/gcc-14 -c -O2 -g conftest__.c -o conftest__.o
+[cc] /usr/bin/gcc-14 -c -O2 -g conftest__.c -o conftest__.o
+[cc] /usr/bin/gcc-14 -c -O2 -g conftest__.c -o conftest__.o
+[cc] /usr/bin/gcc-14 -c -O2 -g conftest__.c -o conftest__.o
+[cc] /usr/bin/gcc-14 -c -O2 -g conftest__.c -o conftest__.o
+[cc] /usr/bin/gcc-14 -c -O2 -g conftest__.c -o conftest__.o
+[cc] /usr/bin/gcc-14 -c -O2 -g conftest__.c -o conftest__.o
+[cc] /usr/bin/gcc-14 -c -O2 -g conftest__.c -o conftest__.o
+[cc] /usr/bin/gcc-14 -c -O2 -g conftest__.c -o conftest__.o
+[cc] /usr/bin/gcc-14 -c -O2 -g conftest__.c -o conftest__.o
+[cc] /usr/bin/gcc-14 -c -O2 -g conftest__.c -o conftest__.o
+[cc] /usr/bin/gcc-14 -c -O2 -g conftest__.c -o conftest__.o
+[cc] /usr/bin/gcc-14 -c -O2 -g conftest__.c -o conftest__.o
+[cc] /usr/bin/gcc-14 -c -O2 -g conftest__.c -o conftest__.o
+[ccld] /usr/bin/gcc-14 -O2 -g conftest__.c -o conftest__
+[ccld] /usr/bin/gcc-14 -O2 -g conftest__.c -o conftest__
+[ccld] /usr/bin/gcc-14 -O2 -g conftest__.c -o conftest__
+[ccld] /usr/bin/gcc-14 -O2 -g conftest__.c -o conftest__
+[ccld] /usr/bin/gcc-14 -O2 -g conftest__.c -o conftest__
+[ccld] /usr/bin/gcc-14 -O2 -g conftest__.c -o conftest__
+[ccld] /usr/bin/gcc-14 -O2 -g conftest__.c -o conftest__
+[ccld] /usr/bin/gcc-14 -O2 -g conftest__.c -o conftest__
+[ccld] /usr/bin/gcc-14 -O2 -g conftest__.c -o conftest__
+[ccld] /usr/bin/gcc-14 -O2 -g conftest__.c -o conftest__
+[ccld] /usr/bin/gcc-14 -O2 -g conftest__.c -o conftest__
+[ccld] /usr/bin/gcc-14 -O2 -g conftest__.c -o conftest__
+[ccld] /usr/bin/gcc-14 -O2 -g conftest__.c -o conftest__
+[cc] /usr/bin/gcc-14 -c -O2 -g conftest__.c -o conftest__.o
+[cc] /usr/bin/gcc-14 -c -O2 -g conftest__.c -o conftest__.o
+[cc] /usr/bin/gcc-14 -c -O2 -g conftest__.c -o conftest__.o
+[cc] /usr/bin/gcc-14 -c -O2 -g conftest__.c -o conftest__.o
+[cc] /usr/bin/gcc-14 -c -O2 -g conftest__.c -o conftest__.o
+[cc] /usr/bin/gcc-14 -c -O2 -g conftest__.c -o conftest__.o
+[cc] /usr/bin/gcc-14 -c -O2 -g conftest__.c -o conftest__.o
+[cc] /usr/bin/gcc-14 -c -O2 -g conftest__.c -o conftest__.o
+[cc] /usr/bin/gcc-14 -c -O2 -g conftest__.c -o conftest__.o
+[cc] /usr/bin/gcc-14 -c -O2 -g conftest__.c -o conftest__.o
+[ccld] /usr/bin/gcc-14 -O2 -g conftest__.c -o conftest__
+[ccld] /usr/bin/gcc-14 -O2 -g conftest__.c -o conftest__ -lz
+[ccld] /usr/bin/gcc-14 -rpath /home/cosmicexplorer/spack-repos/s2/opt/spack/linux-zen3/sqlite-3.50.4-pbqeapvithfhvleii23gd7rgjbecdbxm/lib -O2 -g conftest__.c -o conftest__
+[ccld] /usr/bin/gcc-14 -Wl,-rpath,/home/cosmicexplorer/spack-repos/s2/opt/spack/linux-zen3/sqlite-3.50.4-pbqeapvithfhvleii23gd7rgjbecdbxm/lib -O2 -g conftest__.c -o conftest__
+[ccld] /usr/bin/gcc-14 -O2 -g conftest__.c -o conftest__
+[ccld] /usr/bin/gcc-14 -O2 -g conftest__.c -o conftest__
+[ccld] /usr/bin/gcc-14 -O2 -g conftest__.c -o conftest__
+[ccld] /usr/bin/gcc-14 -O2 -g conftest__.c -o conftest__
+[ccld] /usr/bin/gcc-14 -O2 -g conftest__.c -o conftest__ -lm
+[ccld] /usr/bin/gcc-14 -O2 -g conftest__.c -o conftest__
+[ccld] /usr/bin/gcc-14 -O2 -g conftest__.c -o conftest__ -lreadline
+[ccld] /usr/bin/gcc-14 -O2 -g conftest__.c -o conftest__ -lncurses
+[ccld] /usr/bin/gcc-14 -O2 -g conftest__.c -o conftest__ -lncurses
+[ccld] /usr/bin/gcc-14 -O2 -g conftest__.c -o conftest__ -lreadline -lncurses
+[cc] /usr/bin/gcc-14 -c -I/usr/include -DHAVE_READLINE -O2 -g conftest__.c -o conftest__.o
+[cc] /usr/bin/gcc-14 -c /tmp/cosmicexplorer/spack-stage/spack-stage-sqlite-3.50.4-pbqeapvithfhvleii23gd7rgjbecdbxm/spack-src/sqlite3.c -o sqlite3.o -O2 -g -I. -fPIC -DSQLITE_ENABLE_COLUMN_METADATA=1 -DSQLITE_ENABLE_FTS4 -DSQLITE_ENABLE_FTS5 -DSQLITE_ENABLE_MATH_FUNCTIONS -DSQLITE_ENABLE_RTREE -DSQLITE_THREADSAFE=1
+[ccld] /usr/bin/gcc-14 -o sqlite3 /tmp/cosmicexplorer/spack-stage/spack-stage-sqlite-3.50.4-pbqeapvithfhvleii23gd7rgjbecdbxm/spack-src/shell.c /tmp/cosmicexplorer/spack-stage/spack-stage-sqlite-3.50.4-pbqeapvithfhvleii23gd7rgjbecdbxm/spack-src/sqlite3.c -Wl,-rpath,/home/cosmicexplorer/spack-repos/s2/opt/spack/linux-zen3/sqlite-3.50.4-pbqeapvithfhvleii23gd7rgjbecdbxm/lib -lm -lz -I. -DSQLITE_ENABLE_COLUMN_METADATA=1 -DSQLITE_ENABLE_FTS4 -DSQLITE_ENABLE_FTS5 -DSQLITE_ENABLE_MATH_FUNCTIONS -DSQLITE_ENABLE_RTREE -DSQLITE_THREADSAFE=1 -DHAVE_READLINE=1 -DSQLITE_HAVE_ZLIB=1 -O2 -g -I/usr/include -lreadline -lncurses
+[cpp] /usr/bin/gcc-14 -E /tmp/cgSd1SZW/dummy.c
+[cpp] /usr/bin/gcc-14 -E /tmp/cgSd1SZW/dummy.c
+[cc] /usr/bin/gcc-14 -c -DSQLITE_ENABLE_COLUMN_METADATA=1 conftest__.c -o conftest__.o
+[cc] /usr/bin/gcc-14 -c -O2 -g conftest__.c -o conftest__.o
+[cc] /usr/bin/gcc-14 -c -O2 -g conftest__.c -o conftest__.o
+[cc] /usr/bin/gcc-14 -c -O2 -g conftest__.c -o conftest__.o
+[cc] /usr/bin/gcc-14 -c -O2 -g conftest__.c -o conftest__.o
+[cc] /usr/bin/gcc-14 -c -O2 -g conftest__.c -o conftest__.o
+[cc] /usr/bin/gcc-14 -c -O2 -g conftest__.c -o conftest__.o
+[cc] /usr/bin/gcc-14 -c -O2 -g conftest__.c -o conftest__.o
+[cc] /usr/bin/gcc-14 -c -O2 -g conftest__.c -o conftest__.o
+[cc] /usr/bin/gcc-14 -c -O2 -g conftest__.c -o conftest__.o
+[cc] /usr/bin/gcc-14 -c -O2 -g conftest__.c -o conftest__.o
+[cc] /usr/bin/gcc-14 -c -O2 -g conftest__.c -o conftest__.o
+[cc] /usr/bin/gcc-14 -c -O2 -g conftest__.c -o conftest__.o
+[cc] /usr/bin/gcc-14 -c -O2 -g conftest__.c -o conftest__.o
+[cc] /usr/bin/gcc-14 -c -O2 -g conftest__.c -o conftest__.o
+[ccld] /usr/bin/gcc-14 -O2 -g conftest__.c -o conftest__
+[ccld] /usr/bin/gcc-14 -O2 -g conftest__.c -o conftest__
+[ccld] /usr/bin/gcc-14 -O2 -g conftest__.c -o conftest__
+[ccld] /usr/bin/gcc-14 -O2 -g conftest__.c -o conftest__
+[ccld] /usr/bin/gcc-14 -O2 -g conftest__.c -o conftest__
+[ccld] /usr/bin/gcc-14 -O2 -g conftest__.c -o conftest__
+[ccld] /usr/bin/gcc-14 -O2 -g conftest__.c -o conftest__
+[ccld] /usr/bin/gcc-14 -O2 -g conftest__.c -o conftest__
+[ccld] /usr/bin/gcc-14 -O2 -g conftest__.c -o conftest__
+[ccld] /usr/bin/gcc-14 -O2 -g conftest__.c -o conftest__
+[ccld] /usr/bin/gcc-14 -O2 -g conftest__.c -o conftest__
+[ccld] /usr/bin/gcc-14 -O2 -g conftest__.c -o conftest__
+[ccld] /usr/bin/gcc-14 -O2 -g conftest__.c -o conftest__
+[cc] /usr/bin/gcc-14 -c -O2 -g conftest__.c -o conftest__.o
+[cc] /usr/bin/gcc-14 -c -O2 -g conftest__.c -o conftest__.o
+[cc] /usr/bin/gcc-14 -c -O2 -g conftest__.c -o conftest__.o
+[cc] /usr/bin/gcc-14 -c -O2 -g conftest__.c -o conftest__.o
+[cc] /usr/bin/gcc-14 -c -O2 -g conftest__.c -o conftest__.o
+[cc] /usr/bin/gcc-14 -c -O2 -g conftest__.c -o conftest__.o
+[cc] /usr/bin/gcc-14 -c -O2 -g conftest__.c -o conftest__.o
+[cc] /usr/bin/gcc-14 -c -O2 -g conftest__.c -o conftest__.o
+[cc] /usr/bin/gcc-14 -c -O2 -g conftest__.c -o conftest__.o
+[cc] /usr/bin/gcc-14 -c -O2 -g conftest__.c -o conftest__.o
+[ccld] /usr/bin/gcc-14 -O2 -g conftest__.c -o conftest__
+[ccld] /usr/bin/gcc-14 -O2 -g conftest__.c -o conftest__ -lz
+[ccld] /usr/bin/gcc-14 -rpath /home/cosmicexplorer/spack-repos/s2/opt/spack/linux-zen3/sqlite-3.50.4-pbqeapvithfhvleii23gd7rgjbecdbxm/lib -O2 -g conftest__.c -o conftest__
+[ccld] /usr/bin/gcc-14 -Wl,-rpath,/home/cosmicexplorer/spack-repos/s2/opt/spack/linux-zen3/sqlite-3.50.4-pbqeapvithfhvleii23gd7rgjbecdbxm/lib -O2 -g conftest__.c -o conftest__
+[ccld] /usr/bin/gcc-14 -O2 -g conftest__.c -o conftest__
+[ccld] /usr/bin/gcc-14 -O2 -g conftest__.c -o conftest__
+[ccld] /usr/bin/gcc-14 -O2 -g conftest__.c -o conftest__
+[ccld] /usr/bin/gcc-14 -O2 -g conftest__.c -o conftest__
+[ccld] /usr/bin/gcc-14 -O2 -g conftest__.c -o conftest__ -lm
+[ccld] /usr/bin/gcc-14 -O2 -g conftest__.c -o conftest__
+[ccld] /usr/bin/gcc-14 -O2 -g conftest__.c -o conftest__ -lreadline
+[ccld] /usr/bin/gcc-14 -O2 -g conftest__.c -o conftest__ -lncurses
+[ccld] /usr/bin/gcc-14 -O2 -g conftest__.c -o conftest__ -lncurses
+[ccld] /usr/bin/gcc-14 -O2 -g conftest__.c -o conftest__ -lreadline -lncurses
+[cc] /usr/bin/gcc-14 -c -I/usr/include -DHAVE_READLINE -O2 -g conftest__.c -o conftest__.o
+[cc] /usr/bin/gcc-14 -c /tmp/cosmicexplorer/spack-stage/spack-stage-sqlite-3.50.4-pbqeapvithfhvleii23gd7rgjbecdbxm/spack-src/sqlite3.c -o sqlite3.o -O2 -g -I. -fPIC -DSQLITE_ENABLE_COLUMN_METADATA=1 -DSQLITE_ENABLE_FTS4 -DSQLITE_ENABLE_FTS5 -DSQLITE_ENABLE_MATH_FUNCTIONS -DSQLITE_ENABLE_RTREE -DSQLITE_THREADSAFE=1
+[ccld] /usr/bin/gcc-14 -o sqlite3 /tmp/cosmicexplorer/spack-stage/spack-stage-sqlite-3.50.4-pbqeapvithfhvleii23gd7rgjbecdbxm/spack-src/shell.c /tmp/cosmicexplorer/spack-stage/spack-stage-sqlite-3.50.4-pbqeapvithfhvleii23gd7rgjbecdbxm/spack-src/sqlite3.c -Wl,-rpath,/home/cosmicexplorer/spack-repos/s2/opt/spack/linux-zen3/sqlite-3.50.4-pbqeapvithfhvleii23gd7rgjbecdbxm/lib -lm -lz -I. -DSQLITE_ENABLE_COLUMN_METADATA=1 -DSQLITE_ENABLE_FTS4 -DSQLITE_ENABLE_FTS5 -DSQLITE_ENABLE_MATH_FUNCTIONS -DSQLITE_ENABLE_RTREE -DSQLITE_THREADSAFE=1 -DHAVE_READLINE=1 -DSQLITE_HAVE_ZLIB=1 -O2 -g -I/usr/include -lreadline -lncurses
+[ccld] /usr/bin/gcc-14 -o libsqlite3.so sqlite3.o -shared -Wl,-rpath,/home/cosmicexplorer/spack-repos/s2/opt/spack/linux-zen3/sqlite-3.50.4-pbqeapvithfhvleii23gd7rgjbecdbxm/lib -lm -lz

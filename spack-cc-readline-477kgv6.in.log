@@ -1,0 +1,219 @@
+[cpp] /usr/bin/gcc-14 -E /tmp/cgiUgmvf/dummy.c
+[cpp] /usr/bin/gcc-14 -E /tmp/cgiUgmvf/dummy.c
+[vcheck] /usr/bin/gcc-14 
+[vcheck] /usr/bin/gcc-14 
+[vcheck] /usr/bin/gcc-14 
+[ccld] /usr/bin/gcc-14 -qversion
+[ccld] /usr/bin/gcc-14 -version
+[ccld] /usr/bin/gcc-14 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest conftest.c
+[cc] /usr/bin/gcc-14 -c conftest.c
+[cc] /usr/bin/gcc-14 -c conftest.c
+[cc] /usr/bin/gcc-14 -c -g conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -DFTYPE=ino_t -c -g -O2 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c
+[cpp] /usr/bin/gcc-14 -E conftest.c
+[cpp] /usr/bin/gcc-14 -E conftest.c
+[cpp] /usr/bin/gcc-14 -E conftest.c
+[cpp] /usr/bin/gcc-14 -E conftest.c
+[cpp] /usr/bin/gcc-14 -E conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c -ltermcap
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c -ltinfo
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -g -O2 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c
+[ccld] /usr/bin/gcc-14 -o conftest -g -O2 conftest.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -Wno-parentheses -Wno-format-security readline.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -Wno-parentheses -Wno-format-security keymaps.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -Wno-parentheses -Wno-format-security parens.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -Wno-parentheses -Wno-format-security vi_mode.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -Wno-parentheses -Wno-format-security search.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -Wno-parentheses -Wno-format-security funmap.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -Wno-parentheses -Wno-format-security rltty.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -Wno-parentheses -Wno-format-security bind.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -Wno-parentheses -Wno-format-security complete.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -Wno-parentheses -Wno-format-security isearch.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -Wno-parentheses -Wno-format-security display.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -Wno-parentheses -Wno-format-security signals.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -Wno-parentheses -Wno-format-security util.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -Wno-parentheses -Wno-format-security kill.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -Wno-parentheses -Wno-format-security undo.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -Wno-parentheses -Wno-format-security macro.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -Wno-parentheses -Wno-format-security input.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -Wno-parentheses -Wno-format-security callback.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -Wno-parentheses -Wno-format-security terminal.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -Wno-parentheses -Wno-format-security text.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -Wno-parentheses -Wno-format-security nls.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -Wno-parentheses -Wno-format-security misc.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -Wno-parentheses -Wno-format-security history.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -Wno-parentheses -Wno-format-security histexpand.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -Wno-parentheses -Wno-format-security histfile.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -Wno-parentheses -Wno-format-security histsearch.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -Wno-parentheses -Wno-format-security shell.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -Wno-parentheses -Wno-format-security mbutil.c
+[cc] /usr/bin/gcc-14 -DHAVE_CONFIG_H -I. -I. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -Wno-parentheses -Wno-format-security -DREADLINE_LIBRARY -c ./tilde.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -Wno-parentheses -Wno-format-security colors.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -Wno-parentheses -Wno-format-security parse-colors.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -Wno-parentheses -Wno-format-security xmalloc.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -Wno-parentheses -Wno-format-security xfree.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -Wno-parentheses -Wno-format-security compat.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -Wno-parentheses -Wno-format-security gettimeofday.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I.. -I.. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -fPIC -o readline.o ../readline.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I.. -I.. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -fPIC -o vi_mode.o ../vi_mode.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I.. -I.. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -fPIC -o funmap.o ../funmap.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I.. -I.. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -fPIC -o keymaps.o ../keymaps.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I.. -I.. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -fPIC -o parens.o ../parens.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I.. -I.. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -fPIC -o search.o ../search.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I.. -I.. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -fPIC -o rltty.o ../rltty.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I.. -I.. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -fPIC -o complete.o ../complete.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I.. -I.. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -fPIC -o bind.o ../bind.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I.. -I.. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -fPIC -o isearch.o ../isearch.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I.. -I.. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -fPIC -o display.o ../display.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I.. -I.. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -fPIC -o signals.o ../signals.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I.. -I.. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -fPIC -o util.o ../util.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I.. -I.. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -fPIC -o kill.o ../kill.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I.. -I.. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -fPIC -o undo.o ../undo.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I.. -I.. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -fPIC -o macro.o ../macro.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I.. -I.. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -fPIC -o input.o ../input.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I.. -I.. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -fPIC -o callback.o ../callback.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I.. -I.. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -fPIC -o terminal.o ../terminal.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I.. -I.. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -fPIC -o text.o ../text.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I.. -I.. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -fPIC -o nls.o ../nls.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I.. -I.. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -fPIC -o misc.o ../misc.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I.. -I.. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -fPIC -o history.o ../history.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I.. -I.. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -fPIC -o histexpand.o ../histexpand.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I.. -I.. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -fPIC -o histfile.o ../histfile.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I.. -I.. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -fPIC -o histsearch.o ../histsearch.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I.. -I.. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -fPIC -o shell.o ../shell.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I.. -I.. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -fPIC -o mbutil.o ../mbutil.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I.. -I.. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -fPIC -DREADLINE_LIBRARY -c -o tilde.o ../tilde.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I.. -I.. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -fPIC -o colors.o ../colors.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I.. -I.. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -fPIC -o parse-colors.o ../parse-colors.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I.. -I.. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -fPIC -o xmalloc.o ../xmalloc.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I.. -I.. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -fPIC -o xfree.o ../xfree.c
+[cc] /usr/bin/gcc-14 -c -DHAVE_CONFIG_H -I. -I.. -I.. -DRL_LIBRARY_VERSION="8.3" -DBRACKETED_PASTE_DEFAULT=1 -g -O2 -Wno-parentheses -Wno-format-security -fPIC -o compat.o ../compat.c
+[ccld] /usr/bin/gcc-14 -shared -Wl,-soname,libhistory.so.8.3 -Wl,-rpath,/home/cosmicexplorer/spack-repos/s2/opt/spack/linux-zen3/readline-8.3-477kgv6amtqtrrdosqth7em2vx3xkg7i/lib -Wl,-soname,libhistory.so.8 -o libhistory.so.8.3 history.so histexpand.so histfile.so histsearch.so shell.so mbutil.so xmalloc.so xfree.so -L/usr/lib -lncursesw
+[ccld] /usr/bin/gcc-14 -shared -Wl,-soname,libreadline.so.8.3 -Wl,-rpath,/home/cosmicexplorer/spack-repos/s2/opt/spack/linux-zen3/readline-8.3-477kgv6amtqtrrdosqth7em2vx3xkg7i/lib -Wl,-soname,libreadline.so.8 -o libreadline.so.8.3 readline.so vi_mode.so funmap.so keymaps.so parens.so search.so rltty.so complete.so bind.so isearch.so display.so signals.so util.so kill.so undo.so macro.so input.so callback.so terminal.so text.so nls.so misc.so history.so histexpand.so histfile.so histsearch.so shell.so mbutil.so tilde.so colors.so parse-colors.so xmalloc.so xfree.so compat.so -L/usr/lib -lncursesw
