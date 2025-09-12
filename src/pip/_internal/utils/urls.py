@@ -3,37 +3,33 @@ from __future__ import annotations
 import abc
 import functools
 import itertools
+import mimetypes
 import os
 import posixpath
 import re
 import string
 import urllib.parse
 import urllib.request
-from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar, NewType, cast
-
-from pip._internal.utils.misc import (
-    pairwise,
-    redact_netloc,
-    split_auth_from_netloc,
-    splitext,
-)
 
 from .compat import WINDOWS
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable, Iterator
+
     from typing_extensions import Self
 
 
 class _PathUrlCoercions:
     @staticmethod
-    def path_to_url(path: str) -> ParsedUrl:
+    def path_to_url(path: str, *, normalize: bool = True) -> ParsedUrl:
         """
         Convert a path to a file: URL.  The path will be made absolute and have
         quoted path parts.
         """
-        path = os.path.normpath(os.path.abspath(path))
+        if normalize:
+            path = os.path.normpath(os.path.abspath(path))
         return ParsedUrl.parse(
             url=urllib.request.pathname2url(path),
             scheme="file",
@@ -64,8 +60,8 @@ class _PathUrlCoercions:
         return path_or_uri
 
 
-def path_to_url(path: str) -> ParsedUrl:
-    return _PathUrlCoercions.path_to_url(path)
+def path_to_url(path: str, *, normalize: bool = True) -> ParsedUrl:
+    return _PathUrlCoercions.path_to_url(path, normalize=normalize)
 
 
 def url_to_path(url: ParsedUrl) -> str:
@@ -163,6 +159,10 @@ class ParsedUrl(PathSegments):
         "fragment",
     ]
 
+    # NB: Why cache *every single constructed value*? Well, because we want to reuse
+    #     every cached_property we possibly can, particularly since some implementations
+    #     like quoting/unquoting can be very expensive to compute.
+    # TODO: determine if calculating hash values overcomes the perf from above (lol).
     @staticmethod
     @functools.cache
     def _cached_create(
@@ -191,7 +191,6 @@ class ParsedUrl(PathSegments):
         scheme, netloc, path, params, query, fragment = urllib.parse.urlparse(
             url, scheme=scheme
         )
-
         return ParsedUrl._cached_create(
             scheme=scheme,
             netloc=netloc,
@@ -454,6 +453,8 @@ class ParsedUrl(PathSegments):
 
     @functools.cached_property
     def _netloc_without_auth_info(self) -> str:
+        from pip._internal.utils.misc import split_auth_from_netloc
+
         netloc, _ = split_auth_from_netloc(self.netloc)
         return netloc
 
@@ -466,6 +467,8 @@ class ParsedUrl(PathSegments):
 
     @functools.cached_property
     def _netloc_with_redacted_auth_info(self) -> str:
+        from pip._internal.utils.misc import redact_netloc
+
         return redact_netloc(self.netloc)
 
     @functools.cached_property
@@ -531,6 +534,8 @@ class ParsedUrl(PathSegments):
 
     @functools.cached_property
     def _splitext(self) -> tuple[str, str]:
+        from pip._internal.utils.misc import splitext
+
         return splitext(self._base_name)
 
     def splitext(self) -> tuple[str, str]:
@@ -544,7 +549,7 @@ class ParsedUrl(PathSegments):
         return self._as_no_fragment
 
     @staticmethod
-    @functools.cache
+    # @functools.cache
     def _unquote_path_str(path: str) -> str:
         return _UrlPath._do_unquote(path)
 
@@ -557,13 +562,56 @@ class ParsedUrl(PathSegments):
         return self._unquoted_path
 
     @staticmethod
-    @functools.cache
+    # @functools.cache
     def _split_fragment(fragment: str) -> dict[str, list[str]]:
         return urllib.parse.parse_qs(fragment, keep_blank_values=True)
 
     @functools.cached_property
     def _fragments(self) -> dict[str, list[str]]:
         return self.__class__._split_fragment(self.fragment)
+
+    def _path_only(self) -> bool:
+        return (
+            not self.scheme
+            and not self.netloc
+            and not self.params
+            and not self.query
+            and not self.fragment
+        )
+
+    def join_path(self, rightwards_path: str) -> ParsedUrl:
+        right = self.__class__.parse(rightwards_path)
+        # We don't want to figure out how to define path joining in more complex cases.
+        assert right._path_only(), right
+        assert right.path, right
+        # NB: If we don't add a trailing slash, our "joining" mechanic drops the last
+        #     path component. This *would* be indicative of severe issues with our
+        #     abstraction, but fortunately we only use url joining in exactly one place,
+        #     when joining hrefs from a simple html index (where it's correct behavior).
+        return self.with_trailing_slash_path().join(right)
+
+    @functools.cached_property
+    def _as_trailing_slash_path(self) -> ParsedUrl:
+        if self.path.endswith("/"):
+            return self
+        return self.__class__._cached_create(
+            scheme=self.scheme,
+            netloc=self.netloc,
+            path=f"{self.path}/",
+            params=self.params,
+            query=self.query,
+            fragment=self.fragment,
+        )
+
+    def with_trailing_slash_path(self) -> ParsedUrl:
+        return self._as_trailing_slash_path
+
+    @functools.cached_property
+    def _guess_type_result(self) -> tuple[str | None, str | None]:
+        return mimetypes.guess_type(str(self), strict=False)
+
+    def guess_type(self) -> tuple[str | None, str | None]:
+        return self._guess_type_result
 
 
 @dataclass(frozen=True)
@@ -600,42 +648,20 @@ class _PathKind(abc.ABC):
 class _PathSanitizer:
     # TODO: check if IGNORECASE is as performant as [fF]
     # percent-encoded:                   /
-    _reserved_chars_re: ClassVar[re.Pattern[str]] = re.compile("(@|%2F)", re.IGNORECASE)
-
-    @staticmethod
-    def _pip_path_split(path: str) -> tuple[str, ...]:
-        """
-        Note that splitting on a regex with groups is very different from splitting on
-        a literal string, as each matched group with index > 0 will be replicated in the
-        split output:
-
-        >>> re.compile(',').split('a,b')
-        ['a', 'b']
-        >>> re.compile('(,)').split('a,b')
-        ['a', ',', 'b']
-
-        Compare to literal, performed in the reverse order:
-        >>> 'a,b'.split(',')
-        ['a', 'b']
-        """
-        return tuple(_PathSanitizer._reserved_chars_re.split(path))
-
-    @staticmethod
-    def _pip_path_clean(path: str, kind: _PathKind) -> Iterator[str]:
-        """
-        Split on the reserved characters prior to cleaning so that
-        revision strings in VCS URLs are properly preserved.
-        """
-        parts = _PathSanitizer._pip_path_split(path)
-        for to_clean, reserved in pairwise(parts + ("",)):
-            yield kind.clean_path_part(to_clean)
-            # Normalize %xx escapes (e.g. %2f -> %2F)
-            if reserved:
-                yield reserved.upper()
+    _reserved_chars_re: ClassVar[re.Pattern[str]] = re.compile("(@|%2[fF])")
 
     @staticmethod
     def sanitize_path(path: str, kind: _PathKind) -> str:
-        return "".join(_PathSanitizer._pip_path_clean(path, kind))
+        if not path.rsplit("@%"):
+            return kind.clean_path_part(path)
+        parts = _PathSanitizer._reserved_chars_re.split(path)
+        for i in range(0, len(parts)):
+            if i % 2 == 0:
+                parts[i] = kind.clean_path_part(parts[i])
+            else:
+                # Normalize %xx escapes (e.g. %2f -> %2F).
+                parts[i] = parts[i].upper()
+        return "".join(parts)
 
 
 class _FilePath(_PathKind):
@@ -667,46 +693,206 @@ class _FilePath(_PathKind):
         return type(self)._clean_file_url_path(path_part)
 
 
-class _UrlPath(_PathKind):
-    @staticmethod
-    def _do_unquote(path: str) -> str:
-        """Unquote, but try to short-circuit if possible."""
-        if "%" not in path:
-            return path
-        return urllib.parse.unquote(path)
+QuoteSafe = NewType("QuoteSafe", str)
+NeedsQuoting = NewType("NeedsQuoting", str)
 
-    _gen_delims: ClassVar[tuple[str, ...]] = (
+
+class _Quoter(dict[bytes | str, str]):
+    """See urllib.parse._Quoter."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        assert b"" not in self, (self, args, kwargs)
+        self[b""] = ""
+
+    def __setitem__(self, key: bytes | str, value: str) -> None:
+        assert type(key) is bytes, (key, value, self)
+        super().__setitem__(key, value)
+        super().__setitem__(key.decode("utf-8"), value)
+
+    @staticmethod
+    @functools.cache
+    def with_interned_ascii_codepoints() -> _Quoter:
+        return _Quoter()._intern_codepoints(
+            code for code in range(0, 2**7) if code not in _Quoter._always_safe()
+        )
+
+    @staticmethod
+    def _char_range(start: str, fin: str) -> Iterable[int]:
+        beg = ord(start)
+        end = ord(fin)
+        assert beg < end
+        return range(beg, end + 1)
+
+    @staticmethod
+    @functools.cache
+    def _always_safe() -> frozenset[int]:
+        return frozenset(
+            itertools.chain(
+                _Quoter._char_range("A", "Z"),
+                _Quoter._char_range("a", "z"),
+                _Quoter._char_range("0", "9"),
+                b"_.-~",
+                b"/",
+            )
+        )
+
+    @staticmethod
+    @functools.cache
+    def _always_safe_str() -> str:
+        return "".join(
+            sorted(
+                map(chr, _Quoter._always_safe()),
+                reverse=True,
+            )
+        )
+
+    @staticmethod
+    @functools.cache
+    def _format_int(k: int) -> str:
+        assert k not in _Quoter._always_safe(), (k, _Quoter._always_safe())
+        return f"%{k:02X}"
+
+    def _intern_codepoints(self, codepoints: Iterable[int]) -> Self:
+        for k in frozenset(codepoints):
+            # Ensure the byte string of length 1 is interned.
+            # NB: _format_int() ensures the integer itself is interned.
+            self[bytes([k])] = self.__class__._format_int(k)
+        return self
+
+    _split_chunks_length: ClassVar[int] = 4
+
+    def __missing__(self, k: bytes | str) -> str:
+        assert len(k) <= self._split_chunks_length, k
+        if isinstance(k, str):
+            k = k.encode("utf-8")
+        assert isinstance(k, bytes), k
+
+        ret = "".join(map(self.__class__._format_int, k))
+        self[k] = ret
+        return ret
+
+    _unsafe_regions: ClassVar[re.Pattern[str]] = re.compile(
         # "/" is mentioned in RFC 3986, but ignored here (see urllib.parse.quote).
-        ":",
-        "?",
-        "#",
-        "[",
-        "]",
-        "@",
-    )
-    _sub_delims: ClassVar[tuple[str, ...]] = (
-        "!",
-        "$",
-        "&",
-        "'",
-        "(",
-        ")",
-        "*",
-        "+",
-        ",",
-        ";",
-        "=",
-    )
-    _url_reserved_regex: ClassVar[re.Pattern[str]] = re.compile(
-        "|".join(map(re.escape, _gen_delims + _sub_delims))
+        r"([^a-zA-Z0-9_.~/-]+)"
     )
 
+    def _basic_quote(self, path: str) -> QuoteSafe:
+        split = self._unsafe_regions.split(path)
+        # Get only the odd-indexed entries, which are the matched regions.
+        for i in range(1, len(split), 2):
+            prev = split[i]
+            if len(prev) > self._split_chunks_length:
+                # NB: list comprehension is faster than generator here.
+                split[i] = "".join(
+                    [
+                        self[prev[j : j + self._split_chunks_length]]
+                        for j in range(0, len(prev), self._split_chunks_length)
+                    ]
+                )
+            else:
+                split[i] = self[prev]
+        return cast(QuoteSafe, "".join(split))
+
+    def do_quote(self, path: str) -> QuoteSafe:
+        if not (lhs_to_quote := path.rstrip(self.__class__._always_safe_str())):
+            return cast(QuoteSafe, path)
+        clean_rhs = cast(QuoteSafe, path[len(lhs_to_quote) :])
+        return cast(QuoteSafe, self._basic_quote(lhs_to_quote) + clean_rhs)
+
+
+class _Unquoter(dict[str, str]):
+    _code_length: ClassVar[int] = 3
+
+    def __setitem__(self, key: str, value: str) -> None:
+        assert key.startswith("%") and len(key) % self._code_length == 0, key
+        if len(key) > self._code_length:
+            super().__setitem__(key, value)
+            return
+        codes = key[1:]
+        all_upper = f"%{codes.upper()}"
+        all_lower = f"%{codes.lower()}"
+        first_up = f"%{codes[0].upper()}{codes[1].lower()}"
+        second_up = f"%{codes[0].lower()}{codes[1].upper()}"
+        for modified_key in (all_upper, all_lower, first_up, second_up):
+            super().__setitem__(modified_key, value)
+
+    def _intern_codepoints(self, codepoints: Iterable[int]) -> Self:
+        for k in frozenset(codepoints):
+            self[_Quoter._format_int(k)] = chr(k)
+        return self
+
     @staticmethod
-    def _do_quote(path: str) -> str:
-        """Quote, but try to short-circuit if possible."""
-        if not _UrlPath._url_reserved_regex.search(path):
+    @functools.cache
+    def with_interned_ascii_codepoints() -> _Unquoter:
+        return _Unquoter()._intern_codepoints(
+            code for code in range(0, 2**7) if code not in _Quoter._always_safe()
+        )
+
+    @staticmethod
+    def _format_code(k: str) -> str:
+        assert k.startswith("%") and len(k) == _Unquoter._code_length, k
+        code = int(k[1:], base=16)
+        return chr(code)
+
+    _split_chunks_length: ClassVar[int] = 4 * _code_length
+
+    def __missing__(self, k: str) -> str:
+        assert len(k) <= self._split_chunks_length, k
+        assert len(k) % self._code_length == 0, k
+
+        if len(k) > self._code_length:
+            # NB: list comprehensions are faster than generators here.
+            ret = "".join(
+                [
+                    # NB: This is a recursive call to self.
+                    self[k[i : i + self._code_length]]
+                    for i in range(0, len(k), self._code_length)
+                ]
+            )
+        else:
+            ret = self.__class__._format_code(k)
+
+        self[k] = ret
+        return ret
+
+    _escaped_regions: ClassVar[re.Pattern[str]] = re.compile(r"((?:%[0-9a-fA-F]{2})+)")
+
+    def _basic_unquote(self, path: str) -> str:
+        split = self._escaped_regions.split(path)
+        # Get only the odd-indexed entries, which are the matched regions.
+        for i in range(1, len(split), 2):
+            prev = split[i]
+            if len(prev) > self._split_chunks_length:
+                # NB: list comprehension is faster than generator here.
+                split[i] = "".join(
+                    [
+                        self[prev[j : j + self._split_chunks_length]]
+                        for j in range(0, len(prev), self._split_chunks_length)
+                    ]
+                )
+            else:
+                split[i] = self[prev]
+        return "".join(split)
+
+    def do_unquote(self, path: str) -> str:
+        if not path.rstrip("%"):
             return path
-        return urllib.parse.quote(path)
+        return self._basic_unquote(path)
+
+
+class _UrlPath(_PathKind):
+    _unquoter: ClassVar[_Unquoter] = _Unquoter.with_interned_ascii_codepoints()
+
+    @classmethod
+    def _do_unquote(cls, path: str) -> str:
+        return cls._unquoter.do_unquote(path)
+
+    _quoter: ClassVar[_Quoter] = _Quoter.with_interned_ascii_codepoints()
+
+    @classmethod
+    def _do_quote(cls, path: str) -> str:
+        return cls._quoter.do_quote(path)
 
     # This has no instance state.
     def __hash__(self) -> int:
