@@ -10,33 +10,26 @@ class TestPackageIndex:
 
     def test_gives_right_urls(self) -> None:
         url = "https://mypypi.internal/path/"
-        file_storage_domain = "files.mypypi.internal"
-        pack_index = index.PackageIndex(url, file_storage_domain)
+        pack_index = index.PackageIndex.create(url)
 
-        assert pack_index.url == url
-        assert pack_index.file_storage_domain == file_storage_domain
+        assert str(pack_index.base_url) == url
 
-        assert pack_index.netloc == "mypypi.internal"
-        assert pack_index.simple_url == url + "simple"
-        assert pack_index.pypi_url == url + "pypi"
+        assert str(pack_index.simple_url) == url + "simple"
+        assert str(pack_index.search_url) == url + "pypi"
 
     def test_PyPI_urls_are_correct(self) -> None:
         pack_index = index.PyPI
 
-        assert pack_index.netloc == "pypi.org"
-        assert pack_index.url == "https://pypi.org/"
-        assert pack_index.simple_url == "https://pypi.org/simple"
-        assert pack_index.pypi_url == "https://pypi.org/pypi"
-        assert pack_index.file_storage_domain == "files.pythonhosted.org"
+        assert str(pack_index.base_url) == "https://pypi.org/"
+        assert str(pack_index.simple_url) == "https://pypi.org/simple"
+        assert str(pack_index.search_url) == "https://pypi.org/pypi"
 
     def test_TestPyPI_urls_are_correct(self) -> None:
         pack_index = index.TestPyPI
 
-        assert pack_index.netloc == "test.pypi.org"
-        assert pack_index.url == "https://test.pypi.org/"
-        assert pack_index.simple_url == "https://test.pypi.org/simple"
-        assert pack_index.pypi_url == "https://test.pypi.org/pypi"
-        assert pack_index.file_storage_domain == "test-files.pythonhosted.org"
+        assert str(pack_index.base_url) == "https://test.pypi.org/"
+        assert str(pack_index.simple_url) == "https://test.pypi.org/simple"
+        assert str(pack_index.search_url) == "https://test.pypi.org/pypi"
 
 
 class TestInstallationCandidate:

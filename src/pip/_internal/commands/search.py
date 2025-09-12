@@ -45,7 +45,7 @@ class SearchCommand(Command, SessionCommandMixin):
             "--index",
             dest="index",
             metavar="URL",
-            default=PyPI.pypi_url,
+            default=PyPI.search_url,
             help="Base URL of Python Package Index (default %default)",
         )
 

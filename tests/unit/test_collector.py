@@ -1,37 +1,40 @@
 from __future__ import annotations
 
-import itertools
 import json
 import logging
 import os
 import re
 import urllib.parse
 import uuid
+from collections.abc import Iterable
 from pathlib import Path
 from textwrap import dedent
+from typing import Any
 from unittest import mock
 
 import pytest
 
 from pip._vendor import requests
+from pip._vendor.packaging.utils import canonicalize_name
 
+from pip._internal.cache import SerializableEntry
 from pip._internal.exceptions import NetworkConnectionError
 from pip._internal.index.collector import (
     ApiSemantics,
+    ComputeMerger,
+    FetchComputeProcess,
     IndexContent,
     LinkCollector,
 )
-from pip._internal.index.sources import _FlatDirectorySource, _IndexDirectorySource
-from pip._internal.models.candidate import InstallationCandidate
-from pip._internal.models.index import PyPI
+from pip._internal.index.sources import _LocalFindLinks
 from pip._internal.models.link import (
     Link,
     LinkHash,
     MetadataFile,
 )
 from pip._internal.network.session import PipSession
+from pip._internal.utils.cache_serde import SerializableProcess
 from pip._internal.utils.packaging.requirements import Requirement
-from pip._internal.utils.packaging.version import ParsedVersion
 from pip._internal.utils.urls import ParsedUrl, _FilePath, _PathSanitizer, _UrlPath
 
 from tests.lib import (
@@ -117,11 +120,12 @@ def test_get_index_content_invalid_content_type_archive(
     and therefore cannot be used for a HEAD request.
     """
     caplog.set_level(logging.WARNING)
-    link = Link(url)
 
     session = mock.Mock(PipSession)
 
-    assert ApiSemantics._get_index_content(link, session=session) is None
+    assert (
+        ApiSemantics._get_index_content(ParsedUrl.parse(url), session=session) is None
+    )
     assert (
         "pip._internal.index.collector",
         logging.WARNING,
@@ -723,7 +727,7 @@ def test_request_http_error(
     mock_raise_for_status: mock.Mock, caplog: pytest.LogCaptureFixture
 ) -> None:
     caplog.set_level(logging.DEBUG)
-    link = Link("http://localhost")
+    link = ParsedUrl.parse("http://localhost")
     session = mock.Mock(PipSession)
     session.get.return_value = mock.Mock()
     mock_raise_for_status.side_effect = NetworkConnectionError("Http error")
@@ -733,7 +737,7 @@ def test_request_http_error(
 
 def test_request_retries(caplog: pytest.LogCaptureFixture) -> None:
     caplog.set_level(logging.DEBUG)
-    link = Link("http://localhost")
+    link = ParsedUrl.parse("http://localhost")
     session = mock.Mock(PipSession)
     session.get.side_effect = requests.exceptions.RetryError("Retry error")
     assert ApiSemantics._get_index_content(link, session=session) is None
@@ -770,7 +774,9 @@ def test_get_index_content_invalid_scheme(
     Only file:, http:, https:, and ftp: are allowed.
     """
     with caplog.at_level(logging.WARNING):
-        page = ApiSemantics._get_index_content(Link(url), session=mock.Mock(PipSession))
+        page = ApiSemantics._get_index_content(
+            ParsedUrl.parse(url), session=mock.Mock(PipSession)
+        )
 
     assert page is None
     assert caplog.record_tuples == [
@@ -801,7 +807,7 @@ def test_get_index_content_invalid_content_type(
     """
     caplog.set_level(logging.DEBUG)
     url = "https://pypi.org/simple/pip"
-    link = Link(url)
+    link = ParsedUrl.parse(url)
 
     session = mock.Mock(PipSession)
     session.get.return_value = mock.Mock(
@@ -851,7 +857,9 @@ def test_get_index_content_directory_append_index(tmpdir: Path) -> None:
     )
     with mock_func as mock_func:
         mock_func.return_value = fake_response
-        actual = ApiSemantics._get_index_content(Link(dir_url), session=session)
+        actual = ApiSemantics._get_index_content(
+            ParsedUrl.parse(dir_url), session=session
+        )
         assert mock_func.mock_calls == [
             mock.call(expected_url, headers=None, session=session),
         ], f"actual calls: {mock_func.mock_calls}"
@@ -861,6 +869,47 @@ def test_get_index_content_directory_append_index(tmpdir: Path) -> None:
         assert actual.content == fake_response.content
         assert actual.encoding is None
         assert str(actual.url) == expected_url
+
+
+class _Entry(SerializableEntry):
+    @classmethod
+    def suffix(cls) -> str:
+        return "entry"
+
+    def serialize(self) -> dict[str, Any]:
+        return {}
+
+
+class _Process(SerializableProcess[tuple[Link, ...]]):
+    def load_from_path(self, path: Path) -> tuple[Link, ...] | None:
+        return None
+
+    def write_to_path(self, path: Path, val: tuple[Link, ...]) -> None:
+        return
+
+
+class _Compute(FetchComputeProcess[Iterable[Link], tuple[Link, ...]]):
+    def compute(self, parsed: Iterable[Link]) -> tuple[Link, ...]:
+        return tuple(parsed)
+
+
+class _Merged(ComputeMerger[tuple[Link, ...]]):
+    def merge(self, results: Iterable[tuple[Link, ...]]) -> tuple[Link, ...]:
+        return tuple(cand for res in results for cand in res)
+
+
+def _collect_sources(
+    collector: LinkCollector,
+    name: str,
+) -> tuple[Link, ...]:
+    name = canonicalize_name(name)
+
+    entry = _Entry()
+    process = _Process()
+    compute = _Compute()
+    merger = _Merged()
+
+    return collector.collect_and_process(name, entry, process, compute, merger)
 
 
 def test_collect_sources__file_expand_dir(data: TestData) -> None:
@@ -876,65 +925,12 @@ def test_collect_sources__file_expand_dir(data: TestData) -> None:
             find_links=[data.find_links],
         ),
     )
-    sources = collector.collect_sources(
-        # Shouldn't be used.
-        project_name="",
-        candidates_from_page=None,  # type: ignore[arg-type]
-    )
-    assert not sources.index_urls
-    assert len(sources.find_links) == 1
-    assert isinstance(sources.find_links[0], _FlatDirectorySource), (
+    sources = tuple(collector._local_find_links())
+    assert len(sources) == 1
+    assert isinstance(sources[0], _LocalFindLinks), (
         "Directory source should have been found "
         f"at find-links url: {data.find_links}"
     )
-
-
-def test_collect_sources__file_not_find_link(data: TestData) -> None:
-    """
-    Test that a file:// dir from --index-url doesn't become _FlatDirectorySource
-    run
-    """
-    collector = LinkCollector.create(
-        session=mock.Mock(is_secure_origin=None),  # Shouldn't be used.
-        options=mock.Mock(
-            index_url=data.index_url("empty_with_pkg"),
-            extra_index_urls=[],
-            no_index=False,
-            find_links=[],
-        ),
-    )
-    sources = collector.collect_sources(
-        project_name="",
-        # Shouldn't be used.
-        candidates_from_page=None,  # type: ignore[arg-type]
-    )
-    assert not sources.find_links
-    assert len(sources.index_urls) == 1
-    assert isinstance(
-        sources.index_urls[0], _IndexDirectorySource
-    ), "Directory specified as index should be treated as a page"
-
-
-def test_collect_sources__non_existing_path() -> None:
-    """
-    Test that a non-existing path is ignored.
-    """
-    collector = LinkCollector.create(
-        session=mock.Mock(is_secure_origin=None),  # Shouldn't be used.
-        options=mock.Mock(
-            index_url="ignored-by-no-index",
-            extra_index_urls=[],
-            no_index=True,
-            find_links=[os.path.join("this", "does", "not", "exist")],
-        ),
-    )
-    sources = collector.collect_sources(
-        # Shouldn't be used.
-        project_name=None,  # type: ignore[arg-type]
-        candidates_from_page=None,  # type: ignore[arg-type]
-    )
-    assert not sources.index_urls
-    assert sources.find_links == [None], "Nothing should have been found"
 
 
 def check_links_include(links: list[Link], names: list[str]) -> None:
@@ -956,11 +952,8 @@ class TestLinkCollector:
         fake_response = make_fake_html_response(url)
         mock_get_simple_response.return_value = fake_response
 
-        location = Link(
-            url,
-        )
         link_collector = make_test_link_collector()
-        actual = link_collector.fetch_response(location)
+        actual = link_collector._fetch_response(ParsedUrl.parse(url))
 
         assert actual is not None
         assert isinstance(actual, IndexContent)
@@ -975,102 +968,6 @@ class TestLinkCollector:
             headers=None,
             session=link_collector.session,
         )
-
-    def test_collect_page_sources(
-        self, caplog: pytest.LogCaptureFixture, data: TestData
-    ) -> None:
-        caplog.set_level(logging.DEBUG)
-
-        link_collector = make_test_link_collector(
-            find_links=[data.find_links],
-            # Include two copies of the URL to check that the second one
-            # is skipped.
-            index_urls=[PyPI.simple_url, PyPI.simple_url],
-        )
-        collected_sources = link_collector.collect_sources(
-            "twine",
-            candidates_from_page=lambda link: [
-                InstallationCandidate("twine", ParsedVersion.parse("1.0"), link)
-            ],
-        )
-
-        files_it = itertools.chain.from_iterable(
-            source.file_links()
-            for sources in collected_sources
-            for source in sources
-            if source is not None
-        )
-        pages_it = itertools.chain.from_iterable(
-            source.page_candidates()
-            for sources in collected_sources
-            for source in sources
-            if source is not None
-        )
-        files = list(files_it)
-        pages = list(pages_it)
-
-        # Only "twine" should return from collecting sources
-        assert len(files) == 1
-
-        assert [page.link for page in pages] == [Link("https://pypi.org/simple/twine/")]
-        # Check that index URLs are marked as *un*cacheable.
-
-        expected_message = dedent(
-            """\
-        1 location(s) to search for versions of twine:
-        * https://pypi.org/simple/twine/"""
-        )
-        assert caplog.record_tuples == [
-            ("pip._internal.index.collector", logging.DEBUG, expected_message),
-        ]
-
-    def test_collect_file_sources(
-        self, caplog: pytest.LogCaptureFixture, data: TestData
-    ) -> None:
-        caplog.set_level(logging.DEBUG)
-
-        link_collector = make_test_link_collector(
-            find_links=[data.find_links],
-            # Include two copies of the URL to check that the second one
-            # is skipped.
-            index_urls=[PyPI.simple_url, PyPI.simple_url],
-        )
-        collected_sources = link_collector.collect_sources(
-            "singlemodule",
-            candidates_from_page=lambda link: [
-                InstallationCandidate(
-                    "singlemodule", ParsedVersion.parse("0.0.1"), link
-                )
-            ],
-        )
-
-        files_it = itertools.chain.from_iterable(
-            source.file_links()
-            for sources in collected_sources
-            for source in sources
-            if source is not None
-        )
-        pages_it = itertools.chain.from_iterable(
-            source.page_candidates()
-            for sources in collected_sources
-            for source in sources
-            if source is not None
-        )
-        files = list(files_it)
-        _ = list(pages_it)
-
-        # singlemodule should return files
-        assert len(files) > 0
-        check_links_include(files, names=["singlemodule-0.0.1.tar.gz"])
-
-        expected_message = dedent(
-            """\
-        1 location(s) to search for versions of singlemodule:
-        * https://pypi.org/simple/singlemodule/"""
-        )
-        assert caplog.record_tuples == [
-            ("pip._internal.index.collector", logging.DEBUG, expected_message),
-        ]
 
 
 @pytest.mark.parametrize(
@@ -1111,8 +1008,8 @@ def test_link_collector_create(
     assert link_collector.session is session
 
     search_scope = link_collector.search_scope
-    assert search_scope.find_links == expected_find_links
-    assert search_scope.index_urls == expected_index_urls
+    assert [str(u.url) for u in search_scope.find_links] == expected_find_links
+    assert [str(u.url) for u in search_scope.index_urls] == expected_index_urls
 
 
 @mock.patch("os.path.expanduser")
@@ -1148,8 +1045,11 @@ def test_link_collector_create_find_links_expansion(
     search_scope = link_collector.search_scope
     # Only ~/temp2 gets expanded. Also, the path is normalized when expanded.
     expected_temp2_dir = os.path.normcase(temp2_dir)
-    assert search_scope.find_links == ["~/temp1", expected_temp2_dir]
-    assert search_scope.index_urls == ["default_url"]
+    assert [str(u.path) for u in search_scope.find_links] == [
+        "~/temp1",
+        expected_temp2_dir,
+    ]
+    assert [str(u.url) for u in search_scope.index_urls] == ["default_url"]
 
 
 @pytest.mark.parametrize(

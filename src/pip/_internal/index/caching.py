@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import abc
+import binascii
 import datetime
 import enum
 import functools
@@ -18,20 +19,22 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class _CacheableHTTPHeader(metaclass=abc.ABCMeta):
-    @classmethod
-    @abc.abstractmethod
-    def response_header_name(cls) -> str: ...
-
-    @abc.abstractmethod
-    def request_caching_header_name(self) -> str: ...
-
+class _PageCacheInfo(metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def cache_serialize(self) -> bytes: ...
 
     @classmethod
     @abc.abstractmethod
     def cache_deserialize(cls, data: bytes) -> Self: ...
+
+
+class _CacheableHTTPHeader(_PageCacheInfo):
+    @classmethod
+    @abc.abstractmethod
+    def response_header_name(cls) -> str: ...
+
+    @abc.abstractmethod
+    def request_caching_header_name(self) -> str: ...
 
     @abc.abstractmethod
     def format_http_header(self) -> str: ...
@@ -368,3 +371,20 @@ class _ETagSanitizer:
                 cls._http_spec_url,
             )
             return None
+
+
+class _ChecksumSanitizer:
+    @dataclass(frozen=True, slots=True)
+    class PageChecksum(_PageCacheInfo):
+        checksum: bytes
+
+        def cache_serialize(self) -> bytes:
+            return self.checksum
+
+        @classmethod
+        def cache_deserialize(cls, data: bytes) -> Self:
+            return cls(checksum=data)
+
+        def __str__(self) -> str:
+            printed = binascii.b2a_base64(self.checksum, newline=False).decode("ascii")
+            return f"<checksum '{printed}'>"

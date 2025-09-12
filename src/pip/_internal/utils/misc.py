@@ -36,6 +36,7 @@ from pip._internal.locations import get_major_minor_version
 from pip._internal.utils.compat import WINDOWS
 from pip._internal.utils.packaging.requirements import Requirement
 from pip._internal.utils.retry import retry
+from pip._internal.utils.urls import ParsedUrl
 from pip._internal.utils.virtualenv import running_under_virtualenv
 
 __all__ = [
@@ -516,37 +517,33 @@ def split_auth_netloc_from_url(
     return url_without_auth, netloc, auth
 
 
-@functools.cache
 def remove_auth_from_url(url: str) -> str:
     """Return a copy of url with 'username:password@' removed."""
     # username/pass params are passed to subversion through flags
     # and are not recognized in the url.
-    return _transform_url(url, _get_netloc)[0]
+    return str(ParsedUrl.parse(url).with_removed_auth_info())
 
 
-@functools.cache
 def redact_auth_from_url(url: str) -> str:
     """Replace the password in a given url with ****."""
-    return _transform_url(url, _redact_netloc)[0]
+    return str(ParsedUrl.parse(url).with_redacted_auth_info())
 
 
 def redact_auth_from_requirement(req: Requirement) -> str:
     """Replace the password in a given requirement url with ****."""
-    if not req.url:
-        return str(req)
-    return str(req).replace(req.url, redact_auth_from_url(req.url))
+    return str(req.with_redacted_auth_info())
 
 
 @dataclass(frozen=True)
 class HiddenText:
-    secret: str
-    redacted: str
+    secret: Any
+    redacted: Any
 
     def __repr__(self) -> str:
         return f"<HiddenText {str(self)!r}>"
 
     def __str__(self) -> str:
-        return self.redacted
+        return str(self.redacted)
 
     # This is useful for testing.
     def __eq__(self, other: Any) -> bool:
@@ -563,8 +560,8 @@ def hide_value(value: str) -> HiddenText:
 
 
 def hide_url(url: str) -> HiddenText:
-    redacted = redact_auth_from_url(url)
-    return HiddenText(url, redacted=redacted)
+    parsed = ParsedUrl.parse(url)
+    return HiddenText(str(parsed), redacted=str(parsed.with_redacted_auth_info()))
 
 
 def protect_pip_from_modification_on_windows(modifying_pip: bool) -> None:

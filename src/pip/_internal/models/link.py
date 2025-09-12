@@ -14,6 +14,7 @@ from typing import (
     NamedTuple,
 )
 
+from pip._internal.utils.cache_serde import SerializationCodec
 from pip._internal.utils.deprecation import deprecated
 from pip._internal.utils.filetypes import FileExtensions
 from pip._internal.utils.hashes import Hashes
@@ -150,6 +151,14 @@ class PersistentLinkCacheArgs:
             ),
             hashes=cache_info["hashes"],
         )
+
+
+class LinkJsonCodec(SerializationCodec["Link", Any]):
+    def serialize(self, val: Link) -> Any:
+        return val.cache_args().to_json()
+
+    def deserialize(self, data: Any) -> Link:
+        return Link.from_cache_args(PersistentLinkCacheArgs.from_json(data))
 
 
 @functools.total_ordering

@@ -248,14 +248,14 @@ class ListCommand(IndexGroupCommand):
             def latest_info(
                 dist: _DistWithLatestInfo,
             ) -> _DistWithLatestInfo | None:
-                all_candidates = finder.find_all_candidates(dist.canonical_name)
+                all_candidates, _ = finder.find_all_candidates(dist.canonical_name)
                 if not options.pre:
                     # Remove prereleases
-                    all_candidates = [
+                    all_candidates = tuple(
                         candidate
                         for candidate in all_candidates
                         if not candidate.version.is_prerelease
-                    ]
+                    )
 
                 evaluator = finder.make_candidate_evaluator(
                     project_name=dist.canonical_name,

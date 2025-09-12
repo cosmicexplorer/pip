@@ -5,6 +5,7 @@ from __future__ import annotations
 import functools
 import logging
 import os
+import re
 import shutil
 import sys
 import urllib.parse
@@ -51,13 +52,13 @@ def _vcs_url_schemes() -> frozenset[str]:
 
 
 @functools.cache
-def _scheme_prefixes() -> tuple[str, ...]:
-    return tuple(f"{scheme}://" for scheme in _vcs_url_schemes())
+def _scheme_prefixes() -> re.Pattern[str]:
+    joined = "|".join(map(re.escape, _vcs_url_schemes()))
+    return re.compile(f"^(?:{joined})://", flags=re.IGNORECASE)
 
 
 def has_vcs_url_scheme(name: str) -> bool:
-    name = name.lower()
-    return any(name.startswith(pfx) for pfx in _scheme_prefixes())
+    return _scheme_prefixes().match(name) is not None
 
 
 def try_parse_url(name: str) -> ParsedUrl | None:

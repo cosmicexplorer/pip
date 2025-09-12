@@ -9,7 +9,12 @@ import pytest
 
 from pip._vendor.packaging.tags import Tag, interpreter_name, interpreter_version
 
-from pip._internal.cache import Cache, CacheEntry, WheelCache, _CacheabilityJudge
+from pip._internal.cache import (
+    CacheEntry,
+    WheelCache,
+    _CacheabilityJudge,
+    _LinkHashUtil,
+)
 from pip._internal.models.link import Link
 from pip._internal.utils.misc import ensure_dir
 from pip._internal.utils.urls import ParsedUrl
@@ -54,18 +59,18 @@ def test_contains_egg_info(s: str, expected: bool) -> None:
 
 
 def test_falsey_path_none() -> None:
-    wc = WheelCache("")
-    assert wc.cache_dir is None
+    wc = WheelCache.create("")
+    assert wc._wheel_cache._cache_dir is None
 
 
 def test_subdirectory_fragment(tmp_path: Path) -> None:
     """
     Test the subdirectory URL fragment is part of the cache key.
     """
-    wc = WheelCache(os.fspath(tmp_path))
+    wc = WheelCache.create(os.fspath(tmp_path))
     link1 = Link("git+https://g.c/o/r#subdirectory=d1")
     link2 = Link("git+https://g.c/o/r#subdirectory=d2")
-    assert wc.get_path_for_link(link1) != wc.get_path_for_link(link2)
+    assert wc._get_wheel_path_for_link(link1) != wc._get_wheel_path_for_link(link2)
 
 
 def test_wheel_name_filter(tmpdir: Path) -> None:
@@ -73,9 +78,9 @@ def test_wheel_name_filter(tmpdir: Path) -> None:
     Test the wheel cache filters on wheel name when several wheels
     for different package are stored under the same cache directory.
     """
-    wc = WheelCache(os.fspath(tmpdir))
+    wc = WheelCache.create(os.fspath(tmpdir))
     link = Link("https://g.c/package.tar.gz")
-    cache_path = wc.get_path_for_link(link)
+    cache_path = str(wc._get_wheel_path_for_link(link))
     ensure_dir(cache_path)
     with open(os.path.join(cache_path, "package-1.0-py3-none-any.whl"), "w"):
         pass
@@ -88,11 +93,11 @@ def test_wheel_name_filter(tmpdir: Path) -> None:
 
 
 def test_cache_hash() -> None:
-    h = Cache._hash_dict({"url": "https://g.c/o/r"})
+    h = _LinkHashUtil.hash_dict({"url": "https://g.c/o/r"})
     assert h == "72aa79d3315c181d2cc23239d7109a782de663b6f89982624d8c1e86"
-    h = Cache._hash_dict({"url": "https://g.c/o/r", "subdirectory": "sd"})
+    h = _LinkHashUtil.hash_dict({"url": "https://g.c/o/r", "subdirectory": "sd"})
     assert h == "8b13391b6791bf7f3edeabb41ea4698d21bcbdbba7f9c7dc9339750d"
-    h = Cache._hash_dict({"subdirectory": "/\xe9e"})
+    h = _LinkHashUtil.hash_dict({"subdirectory": "/\xe9e"})
     assert h == "f83b32dfa27a426dec08c21bf006065dd003d0aac78e7fc493d9014d"
 
 
@@ -101,7 +106,7 @@ def test_link_to_cache(tmpdir: Path) -> None:
     Test that Link.from_json() produces Links with consistent cache
     locations
     """
-    wc = WheelCache(os.fspath(tmpdir))
+    wc = WheelCache.create(os.fspath(tmpdir))
     # Define our expectations for stable cache path.
     i_name = interpreter_name()
     i_version = interpreter_version()
@@ -113,7 +118,7 @@ def test_link_to_cache(tmpdir: Path) -> None:
         "interpreter_name": i_name,
         "interpreter_version": i_version,
     }
-    expected_hash = Cache._hash_dict(key_parts)
+    expected_hash = _LinkHashUtil.hash_dict(key_parts)
     parts = [
         expected_hash[:2],
         expected_hash[2:4],
@@ -134,19 +139,19 @@ def test_link_to_cache(tmpdir: Path) -> None:
     page_url = ParsedUrl.parse("https://pypi.org/simple/netifaces/")
     link = Link.from_json(file_data=file_data, page_url=page_url)
     assert link
-    path = wc.get_path_for_link(link)
-    assert pathed_hash in path
+    path = wc._get_wheel_path_for_link(link)
+    assert pathed_hash in str(path)
 
 
 def test_get_cache_entry(tmpdir: Path) -> None:
-    wc = WheelCache(os.fspath(tmpdir))
+    wc = WheelCache.create(os.fspath(tmpdir))
     persi_link = Link("https://g.c/o/r/persi")
-    persi_path = wc.get_path_for_link(persi_link)
+    persi_path = str(wc._get_wheel_path_for_link(persi_link))
     ensure_dir(persi_path)
     with open(os.path.join(persi_path, "persi-1.0.0-py3-none-any.whl"), "w"):
         pass
     ephem_link = Link("https://g.c/o/r/ephem")
-    ephem_path = wc.get_ephem_path_for_link(ephem_link)
+    ephem_path = str(wc._get_ephem_path_for_link(ephem_link))
     ensure_dir(ephem_path)
     with open(os.path.join(ephem_path, "ephem-1.0.0-py3-none-any.whl"), "w"):
         pass

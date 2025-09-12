@@ -7,7 +7,6 @@ import email.message
 import logging
 import mimetypes
 import os
-import posixpath
 import time
 from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager
@@ -35,12 +34,11 @@ from pip._internal.exceptions import (
     IncompleteDownloadError,
     NetworkConnectionError,
 )
-from pip._internal.models.index import PyPI
 from pip._internal.models.link import Link
 from pip._internal.network.cache import SafeFileCache, is_from_cache
 from pip._internal.network.session import CacheControlAdapter, PipSession
 from pip._internal.network.utils import HEADERS, raise_for_status, response_chunks
-from pip._internal.utils.misc import format_size, redact_auth_from_url, splitext
+from pip._internal.utils.misc import format_size, splitext
 
 logger = logging.getLogger(__name__)
 
@@ -60,14 +58,22 @@ def _get_http_response_etag_or_last_modified(resp: Response) -> str | None:
     return resp.headers.get("etag", resp.headers.get("last-modified"))
 
 
-def _format_download_log_url(link: Link) -> str:
-    if link.netloc == PyPI.file_storage_domain:
-        url = posixpath.basename(str(link.parsed_url.with_no_fragment_or_query()))
-    else:
-        url = str(link.url_without_fragment())
+@dataclass(frozen=True, slots=True)
+class _FormattedDownloadLink:
+    link: Link
+    total_length: int | None
+    range_start: int | None
 
-    # FIXME: optimize this!
-    return redact_auth_from_url(url)
+    def __str__(self) -> str:
+        logged_url = self.link.url_without_fragment().with_redacted_auth_info()
+
+        if self.total_length:
+            length = format_size(self.total_length)
+            if self.range_start:
+                start = format_size(self.range_start)
+                return f"{logged_url} ({start}/{length})"
+            return f"{logged_url} ({length})"
+        return str(logged_url)
 
 
 def _log_download_link(
@@ -77,15 +83,11 @@ def _log_download_link(
     link_is_from_cache: bool = False,
     level: int = logging.INFO,
 ) -> None:
-    logged_url = _format_download_log_url(link)
-
-    if total_length:
-        if range_start:
-            logged_url = (
-                f"{logged_url} ({format_size(range_start)}/{format_size(total_length)})"
-            )
-        else:
-            logged_url = f"{logged_url} ({format_size(total_length)})"
+    logged_url = _FormattedDownloadLink(
+        link=link,
+        total_length=total_length,
+        range_start=range_start,
+    )
 
     if link_is_from_cache:
         logger.log(level, "Using cached %s", logged_url)

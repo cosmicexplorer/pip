@@ -472,27 +472,27 @@ class TestProcessLine:
         self, line_processor: LineProcessor, finder: PackageFinder
     ) -> None:
         line_processor("--no-index", "file", 1, finder=finder)
-        assert finder.index_urls == []
+        assert finder.index_urls == ()
 
     def test_set_finder_no_index_is_remembered_for_later_invocations(
         self, line_processor: LineProcessor, finder: PackageFinder
     ) -> None:
         line_processor("--no-index", "file", 1, finder=finder)
         line_processor("--index-url=url", "file", 1, finder=finder)
-        assert finder.index_urls == []
+        assert finder.index_urls == ()
 
     def test_set_finder_index_url(
         self, line_processor: LineProcessor, finder: PackageFinder, session: PipSession
     ) -> None:
         line_processor("--index-url=url", "file", 1, finder=finder, session=session)
-        assert finder.index_urls == ["url"]
+        assert finder.index_urls == ("url",)
         assert session.auth.index_urls == ["url"]
 
     def test_set_finder_find_links(
         self, line_processor: LineProcessor, finder: PackageFinder
     ) -> None:
         line_processor("--find-links=url", "file", 1, finder=finder)
-        assert finder.find_links == ["url"]
+        assert finder.find_links == ("url",)
 
     def test_set_finder_extra_index_urls(
         self, line_processor: LineProcessor, finder: PackageFinder, session: PipSession
@@ -500,7 +500,7 @@ class TestProcessLine:
         line_processor(
             "--extra-index-url=url", "file", 1, finder=finder, session=session
         )
-        assert finder.index_urls == ["url"]
+        assert finder.index_urls == ("url",)
         assert session.auth.index_urls == ["url"]
 
     def test_set_finder_trusted_host(
@@ -575,7 +575,7 @@ class TestProcessLine:
 
         monkeypatch.setattr(os.path, "exists", exists)
         line_processor("--find-links=rel_path", req_file, 1, finder=finder)
-        assert finder.find_links == [nested_link]
+        assert finder.find_links == (nested_link,)
 
     def test_relative_http_nested_req_files(
         self,
@@ -700,31 +700,31 @@ class TestOptionVariants:
         self, line_processor: LineProcessor, finder: PackageFinder
     ) -> None:
         line_processor("-i url", "file", 1, finder=finder)
-        assert finder.index_urls == ["url"]
+        assert finder.index_urls == ("url",)
 
     def test_variant2(
         self, line_processor: LineProcessor, finder: PackageFinder
     ) -> None:
         line_processor("-i 'url'", "file", 1, finder=finder)
-        assert finder.index_urls == ["url"]
+        assert finder.index_urls == ("url",)
 
     def test_variant3(
         self, line_processor: LineProcessor, finder: PackageFinder
     ) -> None:
         line_processor("--index-url=url", "file", 1, finder=finder)
-        assert finder.index_urls == ["url"]
+        assert finder.index_urls == ("url",)
 
     def test_variant4(
         self, line_processor: LineProcessor, finder: PackageFinder
     ) -> None:
         line_processor("--index-url url", "file", 1, finder=finder)
-        assert finder.index_urls == ["url"]
+        assert finder.index_urls == ("url",)
 
     def test_variant5(
         self, line_processor: LineProcessor, finder: PackageFinder
     ) -> None:
         line_processor("--index-url='url'", "file", 1, finder=finder)
-        assert finder.index_urls == ["url"]
+        assert finder.index_urls == ("url",)
 
 
 class TestParseRequirements:
@@ -761,7 +761,7 @@ class TestParseRequirements:
             )
         )
 
-        assert finder.index_urls == ["url1", "url2"]
+        assert finder.index_urls == ("url1", "url2")
 
     def test_expand_existing_env_variables(
         self, tmpdir: Path, finder: PackageFinder
@@ -838,7 +838,7 @@ class TestParseRequirements:
             )
         )
 
-        assert finder.index_urls == ["url1", "url2"]
+        assert finder.index_urls == ("url1", "url2")
 
     def test_req_file_parse_no_only_binary(
         self, data: TestData, finder: PackageFinder

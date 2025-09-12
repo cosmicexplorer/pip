@@ -1,28 +1,40 @@
-import urllib.parse
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+from pip._internal.utils.urls import ParsedUrl
+
+if TYPE_CHECKING:
+    from typing_extensions import Self
 
 
+@dataclass(frozen=True, slots=True)
 class PackageIndex:
     """Represents a Package Index and provides easier access to endpoints"""
 
-    __slots__ = ["url", "netloc", "simple_url", "pypi_url", "file_storage_domain"]
+    base_url: ParsedUrl
+    simple_url: ParsedUrl
+    search_url: ParsedUrl
 
-    def __init__(self, url: str, file_storage_domain: str) -> None:
-        super().__init__()
-        self.url = url
-        self.netloc = urllib.parse.urlsplit(url).netloc
-        self.simple_url = self._url_for_path("simple")
-        self.pypi_url = self._url_for_path("pypi")
+    @classmethod
+    def create(
+        cls,
+        url: str,
+        *,
+        simple_subdir: str = "simple",
+        search_subdir: str = "pypi",
+    ) -> Self:
+        base_url = ParsedUrl.parse(url)
+        simple_url = base_url.join_path(simple_subdir)
+        search_url = base_url.join_path(search_subdir)
 
-        # This is part of a temporary hack used to block installs of PyPI
-        # packages which depend on external urls only necessary until PyPI can
-        # block such packages themselves
-        self.file_storage_domain = file_storage_domain
-
-    def _url_for_path(self, path: str) -> str:
-        return urllib.parse.urljoin(self.url, path)
+        return cls(
+            base_url=base_url,
+            simple_url=simple_url,
+            search_url=search_url,
+        )
 
 
-PyPI = PackageIndex("https://pypi.org/", file_storage_domain="files.pythonhosted.org")
-TestPyPI = PackageIndex(
-    "https://test.pypi.org/", file_storage_domain="test-files.pythonhosted.org"
-)
+PyPI = PackageIndex.create("https://pypi.org/")
+TestPyPI = PackageIndex.create("https://test.pypi.org/")

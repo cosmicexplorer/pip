@@ -10,7 +10,7 @@ from collections.abc import Iterable
 from pip._vendor.packaging.utils import canonicalize_name, canonicalize_version
 from pip._vendor.packaging.version import InvalidVersion
 
-from pip._internal.cache import WheelCache
+from pip._internal.cache import DownloadOrigin, WheelCache
 from pip._internal.exceptions import InvalidWheelFilename, UnsupportedWheel
 from pip._internal.metadata import FilesystemWheel, get_wheel_distribution
 from pip._internal.models.link import Link
@@ -241,7 +241,7 @@ def build(
             cache_dir = wheel_cache.resolve_cache_dir(req)
             wheel_file = _build_one(
                 req,
-                cache_dir,
+                str(cache_dir),
                 verify,
                 build_options,
                 global_options,
@@ -253,7 +253,7 @@ def build(
                     # download_info is guaranteed to be set because when we build an
                     # InstallRequirement it has been through the preparer before, but
                     # let's be cautious.
-                    wheel_cache.record_download_origin(cache_dir, req.download_info)
+                    DownloadOrigin(cache_dir).record_download_origin(req.download_info)
                 # Update the link for this.
                 req.link = Link(path_to_url(wheel_file))
                 req.local_file_path = req.link.file_path

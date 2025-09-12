@@ -14,38 +14,51 @@ import os
 import re
 import urllib.parse
 import urllib.request
-from collections import OrderedDict
 from dataclasses import dataclass
 from hashlib import sha256
 from html.parser import HTMLParser
 from optparse import Values
+from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Callable,
     ClassVar,
-    NamedTuple,
+    Generic,
+    TypeVar,
 )
 
 from pip._vendor import requests
+from pip._vendor.filelock import FileLock
 from pip._vendor.requests import Response
 from pip._vendor.requests.exceptions import RetryError, SSLError
 
+from pip._internal.cache import (
+    FetchResolveCache,
+    SerializableEntry,
+)
 from pip._internal.exceptions import NetworkConnectionError
-from pip._internal.models.link import Link
+from pip._internal.models.link import Link, LinkJsonCodec
 from pip._internal.models.search_scope import SearchScope
 from pip._internal.network.session import PipSession
 from pip._internal.network.utils import raise_for_status
+from pip._internal.utils.cache_serde import (
+    Bz2TextStream,
+    JsonCodec,
+    SerializableProcess,
+)
 from pip._internal.utils.filetypes import FileExtensions
-from pip._internal.utils.misc import redact_auth_from_url
 from pip._internal.utils.urls import ParsedUrl
 from pip._internal.vcs import vcs
 
-from .sources import CandidatesFromPage, LinkSource, build_source
+from .caching import _ChecksumSanitizer, _ETagSanitizer, _TimestampSanitizer
+from .sources import _LocalFindLinks
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Iterator, MutableMapping, Sequence
+    from collections.abc import Iterable, Iterator, MutableMapping
 
     from typing_extensions import Self
+
+    from pip._vendor.packaging.utils import NormalizedName
 
     ResponseHeaders = MutableMapping[str, str]
 
@@ -411,13 +424,13 @@ class ApiSemantics:
 
     @staticmethod
     def _handle_get_simple_fail(
-        link: Link,
+        url: ParsedUrl,
         reason: str | Exception,
         meth: Callable[..., None] | None = None,
     ) -> None:
         if meth is None:
             meth = logger.debug
-        meth("Could not fetch URL %s: %s - skipping", link, reason)
+        meth("Could not fetch URL %s: %s - skipping", url, reason)
 
     @classmethod
     def _make_index_content(
@@ -439,21 +452,21 @@ class ApiSemantics:
             date=response.headers.get("Date", None),
         )
 
-    _index_html_url: ClassVar[ParsedUrl] = ParsedUrl.parse("index.html")
-
     @classmethod
     def _get_index_content(
-        cls, link: Link, *, session: PipSession, headers: ResponseHeaders | None = None
+        cls,
+        url: ParsedUrl,
+        *,
+        session: PipSession,
+        headers: ResponseHeaders | None = None,
     ) -> MaybeCachedResponse | None:
-        url = link.url_without_fragment()
-
         # Check for VCS schemes that do not support lookup as web pages.
         if vcs_scheme := cls.vcs_scheme_no_web_lookup(url):
             logger.warning(
                 "Cannot look at %s URL %s "
                 "because it does not support lookup as web pages.",
                 vcs_scheme,
-                link,
+                url,
             )
             return None
 
@@ -465,7 +478,7 @@ class ApiSemantics:
             #       style responses in the file:// URLs, however there's no
             #       standard file extension for application/vnd.pypi.simple.v1+json
             #       so we'll need to come up with something on our own.
-            url = url.join(cls._index_html_url)
+            url = url.join_path("index.html")
             logger.debug(" file: URL is directory, getting %s", url)
 
         try:
@@ -474,27 +487,27 @@ class ApiSemantics:
             logger.warning(
                 "Skipping page %s because it looks like an archive, and cannot "
                 "be checked by a HTTP HEAD request.",
-                link,
+                url,
             )
         except cls._NotAPIContent as exc:
             logger.warning(
                 "Skipping page %s because the %s request got Content-Type: %r. "
                 "The only supported Content-Type values are:\n%s",
-                link,
+                url,
                 exc.request_desc,
                 exc.content_type,
                 "\n".join(f"- {ty}" for ty in cls._api_response_types),
             )
         except (NetworkConnectionError, RetryError) as exc:
-            cls._handle_get_simple_fail(link, exc)
+            cls._handle_get_simple_fail(url, exc)
         except SSLError as exc:
             reason = "There was a problem confirming the ssl certificate: "
             reason += str(exc)
-            cls._handle_get_simple_fail(link, reason, meth=logger.info)
+            cls._handle_get_simple_fail(url, reason, meth=logger.info)
         except requests.ConnectionError as exc:
-            cls._handle_get_simple_fail(link, f"connection error: {exc}")
+            cls._handle_get_simple_fail(url, f"connection error: {exc}")
         except requests.Timeout:
-            cls._handle_get_simple_fail(link, "timed out")
+            cls._handle_get_simple_fail(url, "timed out")
         else:
             return cls._make_index_content(resp)
         return None
@@ -619,11 +632,21 @@ class HTMLLinkParser(HTMLParser):
         return None
 
 
-class CollectedSources(NamedTuple):
-    find_links: Sequence[LinkSource | None]
-    index_urls: Sequence[LinkSource | None]
+PageParsed = TypeVar("PageParsed")
+PageResult = TypeVar("PageResult")
 
 
+class FetchComputeProcess(abc.ABC, Generic[PageParsed, PageResult]):
+    @abc.abstractmethod
+    def compute(self, parsed: PageParsed) -> PageResult: ...
+
+
+class ComputeMerger(abc.ABC, Generic[PageResult]):
+    @abc.abstractmethod
+    def merge(self, results: Iterable[PageResult]) -> PageResult: ...
+
+
+@dataclass(frozen=True, eq=False)
 class LinkCollector:
     """
     Responsible for collecting Link objects from all configured locations,
@@ -632,19 +655,16 @@ class LinkCollector:
     The class's main method is its collect_sources() method.
     """
 
-    def __init__(
-        self,
-        session: PipSession,
-        search_scope: SearchScope,
-    ) -> None:
-        self.search_scope = search_scope
-        self.session = session
+    session: PipSession
+    search_scope: SearchScope
+    fetch_resolve_cache: FetchResolveCache | None = None
 
     @classmethod
     def create(
         cls,
         session: PipSession,
         options: Values,
+        *,
         suppress_no_index: bool = False,
     ) -> Self:
         """
@@ -653,13 +673,6 @@ class LinkCollector:
             when constructing the SearchScope object.
         """
         index_urls = [options.index_url] + options.extra_index_urls
-        if options.no_index and not suppress_no_index:
-            logger.debug(
-                "Ignoring indexes: %s",
-                ",".join(redact_auth_from_url(url) for url in index_urls),
-            )
-            index_urls = []
-
         # Make sure find_links is a list before passing to create().
         find_links = options.find_links or []
 
@@ -667,18 +680,269 @@ class LinkCollector:
             find_links=find_links,
             index_urls=index_urls,
             no_index=options.no_index,
-        )
+            suppress_no_index=suppress_no_index,
+        ).filter_urls(session.is_secure_origin)
+
+        if bool(options.cache_dir) and ("metadata-cache" in options.features_enabled):
+            fetch_resolve_cache = FetchResolveCache(options.cache_dir)
+        else:
+            fetch_resolve_cache = None
+
         return cls(
             session=session,
             search_scope=search_scope,
+            fetch_resolve_cache=fetch_resolve_cache,
         )
 
-    @property
-    def find_links(self) -> list[str]:
-        return self.search_scope.find_links
+    def _uncached_fetch_and_process(
+        self,
+        location: ParsedUrl,
+        compute: FetchComputeProcess[Iterable[Link], PageResult],
+    ) -> PageResult:
+        logger.debug(
+            "(fetch cache disabled) Fetching project page and analyzing links: %s",
+            location,
+        )
 
-    def fetch_response(
-        self, location: Link, headers: ResponseHeaders | None = None
+        index_response = self._fetch_response(location)
+        if index_response is None:
+            return compute.compute([])
+        assert isinstance(index_response, IndexContent), index_response
+
+        return compute.compute(index_response.parse_links())
+
+    def fetch_and_process(
+        self,
+        location: ParsedUrl,
+        entry: SerializableEntry,
+        process: SerializableProcess[PageResult],
+        compute: FetchComputeProcess[Iterable[Link], PageResult],
+    ) -> PageResult:
+        if self.fetch_resolve_cache is None:
+            return self._uncached_fetch_and_process(location, compute)
+
+        cached_path = self.fetch_resolve_cache.fetch_cache_path(location)
+        os.makedirs(str(cached_path), exist_ok=True)
+
+        lock = FileLock(str(cached_path / ".fetch.lock"))
+
+        etag_path = cached_path / "etag"
+        date_path = cached_path / "modified-since-date"
+        checksum_path = cached_path / "checksum"
+        parsed_links_path = cached_path / "parsed-links"
+        cur_entry_path = cached_path / FetchResolveCache.hashed_entry_name(entry)
+
+        links_codec = JsonCodec(
+            codec=LinkJsonCodec(),
+            stream=Bz2TextStream(),
+        )
+
+        with lock.acquire(timeout=30):
+            headers: dict[str, str] = {}
+            # NB: mutates headers!
+            prev_etag, _prev_date, prev_checksum = self._try_load_http_cache_headers(
+                etag_path, date_path, checksum_path, location, headers
+            )
+
+            logger.debug("Fetching project page: %s", location)
+
+            index_response = self._fetch_response(location, headers=headers)
+            if index_response is None:
+                return compute.compute([])
+
+            new_checksum: _ChecksumSanitizer.PageChecksum | None = None
+            if (new_checksum_bytes := index_response.calculate_checksum()) is not None:
+                new_checksum = _ChecksumSanitizer.PageChecksum(
+                    checksum=new_checksum_bytes
+                )
+                page_unmodified = new_checksum == prev_checksum
+            else:
+                # The only way we wouldn't be able to calculate a checksum is if we
+                # received a 304 (server cached) response.
+                page_unmodified = True
+                # If that's the case, then we must have received a checksum.
+                assert prev_checksum is not None
+                # In case the ETag or Date were updated, we still write the HTTP caching
+                # info to file before returning.
+                new_checksum = prev_checksum
+
+            page_links: tuple[Link, ...] | None = None
+            # Only try our persistent link parsing and evaluation caches if we know the
+            # page was unmodified via checksum.
+            if page_unmodified:
+                if (result := process.load_from_path(cur_entry_path)) is not None:
+                    return result
+
+                page_links = links_codec.load_from_path(parsed_links_path)
+            else:
+                # The page data was modified, so we have to clear not only our prior
+                # parsing, but any optimistic evaluation cache results.
+                FetchResolveCache.clear_hashed_entries(cached_path, type(entry))
+                try:
+                    parsed_links_path.unlink()
+                except OSError:
+                    pass
+
+            if page_links is None:
+                logger.debug(
+                    "extracting new parsed links from index response %s", index_response
+                )
+                # This is necessary for mypy to allow us to call .parse_links(), but the
+                # correctness is more subtle. This will be true when the response is not
+                # a 304 Not Modified, but rather a 200 OK. When does a 304 occur? When
+                # we have cached ETag and Date parameters which are provided as headers
+                # to the index request. Because we call ._write_http_cache_info()
+                # strictly *after* we call ._write_parsed_links_cache(), we ensure that
+                # even in the presence of parallel pip executions, we never have
+                # a cached ETag/Date without also caching the result of link parsing.
+                assert not page_unmodified and isinstance(
+                    index_response, IndexContent
+                ), (
+                    page_unmodified,
+                    index_response,
+                )
+                page_links = tuple(index_response.parse_links())
+                links_codec.write_to_path(parsed_links_path, page_links)
+            assert page_links is not None
+
+            computed_result = compute.compute(page_links)
+            process.write_to_path(cur_entry_path, computed_result)
+
+            # NB: We have to write these cache entries in reverse order of calculating
+            #     the actual results to avoid an unfortunate race condition where we
+            #     don't have any copy of the previous page when we get a 304!
+            self.__class__._write_http_cache_info(
+                etag_path=etag_path,
+                new_etag_str=index_response.etag,
+                date_path=date_path,
+                date_str=index_response.date,
+                project_url=location,
+                prev_etag=prev_etag,
+                new_checksum=new_checksum,
+                checksum_path=checksum_path,
+                page_unmodified=page_unmodified,
+            )
+
+            return computed_result
+
+    @classmethod
+    def _try_load_http_cache_headers(
+        cls,
+        etag_path: Path,
+        date_path: Path,
+        checksum_path: Path,
+        project_url: ParsedUrl,
+        headers: MutableMapping[str, str],
+    ) -> tuple[
+        _ETagSanitizer.CacheableETag | None,
+        _TimestampSanitizer.CacheableTimestamp | None,
+        _ChecksumSanitizer.PageChecksum | None,
+    ]:
+        """Reads ETag and Date values from cache paths to update request headers.
+
+        If either or neither path is a readable file, the headers are unchanged. They
+        will be populated with the ETag and Date headers from the server response, if
+        the server provides these headers in its response.
+        """
+        etag: _ETagSanitizer.CacheableETag | None = None
+        try:
+            etag = _ETagSanitizer.CacheableETag.cache_deserialize(
+                etag_path.read_bytes()
+            )
+            logger.debug(
+                "found cached etag for url %s at %s: %s",
+                project_url,
+                etag_path,
+                etag,
+            )
+            headers["If-None-Match"] = etag.format_http_header()
+        except OSError as e:
+            logger.debug("no etag found for url %s (%s)", project_url, e)
+
+        date: _TimestampSanitizer.CacheableTimestamp | None = None
+        try:
+            date = _TimestampSanitizer.CacheableTimestamp.cache_deserialize(
+                date_path.read_bytes()
+            )
+            logger.debug(
+                "found cached date for url %s at %s: %s",
+                project_url,
+                date_path,
+                date,
+            )
+            headers["If-Modified-Since"] = date.format_http_header()
+        except OSError as e:
+            logger.debug("no date found for url %s (%s)", project_url, e)
+
+        checksum: _ChecksumSanitizer.PageChecksum | None = None
+        try:
+            checksum = _ChecksumSanitizer.PageChecksum.cache_deserialize(
+                checksum_path.read_bytes()
+            )
+            logger.debug(
+                "found checksum for url %s at %s: %s",
+                project_url,
+                checksum_path,
+                checksum,
+            )
+        except OSError as e:
+            logger.debug("no checksum found for url %s (%s)", project_url, e)
+
+        return (etag, date, checksum)
+
+    @classmethod
+    def _write_http_cache_info(
+        cls,
+        etag_path: Path,
+        new_etag_str: str | None,
+        date_path: Path,
+        date_str: str | None,
+        project_url: ParsedUrl,
+        prev_etag: _ETagSanitizer.CacheableETag | None,
+        new_checksum: _ChecksumSanitizer.PageChecksum,
+        checksum_path: Path,
+        page_unmodified: bool,
+    ) -> None:
+        new_etag = _ETagSanitizer.CacheableETag.parse_http_header(
+            new_etag_str, project_url
+        )
+        if new_etag is None:
+            try:
+                etag_path.unlink()
+            except OSError:
+                pass
+        else:
+            if new_etag != prev_etag:
+                logger.debug(
+                    "etag for url %s updated from %s -> %s",
+                    project_url,
+                    prev_etag,
+                    new_etag,
+                )
+                etag_path.write_bytes(new_etag.cache_serialize())
+            else:
+                logger.debug(
+                    "etag was unmodified for url %s (%s)", project_url, prev_etag
+                )
+                assert page_unmodified
+
+        new_date = _TimestampSanitizer.CacheableTimestamp.parse_http_header(
+            date_str, project_url
+        )
+        if new_date is None:
+            try:
+                date_path.unlink()
+            except OSError:
+                pass
+        else:
+            date_path.write_bytes(new_date.cache_serialize())
+            logger.debug('date "%s" written for url %s', new_date, project_url)
+
+        checksum_path.write_bytes(new_checksum.cache_serialize())
+        logger.debug("checksum %s written for url %s", new_checksum, project_url)
+
+    def _fetch_response(
+        self, location: ParsedUrl, headers: ResponseHeaders | None = None
     ) -> MaybeCachedResponse | None:
         """
         Fetch an HTML page containing package links.
@@ -687,46 +951,122 @@ class LinkCollector:
             location, session=self.session, headers=headers
         )
 
-    def collect_sources(
+    ### In-memory caching for local and remote calls.
+    # NB: Traverses the top-level directory contents when first called.
+    @staticmethod
+    @functools.cache
+    def _path_links(path: Path) -> _LocalFindLinks:
+        return _LocalFindLinks(path=path)
+
+    @functools.cached_property
+    def _find_links_is_api(self) -> dict[ParsedUrl, bool]:
+        return {}
+
+    # NB: Performs a HEAD request when first called.
+    def _remote_find_links_is_api(self, url: ParsedUrl) -> bool:
+        if (result := self._find_links_is_api.get(url)) is not None:
+            return result
+        computed: bool
+        try:
+            ApiSemantics._ensure_api_response(url, self.session)
+            computed = True
+        except (ApiSemantics._NotHTTP, ApiSemantics._NotAPIContent):
+            computed = False
+        self._find_links_is_api[url] = computed
+        return computed
+
+    ### Collection of direct `Link`s to dists and `ParsedUrl`s of index pages to parse.
+    ## [--find-links processing.]
+    def _local_find_links(self) -> Iterator[_LocalFindLinks]:
+        for u in self.search_scope.find_links:
+            if (p := u.path) is not None:
+                yield self.__class__._path_links(p)
+
+    ## -> Local dists.
+    def _collect_local_find_links_files(self, name: NormalizedName) -> Iterator[Link]:
+        for local_links in self._local_find_links():
+            for project_url in local_links.urls_for_project(name):
+                yield Link(project_url)
+
+    ## -> Local indices.
+    def _collect_local_find_links_pages(self) -> Iterator[ParsedUrl]:
+        for local_links in self._local_find_links():
+            yield from local_links.possible_index_pages()
+
+    def _remote_find_links(self) -> Iterator[ParsedUrl]:
+        for u in self.search_scope.find_links:
+            if u.path is None:
+                yield u.url
+
+    ## -> Remote dists.
+    def _collect_remote_find_links_files(self) -> Iterator[Link]:
+        for url in self._remote_find_links():
+            if not self._remote_find_links_is_api(url):
+                yield Link(url)
+
+    ## -> Remote indices.
+    def _collect_remote_find_links_pages(self) -> Iterator[ParsedUrl]:
+        for url in self._remote_find_links():
+            if self._remote_find_links_is_api(url):
+                yield url
+
+    ## [--[extra-]index-url[s] processing.]
+    def _collect_local_and_remote_index_pages(
         self,
-        project_name: str,
-        candidates_from_page: CandidatesFromPage,
-    ) -> CollectedSources:
-        # The OrderedDict calls deduplicate sources by URL.
-        index_url_sources = OrderedDict(
-            build_source(
-                loc,
-                candidates_from_page=candidates_from_page,
-                page_validator=self.session.is_secure_origin,
-                expand_dir=False,
-                project_name=project_name,
-            )
-            for loc in self.search_scope.get_index_urls_locations(project_name)
-        ).values()
-        find_links_sources = OrderedDict(
-            build_source(
-                loc,
-                candidates_from_page=candidates_from_page,
-                page_validator=self.session.is_secure_origin,
-                expand_dir=True,
-                project_name=project_name,
-            )
-            for loc in self.find_links
-        ).values()
+        name: NormalizedName,
+    ) -> tuple[tuple[ParsedUrl, ...], tuple[ParsedUrl, ...]]:
+        local_index_pages: list[ParsedUrl] = []
+        remote_index_pages: list[ParsedUrl] = []
 
-        if logger.isEnabledFor(logging.DEBUG):
-            lines = [
-                f"* {s.link}"
-                for s in itertools.chain(find_links_sources, index_url_sources)
-                if s is not None and s.link is not None
-            ]
-            lines = [
-                f"{len(lines)} location(s) to search "
-                f"for versions of {project_name}:"
-            ] + lines
-            logger.debug("\n".join(lines))
+        for u in self.search_scope.index_pages_for_name(name):
+            if u.path is not None:
+                local_index_pages.append(u.url)
+            else:
+                remote_index_pages.append(u.url)
 
-        return CollectedSources(
-            find_links=list(find_links_sources),
-            index_urls=list(index_url_sources),
+        return tuple(local_index_pages), tuple(remote_index_pages)
+
+    ### Generate all valid `Link` values for the given project, then evaluate them
+    ### (which includes filtering out invalid ones) to get `InstallationCandidate`s.
+    def _collect_files(self, name: NormalizedName) -> Iterator[Link]:
+        yield from self._collect_local_find_links_files(name)
+        yield from self._collect_remote_find_links_files()
+
+    # TODO: cache this somehow? maybe by checksumming file contents?
+    def _collect_and_process_files(
+        self,
+        name: NormalizedName,
+        compute: FetchComputeProcess[Iterable[Link], PageResult],
+    ) -> PageResult:
+        return compute.compute(self._collect_files(name))
+
+    def _collect_pages(self, name: NormalizedName) -> Iterator[ParsedUrl]:
+        yield from self._collect_local_find_links_pages()
+        local_index_pages, remote_index_pages = (
+            self._collect_local_and_remote_index_pages(name)
         )
+        yield from local_index_pages
+        yield from self._collect_remote_find_links_pages()
+        yield from remote_index_pages
+
+    def _collect_and_process_pages(
+        self,
+        name: NormalizedName,
+        entry: SerializableEntry,
+        process: SerializableProcess[PageResult],
+        compute: FetchComputeProcess[Iterable[Link], PageResult],
+    ) -> Iterator[PageResult]:
+        for location in self._collect_pages(name):
+            yield self.fetch_and_process(location, entry, process, compute)
+
+    def collect_and_process(
+        self,
+        name: NormalizedName,
+        entry: SerializableEntry,
+        process: SerializableProcess[PageResult],
+        compute: FetchComputeProcess[Iterable[Link], PageResult],
+        merger: ComputeMerger[PageResult],
+    ) -> PageResult:
+        files_result = self._collect_and_process_files(name, compute)
+        pages_results = self._collect_and_process_pages(name, entry, process, compute)
+        return merger.merge(itertools.chain([files_result], pages_results))

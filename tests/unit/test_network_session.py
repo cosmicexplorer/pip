@@ -12,11 +12,11 @@ import pytest
 from pip._vendor import requests
 
 from pip import __version__
-from pip._internal.models.link import Link
 from pip._internal.network.session import (
     PipSession,
     Telemetry,
 )
+from pip._internal.utils.urls import ParsedUrl
 
 
 def get_user_agent() -> str:
@@ -248,7 +248,7 @@ class TestPipSession:
                 self.called = True
 
         session = PipSession(trusted_hosts=trusted)
-        actual = session.is_secure_origin(Link(location))
+        actual = session.is_secure_origin(ParsedUrl.parse(location))
         assert actual == expected
 
         log_records = [(r.levelname, r.message) for r in caplog.records]

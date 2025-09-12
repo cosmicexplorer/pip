@@ -24,7 +24,7 @@ from tests.lib import TestData
 @pytest.fixture
 def finder(data: TestData) -> PackageFinder:
     session = PipSession()
-    scope = SearchScope([str(data.packages)], [], False)
+    scope = SearchScope.create([str(data.packages)], [], no_index=False)
     collector = LinkCollector(session, scope)
     prefs = SelectionPreferences(allow_yanked=False)
     finder = PackageFinder.create(collector, prefs)

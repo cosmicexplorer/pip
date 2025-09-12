@@ -1,3 +1,5 @@
+from pip._vendor.packaging.utils import canonicalize_name
+
 from pip._internal.models.search_scope import SearchScope
 from pip._internal.req.constructors import install_req_from_line
 
@@ -13,7 +15,7 @@ class TestSearchScope:
             "https://repo-user:repo-pass@repo.domain.com",
         ]
         find_links = ["https://links-user:links-pass@page.domain.com"]
-        search_scope = SearchScope(
+        search_scope = SearchScope.create(
             find_links=find_links,
             index_urls=index_urls,
             no_index=False,
@@ -27,14 +29,17 @@ class TestSearchScope:
 
     def test_get_index_urls_locations(self) -> None:
         """Check that the canonical name is on all indexes"""
-        search_scope = SearchScope(
+        search_scope = SearchScope.create(
             find_links=[],
             index_urls=["file://index1/", "file://index2"],
             no_index=False,
         )
         req = install_req_from_line("Complex_Name")
         assert req.name is not None
-        actual = search_scope.get_index_urls_locations(req.name)
+        actual = [
+            str(u.url)
+            for u in search_scope.index_pages_for_name(canonicalize_name(req.name))
+        ]
         assert actual == [
             "file://index1/complex-name/",
             "file://index2/complex-name/",

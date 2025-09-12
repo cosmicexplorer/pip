@@ -9,17 +9,25 @@ from pip._vendor.packaging._tokenizer import ParserSyntaxError
 from pip._vendor.packaging.requirements import InvalidRequirement
 from pip._vendor.packaging.utils import canonicalize_name
 
+# FIXME: this means url parsing would need to be ported to packaging as well, but that's
+#        not actually a bad idea since:
+# (1) it would lead to correct url comparisons for Requirement
+# (2) the approach used for url parsing is quite similar to that used for other parsing
+from pip._internal.utils.urls import ParsedUrl
+
 from .markers import Marker
 from .specifiers import SpecifierSet
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
+    from typing_extensions import Self
+
 
 @dataclass(frozen=True)
 class Requirement:
     name: str
-    url: str | None
+    url: ParsedUrl | None
     extras: frozenset[str]
     specifier: SpecifierSet
     marker: Marker | None
@@ -34,12 +42,15 @@ class Requirement:
         except ParserSyntaxError as e:
             raise InvalidRequirement(str(e)) from e
 
+        url: ParsedUrl | None = None
+        if u := parsed.url:
+            url = ParsedUrl.parse(u)
         marker: Marker | None = None
         if (mk := parsed.marker) is not None:
             marker = Marker.normalize_markers(mk)
         return Requirement(
             name=parsed.name,
-            url=parsed.url or None,
+            url=url,
             extras=frozenset(parsed.extras or ()),
             specifier=SpecifierSet.parse(parsed.specifier),
             marker=marker,
@@ -54,6 +65,20 @@ class Requirement:
         :raises: InvalidRequirement: on a badly-formed requirement string.
         """
         return cls._cached_parse(requirement_string)
+
+    def with_redacted_auth_info(self) -> Self:
+        if self.url is None:
+            return self
+        redacted = self.url.with_redacted_auth_info()
+        if redacted is self.url:
+            return self
+        return self.__class__(
+            name=self.name,
+            url=redacted,
+            extras=self.extras,
+            specifier=self.specifier,
+            marker=self.marker,
+        )
 
     def _iter_unnamed_parts(self) -> Iterator[str]:
         if self.extras:
@@ -109,8 +134,8 @@ class Requirement:
         return (
             hash(self) == hash(other)
             and self._canonical_name == other._canonical_name
-            and self.extras == other.extras
             and self.specifier == other.specifier
+            and self.extras == other.extras
             and self.url == other.url
             and self.marker == other.marker
         )

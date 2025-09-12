@@ -2,69 +2,58 @@
 
 from __future__ import annotations
 
-import abc
-import binascii
-import bz2
-import datetime
-import enum
+import dataclasses
 import functools
-import itertools
-import json
-import logging
-import os
-import re
-import time
 from collections import defaultdict
-from dataclasses import dataclass
-from pathlib import Path
+from dataclasses import dataclass, field
 from typing import (
     TYPE_CHECKING,
-    Any,
-    Callable,
-    ClassVar,
 )
 
-from pip._vendor.packaging.specifiers import InvalidSpecifier
-from pip._vendor.packaging.tags import parse_tag
 from pip._vendor.packaging.utils import BuildTag, NormalizedName, canonicalize_name
 from pip._vendor.packaging.version import InvalidVersion
 
-from pip._internal.cache import FetchResolveCache, SerializableEntry
+from pip._internal.cache import FetchResolveCache
 from pip._internal.exceptions import (
     BestVersionAlreadyInstalled,
     DistributionNotFound,
-    InvalidWheelFilename,
 )
 from pip._internal.index.collector import (
-    IndexContent,
+    ComputeMerger,
+    FetchComputeProcess,
     LinkCollector,
 )
-from pip._internal.models.candidate import InstallationCandidate
+from pip._internal.models.candidate import CandidateJsonCodec, InstallationCandidate
 from pip._internal.models.format_control import (
-    AllowedFormats,
     FormatControl,
     FormatControlBuilder,
 )
-from pip._internal.models.link import Link, PersistentLinkCacheArgs
+from pip._internal.models.link import Link
 from pip._internal.models.search_scope import SearchScope
 from pip._internal.models.selection_prefs import SelectionPreferences
 from pip._internal.models.target_python import TargetPython
 from pip._internal.models.wheel import WheelInfo
 from pip._internal.req import InstallRequirement
 from pip._internal.utils._log import getLogger
-from pip._internal.utils.filetypes import FileExtensions
+from pip._internal.utils.cache_serde import Bz2TextStream, JsonCodec
 from pip._internal.utils.hashes import Hashes
-from pip._internal.utils.logging import indent_log
 from pip._internal.utils.misc import build_netloc
 from pip._internal.utils.packaging.specifiers import BaseSpecifier, SpecifierSet
 from pip._internal.utils.packaging.version import ParsedVersion
-from pip._internal.utils.predicates import FragmentMatcher, RequiresPython
-from pip._internal.utils.unpacking import SUPPORTED_EXTENSIONS
+
+from .hash_filter import CandidateHashFilter
+from .link_evaluator import (
+    EvalFailureSet,
+    EvaluationFailure,
+    FoundCandidate,
+    LinkEvaluator,
+    LinkType,
+)
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, MutableMapping
+    from collections.abc import Iterable, Iterator
 
-    from typing_extensions import Self, TypeGuard
+    from typing_extensions import TypeGuard
 
     CandidateSortingKey = tuple[int, int, int, ParsedVersion, int | None, BuildTag, int]
 
@@ -74,526 +63,68 @@ __all__ = ["FormatControl", "BestCandidateResult", "PackageFinder"]
 logger = getLogger(__name__)
 
 
-class LinkType(enum.Enum):
-    candidate = enum.auto()
-    different_project = enum.auto()
-    yanked = enum.auto()
-    format_unsupported = enum.auto()
-    format_invalid = enum.auto()
-    platform_mismatch = enum.auto()
-    requires_python_mismatch = enum.auto()
-
-
-class EvaluationResult(metaclass=abc.ABCMeta):
-    @property
-    @abc.abstractmethod
-    def kind(self) -> LinkType: ...
-
-
-@dataclass(frozen=True)
-class _FoundCandidate(EvaluationResult):
-    version: str
-
-    kind: ClassVar[LinkType] = LinkType.candidate
-
-
-class EvaluationFailure(EvaluationResult):
-    @abc.abstractmethod
-    def detail(self) -> str: ...
-
-    def __str__(self) -> str:
-        return self.detail()
-
-
-@dataclass(frozen=True)
-class EvalFailureSet:
-    failures: tuple[EvaluationFailure, ...]
-
-    def __bool__(self) -> bool:
-        return len(self.failures) > 0
-
-    def __str__(self) -> str:
-        if not self.failures:
-            return "none"
-        return "; ".join(sorted(map(str, self.failures)))
-
-
-class _InvalidWheelFilename(EvaluationFailure):
-    kind: ClassVar[LinkType] = LinkType.format_invalid
-
-    def detail(self) -> str:
-        return "invalid wheel filename"
-
-
-@dataclass(frozen=True)
-class _WrongName(EvaluationFailure):
-    project_name: str
-
-    kind: ClassVar[LinkType] = LinkType.different_project
-
-    def detail(self) -> str:
-        return f"wrong project name (not {self.project_name})"
-
-
-@dataclass(frozen=True)
-class _UnsupportedTags(EvaluationFailure):
-    info: WheelInfo
-
-    kind: ClassVar[LinkType] = LinkType.platform_mismatch
-
-    def detail(self) -> str:
-        # Include the wheel's tags in the reason string to
-        # simplify troubleshooting compatibility issues.
-        file_tags = ", ".join(self.info.sorted_tag_strings)
-        return (
-            f"none of the wheel's tags ({file_tags}) are compatible "
-            "(run pip debug --verbose to show compatible tags)"
-        )
-
-
-class _PyVerMismatch(EvaluationFailure):
-    kind: ClassVar[LinkType] = LinkType.platform_mismatch
-
-    def detail(self) -> str:
-        return "Python version is incorrect"
-
-
-@dataclass(frozen=True)
-class _PyTagParseError(EvaluationFailure):
-    py_tag_string: str
-
-    kind: ClassVar[LinkType] = LinkType.platform_mismatch
-
-    def detail(self) -> str:
-        return f"Could not parse python tags: {self.py_tag_string!r}"
-
-
-class _NotAFile(EvaluationFailure):
-    kind: ClassVar[LinkType] = LinkType.format_unsupported
-
-    def detail(self) -> str:
-        return "not a file"
-
-
-@dataclass(frozen=True)
-class _UnsupportedArchive(EvaluationFailure):
-    ext: str
-
-    kind: ClassVar[LinkType] = LinkType.format_unsupported
-
-    def detail(self) -> str:
-        return f"unsupported archive format: {self.ext}"
-
-
-@dataclass(frozen=True)
-class _NoBinariesAllowed(EvaluationFailure):
-    project_name: str
-
-    kind: ClassVar[LinkType] = LinkType.format_unsupported
-
-    def detail(self) -> str:
-        return f"No binaries permitted for {self.project_name}"
-
-
-class _MacOSX10(EvaluationFailure):
-    kind: ClassVar[LinkType] = LinkType.format_unsupported
-
-    def detail(self) -> str:
-        return "macosx10 one"
-
-
-@dataclass(frozen=True)
-class _NoSourcesAllowed(EvaluationFailure):
-    project_name: str
-
-    kind: ClassVar[LinkType] = LinkType.format_unsupported
-
-    def detail(self) -> str:
-        return f"No sources permitted for {self.project_name}"
-
-
-@dataclass(frozen=True)
-class _MissingVersion(EvaluationFailure):
-    project_name: str
-
-    kind: ClassVar[LinkType] = LinkType.format_invalid
-
-    def detail(self) -> str:
-        return f"Missing project version for {self.project_name}"
-
-
-@dataclass(frozen=True)
-class _YankedReason(EvaluationFailure):
-    yanked_reason: str | None
-
-    kind: ClassVar[LinkType] = LinkType.yanked
-
-    def detail(self) -> str:
-        reason = self.yanked_reason or "<none given>"
-        return f"yanked for reason: {reason}"
-
-
-@dataclass(frozen=True)
-class _IncompatibleRequiresPython(EvaluationFailure):
-    version: str
-    predicate: RequiresPython
-
-    kind: ClassVar[LinkType] = LinkType.requires_python_mismatch
-
-    def detail(self) -> str:
-        descriptor = self.predicate.to_sorted_string()
-        return f"{self.version} Requires-Python {descriptor}"
-
-
-@dataclass(frozen=True)
-class LinkEvaluator(SerializableEntry):
-    """
-    Responsible for evaluating links for a particular project.
-    """
-
-    project_name: str
-    formats: AllowedFormats
-    target_python: TargetPython
-    allow_yanked: bool
-    ignore_requires_python: bool
-
-    __slots__ = [
-        "project_name",
-        "formats",
-        "target_python",
-        "allow_yanked",
-        "ignore_requires_python",
-    ]
-
-    @classmethod
-    def suffix(cls) -> str:
-        return ".evaluation"
-
-    def serialize(self) -> dict[str, Any]:
-        return {
-            # "project_name": self.project_name,
-            "canonical_name": self._canonical_name,
-            "formats": self.formats.value,
-            "target_python": tuple(map(str, self.target_python.sorted_tags)),
-            "allow_yanked": self.allow_yanked,
-            "ignore_requires_python": self.ignore_requires_python,
-        }
-
-    # Don't include an allow_yanked default value to make sure each call
-    # site considers whether yanked releases are allowed. This also causes
-    # that decision to be made explicit in the calling code, which helps
-    # people when reading the code.
-    @classmethod
-    def create(
-        cls,
-        project_name: str,
-        formats: AllowedFormats,
-        target_python: TargetPython,
-        allow_yanked: bool,
-        ignore_requires_python: bool | None = None,
-    ) -> Self:
-        """
-        :param project_name: The user supplied package name.
-        :param formats: The formats allowed for this package.
-        :param target_python: The target Python interpreter to use when
-            evaluating link compatibility. This is used, for example, to
-            check wheel compatibility, as well as when checking the Python
-            version, e.g. the Python version embedded in a link filename
-            (or egg fragment) and against an HTML link's optional PEP 503
-            "data-requires-python" attribute.
-        :param allow_yanked: Whether files marked as yanked (in the sense
-            of PEP 592) are permitted to be candidates for install.
-        :param ignore_requires_python: Whether to ignore incompatible
-            PEP 503 "data-requires-python" values in HTML links. Defaults
-            to False.
-        """
-        return cls(
-            project_name=project_name,
-            formats=formats,
-            target_python=target_python,
-            allow_yanked=allow_yanked,
-            ignore_requires_python=(
-                False if ignore_requires_python is None else ignore_requires_python
-            ),
-        )
-
-    _py_version_re: ClassVar[re.Pattern[str]] = re.compile(r"-py(?:.+)$")
-    _single_py_version: ClassVar[re.Pattern[str]] = re.compile(r"py([1-3](?:\.[0-9])?)")
-
-    @functools.cached_property
-    def _canonical_name(self) -> NormalizedName:
-        return canonicalize_name(self.project_name)
-
-    def _parse_wheel(
-        self, filename: str
-    ) -> tuple[str | None, EvaluationFailure | None]:
-        try:
-            wheel = WheelInfo.parse_filename(filename)
-        except InvalidWheelFilename:
-            return None, _InvalidWheelFilename()
-        if wheel.name != self._canonical_name:
-            return None, _WrongName(self.project_name)
-
-        # FIXME: optimize this!
-        if not wheel.supported(self.target_python):
-            return None, _UnsupportedTags(wheel)
-        return wheel.version, None
-
-    def _split_version_and_py(
-        self, version: str
-    ) -> tuple[str | None, EvaluationFailure | None]:
-        py_ver_match = self._py_version_re.search(version)
-        if not py_ver_match:
-            return version, None
-        version = version[: py_ver_match.start()]
-        py_tag_string = py_ver_match.group(0)[1:]
-
-        if single_version := self._single_py_version.match(py_tag_string):
-            if single_version.group(1) != self.target_python.py_version:
-                return None, _PyVerMismatch()
-            return version, None
-
-        try:
-            py_tag = parse_tag(py_tag_string)
-        except ValueError:
-            return None, _PyTagParseError(py_tag_string)
-        raise ValueError(f"unexpected tag string: {py_tag!r} from version {version!r}")
-
-    @functools.cached_property
-    def _fragment_matcher(self) -> FragmentMatcher:
-        return FragmentMatcher(self._canonical_name)
-
-    def _parse_version(self, link: Link) -> tuple[str | None, EvaluationFailure | None]:
-        version: str | None = None
-
-        if link.egg_fragment:
-            egg_info = link.egg_fragment
-            ext = link.ext
-        else:
-            egg_info, ext = link.splitext()
-            if not ext:
-                return None, _NotAFile()
-            if ext not in SUPPORTED_EXTENSIONS:
-                return None, _UnsupportedArchive(ext)
-            if (
-                not self.formats.allows_binary()
-                and ext == FileExtensions.WHEEL_EXTENSION
-            ):
-                return None, _NoBinariesAllowed(self.project_name)
-            if "macosx10" in link.path and ext == ".zip":
-                return None, _MacOSX10()
-            if ext == FileExtensions.WHEEL_EXTENSION:
-                version, result = self._parse_wheel(link.filename)
-                if result is not None:
-                    return None, result
-
-        # This should be up by the self.ok_binary check, but see issue 2700.
-        if not self.formats.allows_source() and ext != FileExtensions.WHEEL_EXTENSION:
-            return None, _NoSourcesAllowed(self.project_name)
-
-        if version is None:
-            version = self._fragment_matcher.extract_version_from_fragment(
-                egg_info,
-            )
-        if version is None:
-            return None, _MissingVersion(self.project_name)
-
-        version, result = self._split_version_and_py(version)
-        if result is not None:
-            return None, result
-        assert version is not None
-        # FIXME: optimize the version canonicalization--do it only once!
-        return version, None
-
-    @functools.cached_property
-    def _evaluations(self) -> dict[Link, EvaluationResult]:
-        return {}
-
-    def evaluate_link(self, link: Link) -> EvaluationResult:
-        if (result := self._evaluations.get(link)) is not None:
-            return result
-        new_result = self._do_evaluate_link(link)
-        self._evaluations[link] = new_result
-        return new_result
-
-    @staticmethod
-    def _requires_python_is_compatible(
-        target_python: TargetPython, ignore_requires_python: bool, link: Link
-    ) -> tuple[bool, RequiresPython | None]:
-        if link.requires_python is None:
-            return True, None
-        try:
-            predicate = RequiresPython.parse(link.requires_python)
-        except InvalidSpecifier:
-            logger.debug(
-                "Ignoring invalid Requires-Python (%r) for link: %s",
-                link.requires_python,
-                link,
-            )
-            return True, None
-        if predicate.is_compatible(target_python):
-            return True, None
-
-        if ignore_requires_python:
-            logger.debug(
-                "Ignoring failed Requires-Python check (%s not in: %r) for link: %s",
-                target_python.full_py_version,
-                link.requires_python,
-                link,
-            )
-            return True, None
-
-        logger.verbose(
-            "Link requires a different Python (%s not in: %r): %s",
-            target_python.full_py_version,
-            link.requires_python,
-            link,
-        )
-        return False, predicate
-
-    def _do_evaluate_link(self, link: Link) -> EvaluationResult:
-        """
-        Determine whether a link is a candidate for installation.
-
-        :return: A tuple (result, detail), where *result* is an enum
-            representing whether the evaluation found a candidate, or the reason
-            why one is not found. If a candidate is found, *detail* will be the
-            candidate's version string; if one is not found, it contains the
-            reason the link fails to qualify.
-        """
-        version: str | None = None
-        if link.is_yanked and not self.allow_yanked:
-            return _YankedReason(link.yanked_reason or None)
-
-        version, result = self._parse_version(link)
-        if result is not None:
-            return result
-        assert version is not None
-
-        is_compatible, predicate = LinkEvaluator._requires_python_is_compatible(
-            self.target_python, self.ignore_requires_python, link
-        )
-        if not is_compatible:
-            assert predicate is not None
-            return _IncompatibleRequiresPython(version, predicate)
-
-        logger.debug("Found link %s, version: %s", link, version)
-
-        return _FoundCandidate(version)
-
-
 @dataclass(frozen=True, slots=True)
-class _CandidateHashFilter:
-    project_name: str
-    hashes: Hashes | None
+class ComputeLinkEvaluation(
+    FetchComputeProcess["Iterable[Link]", tuple[InstallationCandidate, ...]]
+):
+    link_evaluator: LinkEvaluator
+    _requires_python_skipped_reasons: list[EvaluationFailure] = field(
+        default_factory=list
+    )
 
-    @dataclass(frozen=True)
-    class HashMatches:
-        match_count: int
-        matches_or_no_digest: tuple[InstallationCandidate, ...]
-        non_matches: tuple[InstallationCandidate, ...]
-        candidates: tuple[InstallationCandidate, ...]
+    def _log_skipped_link(self, link: Link, result: EvaluationFailure) -> None:
+        # Put the link at the end so the reason is more visible and because
+        # the link string is usually very long.
+        logger.debug("Skipping link: %s: %s", result, link)
+        if result.kind == LinkType.requires_python_mismatch:
+            self._requires_python_skipped_reasons.append(result)
 
-        __slots__ = [
-            "match_count",
-            "matches_or_no_digest",
-            "non_matches",
-            "candidates",
-            "__dict__",
-        ]
+    def requires_python_skipped_reasons(self) -> EvalFailureSet:
+        return EvalFailureSet(tuple(self._requires_python_skipped_reasons))
 
-        @functools.cached_property
-        def filtered(self) -> tuple[InstallationCandidate, ...]:
-            if self.match_count:
-                return self.matches_or_no_digest
-            return self.candidates
+    def get_install_candidate(self, link: Link) -> InstallationCandidate | None:
+        """
+        If the link is a candidate for install, convert it to an
+        InstallationCandidate and return it. Otherwise, return None.
+        """
+        result = self.link_evaluator.evaluate_link(link)
+        if result.kind != LinkType.candidate:
+            assert isinstance(result, EvaluationFailure), result
+            self._log_skipped_link(link, result)
+            return None
+        assert isinstance(result, FoundCandidate), result
+        version = result.version
 
-        @dataclass(frozen=True)
-        class NonMatches:
-            non_matches: tuple[InstallationCandidate, ...]
-
-            def __str__(self) -> str:
-                n = len(self.non_matches)
-                if not n:
-                    return "discarding no candidates"
-                joined = "\n  ".join(str(c.link) for c in self.non_matches)
-                return f"discarding {n} non-matches:\n  {joined}"
-
-        def discarded_candidates(self) -> NonMatches:
-            if len(self.filtered) == len(self.candidates):
-                return self.__class__.NonMatches(())
-            return self.__class__.NonMatches(self.non_matches)
-
-        @classmethod
-        def calculate(
-            cls, hashes: Hashes, candidates: tuple[InstallationCandidate, ...]
-        ) -> Self:
-            matches_or_no_digest = []
-            # Collect the non-matches for logging purposes.
-            non_matches = []
-            match_count = 0
-            for candidate in candidates:
-                link = candidate.link
-                if not link.has_hash:
-                    pass
-                elif link.is_hash_allowed(hashes=hashes):
-                    match_count += 1
-                else:
-                    non_matches.append(candidate)
-                    continue
-                matches_or_no_digest.append(candidate)
-            return cls(
-                match_count=match_count,
-                matches_or_no_digest=tuple(matches_or_no_digest),
-                non_matches=tuple(non_matches),
-                candidates=candidates,
+        try:
+            return InstallationCandidate(
+                name=self.link_evaluator.project_name,
+                version=ParsedVersion.parse(version),
+                link=link,
             )
+        except InvalidVersion:
+            return None
 
-    def filter_unallowed_hashes(
-        self,
-        candidates: Iterable[InstallationCandidate],
+    def _evaluate_links(self, links: Iterable[Link]) -> Iterator[InstallationCandidate]:
+        """
+        Convert links that are candidates to InstallationCandidate objects.
+        """
+        seen: set[Link] = set()
+        for link in links:
+            if link in seen:
+                continue
+            seen.add(link)
+            if (candidate := self.get_install_candidate(link)) is not None:
+                yield candidate
+
+    def compute(self, links: Iterable[Link]) -> tuple[InstallationCandidate, ...]:
+        return tuple(self._evaluate_links(links))
+
+
+class CandidateMerger(ComputeMerger[tuple[InstallationCandidate, ...]]):
+    def merge(
+        self, results: Iterable[tuple[InstallationCandidate, ...]]
     ) -> tuple[InstallationCandidate, ...]:
-        """
-        Filter out candidates whose hashes aren't allowed, and return a new
-        list of candidates.
-
-        If at least one candidate has an allowed hash, then all candidates with
-        either an allowed hash or no hash specified are returned.  Otherwise,
-        the given candidates are returned.
-
-        Including the candidates with no hash specified when there is a match
-        allows a warning to be logged if there is a more preferred candidate
-        with no hash specified.  Returning all candidates in the case of no
-        matches lets pip report the hash of the candidate that would otherwise
-        have been installed (e.g. permitting the user to more easily update
-        their requirements file with the desired hash).
-        """
-        # Make sure we're not returning back the given value.
-        candidates = tuple(candidates)
-        if not self.hashes:
-            logger.debug(
-                "Given no hashes to check %s links for project %r: "
-                "discarding no candidates",
-                len(candidates),
-                self.project_name,
-            )
-            return candidates
-        assert self.hashes is not None
-
-        hash_matches = self.__class__.HashMatches.calculate(self.hashes, candidates)
-
-        logger.debug(
-            "Checked %s links for project %r against %s hashes "
-            "(%s matches, %s no digest): %s",
-            len(hash_matches.candidates),
-            self.project_name,
-            self.hashes.digest_count,
-            hash_matches.match_count,
-            len(hash_matches.matches_or_no_digest) - hash_matches.match_count,
-            hash_matches.discarded_candidates(),
-        )
-
-        return hash_matches.filtered
+        return tuple(cand for res in results for cand in res)
 
 
 @dataclass
@@ -677,8 +208,8 @@ class CandidateEvaluator:
         )
 
     @functools.cached_property
-    def _candidate_hash_filter(self) -> _CandidateHashFilter:
-        return _CandidateHashFilter(self._project_name, self._hashes)
+    def _candidate_hash_filter(self) -> CandidateHashFilter:
+        return CandidateHashFilter(self._project_name, self._hashes)
 
     def get_applicable_candidates(
         self,
@@ -802,17 +333,6 @@ class CandidateEvaluator:
         )
 
 
-_FindCandidates = Callable[["PackageFinder", str], list[InstallationCandidate]]
-
-
-def _canonicalize_arg(func: _FindCandidates) -> _FindCandidates:
-    @functools.wraps(func)
-    def wrapper(self: PackageFinder, project_name: str) -> list[InstallationCandidate]:
-        return func(self, canonicalize_name(project_name))
-
-    return wrapper
-
-
 class PackageFinder:
     """This finds packages.
 
@@ -855,7 +375,6 @@ class PackageFinder:
 
         # These are boring links that have already been logged somehow.
         self._logged_links: set[Link] = set()
-        self._requires_python_skipped_reasons: list[EvaluationFailure] = []
 
         self._fetch_resolve_cache = fetch_resolve_cache
 
@@ -907,15 +426,17 @@ class PackageFinder:
 
     @search_scope.setter
     def search_scope(self, search_scope: SearchScope) -> None:
-        self._link_collector.search_scope = search_scope
+        self._link_collector = dataclasses.replace(
+            self._link_collector, search_scope=search_scope
+        )
 
     @property
-    def find_links(self) -> list[str]:
-        return self._link_collector.find_links
+    def find_links(self) -> tuple[str, ...]:
+        return tuple(str(u.url) for u in self._link_collector.search_scope.find_links)
 
     @property
-    def index_urls(self) -> list[str]:
-        return self.search_scope.index_urls
+    def index_urls(self) -> tuple[str, ...]:
+        return tuple(str(u.url) for u in self.search_scope.index_urls)
 
     @property
     def proxy(self) -> str | None:
@@ -954,9 +475,6 @@ class PackageFinder:
     def set_prefer_binary(self) -> None:
         self._candidate_prefs.prefer_binary = True
 
-    def requires_python_skipped_reasons(self) -> EvalFailureSet:
-        return EvalFailureSet(tuple(self._requires_python_skipped_reasons))
-
     def make_link_evaluator(self, project_name: str) -> LinkEvaluator:
         return LinkEvaluator.create(
             project_name=project_name,
@@ -966,454 +484,25 @@ class PackageFinder:
             ignore_requires_python=self._ignore_requires_python,
         )
 
-    def _sort_links(self, links: Iterable[Link]) -> tuple[Link, ...]:
-        """
-        Returns elements of links in order, non-egg links first, egg links
-        second, while eliminating duplicates
-        """
-        eggs, no_eggs = [], []
-        seen: set[Link] = set()
-        for link in links:
-            if link not in seen:
-                seen.add(link)
-                if link.egg_fragment:
-                    eggs.append(link)
-                else:
-                    no_eggs.append(link)
-        return tuple(no_eggs) + tuple(eggs)
-
-    def _log_skipped_link(self, link: Link, result: EvaluationFailure) -> None:
-        if link not in self._logged_links:
-            # Put the link at the end so the reason is more visible and because
-            # the link string is usually very long.
-            logger.debug("Skipping link: %s: %s", result, link)
-            self._logged_links.add(link)
-        if result.kind == LinkType.requires_python_mismatch:
-            self._requires_python_skipped_reasons.append(result)
-
-    def get_install_candidate(
-        self, link_evaluator: LinkEvaluator, link: Link
-    ) -> InstallationCandidate | None:
-        """
-        If the link is a candidate for install, convert it to an
-        InstallationCandidate and return it. Otherwise, return None.
-        """
-        result = link_evaluator.evaluate_link(link)
-        if result.kind != LinkType.candidate:
-            assert isinstance(result, EvaluationFailure), result
-            self._log_skipped_link(link, result)
-            return None
-        assert isinstance(result, _FoundCandidate), result
-        version = result.version
-
-        try:
-            return InstallationCandidate(
-                name=link_evaluator.project_name,
-                version=ParsedVersion.parse(version),
-                link=link,
-            )
-        except InvalidVersion:
-            return None
-
-    def _evaluate_links(
-        self, link_evaluator: LinkEvaluator, links: Iterable[Link]
-    ) -> list[InstallationCandidate]:
-        """
-        Convert links that are candidates to InstallationCandidate objects.
-        """
-        candidates = []
-        for link in self._sort_links(links):
-            candidate = self.get_install_candidate(link_evaluator, link)
-            if candidate is not None:
-                candidates.append(candidate)
-
-        return candidates
-
-    _HTTP_DATE_FORMAT = "%a, %d %b %Y %H:%M:%S %Z"
-
-    @classmethod
-    def _try_load_http_cache_headers(
-        cls,
-        etag_path: Path,
-        date_path: Path,
-        checksum_path: Path,
-        project_url: Link,
-        headers: MutableMapping[str, str],
-    ) -> tuple[str | None, datetime.datetime | None, bytes | None]:
-        """Reads ETag and Date values from cache paths to update request headers.
-
-        If either or neither path is a readable file, the headers are unchanged. They
-        will be populated with the ETag and Date headers from the server response, if
-        the server provides these headers in its response.
-        """
-        etag: str | None = None
-        try:
-            etag = etag_path.read_text()
-            etag = f'"{etag}"'
-            logger.debug(
-                "found cached etag for url %s at %s: %s",
-                project_url,
-                etag_path,
-                etag,
-            )
-            headers["If-None-Match"] = etag
-        except OSError as e:
-            logger.debug("no etag found for url %s (%s)", project_url, str(e))
-
-        date: datetime.datetime | None = None
-        try:
-            date_bytes = date_path.read_bytes()
-            date_int = int.from_bytes(date_bytes, byteorder="big", signed=False)
-            date = datetime.datetime.fromtimestamp(date_int, tz=datetime.timezone.utc)
-            logger.debug(
-                "found cached date for url %s at %s: '%s'",
-                project_url,
-                date_path,
-                date,
-            )
-            headers["If-Modified-Since"] = date.strftime(cls._HTTP_DATE_FORMAT)
-        except OSError as e:
-            logger.debug("no date found for url %s (%s)", project_url, str(e))
-
-        checksum: bytes | None = None
-        try:
-            checksum = checksum_path.read_bytes()
-            logger.debug(
-                "found checksum for url %s at %s: '%s'",
-                project_url,
-                checksum_path,
-                binascii.b2a_base64(checksum, newline=False).decode("ascii"),
-            )
-        except OSError as e:
-            logger.debug("no checksum found for url %s (%s)", project_url, str(e))
-
-        return (etag, date, checksum)
-
-    _quoted_value = re.compile(r'^"([^"]*)"$')
-
-    @classmethod
-    def _strip_quoted_value(cls, value: str) -> str:
-        return cls._quoted_value.sub(r"\1", value)
-
-    _now_local = datetime.datetime.now().astimezone()
-    _local_tz = _now_local.tzinfo
-    assert _local_tz is not None
-    _local_tz_name = _local_tz.tzname(_now_local)
-
-    @classmethod
-    def _write_http_cache_info(
-        cls,
-        etag_path: Path,
-        new_etag: str | None,
-        date_path: Path,
-        date_str: str | None,
-        project_url: Link,
-        prev_etag: str | None,
-        page_unmodified: bool,
-    ) -> None:
-        if new_etag is None:
-            logger.debug("no etag returned from fetch for url %s", project_url.url)
-            try:
-                etag_path.unlink()
-            except OSError:
-                pass
-        else:
-            new_etag = cls._strip_quoted_value(new_etag)
-            if new_etag != prev_etag:
-                logger.debug(
-                    "etag for url %s updated from %s -> %s",
-                    project_url.url,
-                    prev_etag,
-                    new_etag,
-                )
-                etag_path.write_text(new_etag)
-            else:
-                logger.debug(
-                    "etag was unmodified for url %s (%s)", project_url.url, prev_etag
-                )
-                assert page_unmodified
-
-        new_date: datetime.datetime | None = None
-        if date_str is None:
-            logger.debug(
-                "no date header was provided in response for url %s", project_url
-            )
-        else:
-            date_str = date_str.strip()
-            new_time = time.strptime(date_str, cls._HTTP_DATE_FORMAT)
-            new_date = datetime.datetime.strptime(date_str, cls._HTTP_DATE_FORMAT)
-            # strptime() doesn't set the timezone according to the parsed %Z arg, which
-            # may be any of "UTC", "GMT", or any element of `time.tzname`.
-            if new_time.tm_zone in ["UTC", "GMT"]:
-                logger.debug(
-                    "a UTC timezone was found in response for url %s", project_url
-                )
-                new_date = new_date.replace(tzinfo=datetime.timezone.utc)
-            else:
-                assert new_time.tm_zone in time.tzname, new_time
-                logger.debug(
-                    "a local timezone %s was found in response for url %s",
-                    new_time.tm_zone,
-                    project_url,
-                )
-                if new_time.tm_zone == cls._local_tz_name:
-                    new_date = new_date.replace(tzinfo=cls._local_tz)
-                else:
-                    logger.debug(
-                        "a local timezone %s had to be discarded in response %s",
-                        new_time.tm_zone,
-                        project_url,
-                    )
-                    new_date = None
-
-            if new_date is not None:
-                timestamp = new_date.timestamp()
-                # The timestamp will only have second resolution according to the parse
-                # format string _HTTP_DATE_FORMAT.
-                assert not (timestamp % 1), (new_date, timestamp)
-                epoch = int(timestamp)
-                assert epoch >= 0, (new_date, timestamp, epoch)
-                date_bytes = epoch.to_bytes(length=4, byteorder="big", signed=False)
-                date_path.write_bytes(date_bytes)
-
-                logger.debug('date "%s" written for url %s', new_date, project_url)
-        if new_date is None:
-            try:
-                date_path.unlink()
-            except OSError:
-                pass
-
-    @staticmethod
-    def _try_load_parsed_links_cache(parsed_links_path: Path) -> list[Link] | None:
-        try:
-            page_links: list[Link] = []
-            with bz2.open(parsed_links_path, mode="rt", encoding="utf-8") as f:
-                logger.debug("reading page links from cache %s", parsed_links_path)
-                cached_links = json.load(f)
-                for cache_info in cached_links:
-                    link = Link.from_cache_args(
-                        PersistentLinkCacheArgs.from_json(cache_info)
-                    )
-                    assert link is not None
-                    page_links.append(link)
-            return page_links
-        except (OSError, json.decoder.JSONDecodeError, KeyError) as e:
-            logger.debug(
-                "could not read page links from cache file %s %s(%s)",
-                parsed_links_path,
-                e.__class__.__name__,
-                str(e),
-            )
-        return None
-
-    @staticmethod
-    def _write_parsed_links_cache(
-        parsed_links_path: Path, links: Iterable[Link]
-    ) -> list[Link]:
-        cacheable_links: list[dict[str, Any]] = []
-        page_links: list[Link] = []
-        for link in links:
-            cache_info = link.cache_args()
-            assert cache_info is not None
-            cacheable_links.append(cache_info.to_json())
-            page_links.append(link)
-
-        logger.debug("writing page links to %s", parsed_links_path)
-        with bz2.open(parsed_links_path, mode="wt", encoding="utf-8") as f:
-            json.dump(cacheable_links, f)
-
-        return page_links
-
-    @staticmethod
-    def _try_load_installation_candidate_cache(
-        cached_candidates_path: Path,
-    ) -> list[InstallationCandidate] | None:
-        try:
-            with bz2.open(cached_candidates_path, mode="rt", encoding="utf-8") as f:
-                serialized_candidates = json.load(f)
-            logger.debug("read serialized candidates from %s", cached_candidates_path)
-            package_links: list[InstallationCandidate] = []
-            for cand in serialized_candidates:
-                link_cache_args = PersistentLinkCacheArgs.from_json(cand["link"])
-                link = Link.from_cache_args(link_cache_args)
-                package_links.append(
-                    InstallationCandidate(
-                        cand["name"],
-                        ParsedVersion.parse(cand["version"]),
-                        link,
-                    )
-                )
-            return package_links
-        except (OSError, json.decoder.JSONDecodeError, KeyError) as e:
-            logger.debug(
-                "could not read cached candidates at %s %s(%s)",
-                cached_candidates_path,
-                e.__class__.__name__,
-                str(e),
-            )
-        return None
-
-    @staticmethod
-    def _write_installation_candidate_cache(
-        cached_candidates_path: Path,
-        candidates: Iterable[InstallationCandidate],
-    ) -> list[InstallationCandidate]:
-        candidates = list(candidates)
-        serialized_candidates = [
-            {
-                "name": candidate.name,
-                "version": str(candidate.version),
-                "link": candidate.link.cache_args().to_json(),
-            }
-            for candidate in candidates
-        ]
-        with bz2.open(cached_candidates_path, mode="wt", encoding="utf-8") as f:
-            logger.debug("writing serialized candidates to %s", cached_candidates_path)
-            json.dump(serialized_candidates, f)
-        return candidates
-
-    def _process_project_url_uncached(
-        self, project_url: Link, link_evaluator: LinkEvaluator
-    ) -> list[InstallationCandidate]:
-        logger.debug(
-            "Fetching project page and analyzing links: %s",
-            project_url,
-        )
-
-        index_response = self._link_collector.fetch_response(project_url)
-        if index_response is None:
-            return []
-        assert isinstance(index_response, IndexContent), index_response
-
-        with indent_log():
-            package_links = self._evaluate_links(
-                link_evaluator, links=index_response.parse_links()
-            )
-        return package_links
-
-    def process_project_url(
-        self, project_url: Link, link_evaluator: LinkEvaluator
-    ) -> list[InstallationCandidate]:
-        if self._fetch_resolve_cache is None:
-            return self._process_project_url_uncached(project_url, link_evaluator)
-
-        cached_path = self._fetch_resolve_cache.cache_path(project_url)
-        os.makedirs(str(cached_path), exist_ok=True)
-
-        etag_path = cached_path / "etag"
-        date_path = cached_path / "modified-since-date"
-        checksum_path = cached_path / "checksum"
-        parsed_links_path = cached_path / "parsed-links"
-        cached_candidates_path = self._fetch_resolve_cache.hashed_entry_path(
-            project_url, link_evaluator
-        )
-
-        headers: dict[str, str] = {}
-        # NB: mutates headers!
-        prev_etag, _prev_date, prev_checksum = (
-            self.__class__._try_load_http_cache_headers(
-                etag_path, date_path, checksum_path, project_url, headers
-            )
-        )
-
-        logger.debug(
-            "Fetching project page and analyzing links: %s",
-            project_url,
-        )
-
-        index_response = self._link_collector.fetch_response(
-            project_url,
-            headers=headers,
-        )
-        if index_response is None:
-            return []
-
-        if (new_checksum := index_response.calculate_checksum()) is not None:
-            checksum_path.write_bytes(new_checksum)
-            page_unmodified = new_checksum == prev_checksum
-        else:
-            # The only way we wouldn't be able to calculate a checksum is if we received
-            # a 304 (server cached) response.
-            page_unmodified = True
-            # If that's the case, then we must have received a checksum.
-            assert prev_checksum is not None
-
-        page_links: list[Link] | None = None
-        # Only try our persistent link parsing and evaluation caches if we know the page
-        # was unmodified via checksum.
-        if page_unmodified:
-            cached_candidates = self.__class__._try_load_installation_candidate_cache(
-                cached_candidates_path
-            )
-            if cached_candidates is not None:
-                return cached_candidates
-
-            page_links = self.__class__._try_load_parsed_links_cache(parsed_links_path)
-        else:
-            try:
-                parsed_links_path.unlink()
-            except OSError:
-                pass
-            self._fetch_resolve_cache.clear_hashed_entries(project_url, LinkEvaluator)
-
-        if page_links is None:
-            logger.debug(
-                "extracting new parsed links from index response %s", index_response
-            )
-            # This is necessary for mypy to allow us to call .parse_links(), but the
-            # correctness is more subtle. This will be true when the response is not
-            # a 304 Not Modified, but rather a 200 OK. When does a 304 occur? When we
-            # have cached ETag and Date parameters which are provided as headers to the
-            # index request. Because we call ._write_http_cache_info() strictly *after*
-            # we call ._write_parsed_links_cache(), we ensure that even in the presence
-            # of parallel pip executions, we never have a cached ETag/Date without also
-            # caching the result of link parsing.
-            assert not page_unmodified and isinstance(index_response, IndexContent), (
-                page_unmodified,
-                index_response,
-            )
-            page_links = self.__class__._write_parsed_links_cache(
-                parsed_links_path, index_response.parse_links()
-            )
-        assert page_links is not None
-
-        with indent_log():
-            package_links = self.__class__._write_installation_candidate_cache(
-                cached_candidates_path,
-                self._evaluate_links(
-                    link_evaluator,
-                    links=page_links,
-                ),
-            )
-
-        # NB: We have to write these cache entries in reverse order of calculating the
-        #     actual results to avoid an unfortunate race condition where we don't have
-        #     any copy of the previous page when we get a 304!
-        self.__class__._write_http_cache_info(
-            etag_path=etag_path,
-            new_etag=index_response.etag,
-            date_path=date_path,
-            date_str=index_response.date,
-            project_url=project_url,
-            prev_etag=prev_etag,
-            page_unmodified=page_unmodified,
-        )
-
-        return package_links
-
     @functools.cached_property
-    def _all_candidates(self) -> dict[str, list[InstallationCandidate]]:
+    def _all_candidates(
+        self,
+    ) -> dict[NormalizedName, tuple[tuple[InstallationCandidate, ...], EvalFailureSet]]:
         return {}
 
-    @_canonicalize_arg
-    def find_all_candidates(self, project_name: str) -> list[InstallationCandidate]:
+    def find_all_candidates(
+        self, name: str
+    ) -> tuple[tuple[InstallationCandidate, ...], EvalFailureSet]:
+        project_name = canonicalize_name(name)
         if (result := self._all_candidates.get(project_name)) is not None:
             return result
         new_result = self._do_find_all_candidates(project_name)
         self._all_candidates[project_name] = new_result
         return new_result
 
-    def _do_find_all_candidates(self, project_name: str) -> list[InstallationCandidate]:
+    def _do_find_all_candidates(
+        self, project_name: NormalizedName
+    ) -> tuple[tuple[InstallationCandidate, ...], EvalFailureSet]:
         """Find all available InstallationCandidate for project_name
 
         This checks index_urls and find_links.
@@ -1423,47 +512,19 @@ class PackageFinder:
         are accepted.
         """
         link_evaluator = self.make_link_evaluator(project_name)
+        process = JsonCodec(codec=CandidateJsonCodec(), stream=Bz2TextStream())
+        compute = ComputeLinkEvaluation(link_evaluator=link_evaluator)
+        merger = CandidateMerger()
 
-        collected_sources = self._link_collector.collect_sources(
-            project_name=project_name,
-            candidates_from_page=functools.partial(
-                self.process_project_url,
-                link_evaluator=link_evaluator,
-            ),
-        )
-
-        page_candidates_it = itertools.chain.from_iterable(
-            source.page_candidates()
-            for sources in collected_sources
-            for source in sources
-            if source is not None
-        )
-        page_candidates = list(page_candidates_it)
-
-        file_links_it = itertools.chain.from_iterable(
-            source.file_links()
-            for sources in collected_sources
-            for source in sources
-            if source is not None
-        )
-        file_candidates = self._evaluate_links(
+        results = self._link_collector.collect_and_process(
+            project_name,
             link_evaluator,
-            sorted(file_links_it, reverse=True),
+            process,
+            compute,
+            merger,
         )
-
-        if logger.isEnabledFor(logging.DEBUG) and file_candidates:
-            paths = []
-            for candidate in file_candidates:
-                assert candidate.link.url  # we need to have a URL
-                try:
-                    paths.append(candidate.link.file_path)
-                except Exception:
-                    paths.append(candidate.link.url)  # it's not a local file
-
-            logger.debug("Local files found: %s", ", ".join(paths))
-
-        # This is an intentional priority ordering
-        return file_candidates + page_candidates
+        reasons = compute.requires_python_skipped_reasons()
+        return results, reasons
 
     def make_candidate_evaluator(
         self,
@@ -1518,7 +579,7 @@ class PackageFinder:
 
         :return: A `BestCandidateResult` instance.
         """
-        candidates = self.find_all_candidates(project_name)
+        candidates, _ = self.find_all_candidates(project_name)
         candidate_evaluator = self.make_candidate_evaluator(
             project_name=project_name,
             specifier=specifier,

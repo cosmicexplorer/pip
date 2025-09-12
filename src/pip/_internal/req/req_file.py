@@ -243,8 +243,8 @@ def handle_option_line(
 
     # set finder options
     if finder:
-        find_links = finder.find_links
-        index_urls = finder.index_urls
+        find_links = list(finder.find_links)
+        index_urls = list(finder.index_urls)
         no_index = finder.search_scope.no_index
         if opts.no_index is True:
             no_index = True
@@ -268,7 +268,7 @@ def handle_option_line(
             # We need to update the auth urls in session
             session.update_index_urls(index_urls)
 
-        search_scope = SearchScope(
+        search_scope = SearchScope.create(
             find_links=find_links,
             index_urls=index_urls,
             no_index=no_index,

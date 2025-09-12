@@ -120,7 +120,7 @@ class WheelCommand(RequirementCommand):
         reqs = self.get_requirements(args, options, finder, session)
         check_legacy_setup_py_options(options, reqs)
 
-        wheel_cache = WheelCache(options.cache_dir)
+        wheel_cache = WheelCache.create(options.cache_dir)
 
         preparer = self.make_requirement_preparer(
             temp_build_dir=directory,

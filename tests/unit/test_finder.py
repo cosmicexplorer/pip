@@ -7,17 +7,14 @@ from pip._vendor.packaging.tags import Tag
 
 import pip._internal.utils.compatibility_tags
 from pip._internal.exceptions import BestVersionAlreadyInstalled, DistributionNotFound
-from pip._internal.index.package_finder import (
-    CandidateEvaluator,
-    InstallationCandidate,
-    Link,
-    LinkEvaluator,
-    LinkType,
-    _FoundCandidate,
-)
+from pip._internal.index.link_evaluator import FoundCandidate, LinkEvaluator, LinkType
+from pip._internal.index.package_finder import CandidateEvaluator, ComputeLinkEvaluation
+from pip._internal.models.candidate import CandidateJsonCodec, InstallationCandidate
 from pip._internal.models.format_control import AllowedFormats
+from pip._internal.models.link import Link
 from pip._internal.models.target_python import TargetPython
 from pip._internal.req.constructors import install_req_from_line
+from pip._internal.utils.cache_serde import Bz2TextStream, JsonCodec
 from pip._internal.utils.packaging.specifiers import SpecifierSet
 from pip._internal.utils.packaging.version import ParsedVersion
 
@@ -326,7 +323,7 @@ def test_finder_priority_file_over_page(data: TestData) -> None:
         index_urls=["http://pypi.org/simple/"],
     )
     assert req.name == "gmpy"
-    all_versions = finder.find_all_candidates(req.name)
+    all_versions, _ = finder.find_all_candidates(req.name)
     # 1 file InstallationCandidate followed by all https ones
     assert all_versions[0].link.scheme == "file"
     assert all(
@@ -345,7 +342,7 @@ def test_finder_priority_nonegg_over_eggfragments() -> None:
     assert req.name == "bar"
 
     finder = make_test_finder(links)
-    all_versions = finder.find_all_candidates(req.name)
+    all_versions, _ = finder.find_all_candidates(req.name)
     assert all_versions[0].link.url.endswith("tar.gz")
     assert all_versions[1].link.url.endswith("#egg=bar-1.0")
 
@@ -357,7 +354,7 @@ def test_finder_priority_nonegg_over_eggfragments() -> None:
     links.reverse()
 
     finder = make_test_finder(links)
-    all_versions = finder.find_all_candidates(req.name)
+    all_versions, _ = finder.find_all_candidates(req.name)
     assert all_versions[0].link.url.endswith("tar.gz")
     assert all_versions[1].link.url.endswith("#egg=bar-1.0")
     found = finder.find_requirement(req, False)
@@ -408,7 +405,7 @@ def test_finder_only_installs_data_require(data: TestData) -> None:
 
     # using a local index (that has pre & dev releases)
     finder = make_test_finder(index_urls=[data.index_url("datarequire")])
-    links = finder.find_all_candidates("fakepackage")
+    links, _ = finder.find_all_candidates("fakepackage")
     assert {str(v.version) for v in links} == {"1.0.0", "3.3.0", "9.9.9"}
 
 
@@ -503,7 +500,7 @@ class TestLinkEvaluator:
         link = Link(url)
         evaluator = self.make_test_link_evaluator(formats=AllowedFormats.AnyFormat)
         actual = evaluator.evaluate_link(link)
-        assert actual == _FoundCandidate(expected_version)
+        assert actual == FoundCandidate(expected_version)
 
     @pytest.mark.parametrize(
         "url, link_type, fail_reason",
@@ -542,9 +539,15 @@ def test_process_project_url(data: TestData) -> None:
     project_url = Link(f"{index_url}/{project_name}")
     finder = make_test_finder(index_urls=[index_url])
     link_evaluator = finder.make_link_evaluator(project_name)
-    actual = finder.process_project_url(
-        project_url,
-        link_evaluator=link_evaluator,
+
+    process = JsonCodec(codec=CandidateJsonCodec(), stream=Bz2TextStream())
+    compute = ComputeLinkEvaluation(link_evaluator=link_evaluator)
+
+    actual = finder._link_collector.fetch_and_process(
+        project_url.parsed_url,
+        link_evaluator,
+        process,
+        compute,
     )
 
     assert len(actual) == 1
@@ -556,29 +559,29 @@ def test_process_project_url(data: TestData) -> None:
 def test_find_all_candidates_nothing() -> None:
     """Find nothing without anything"""
     finder = make_test_finder()
-    assert not finder.find_all_candidates("pip")
+    assert not finder.find_all_candidates("pip")[0]
 
 
 def test_find_all_candidates_cached(data: TestData) -> None:
     """Ensure the exact same list of candidates is returned when called twice for the
     same project name."""
     finder = make_test_finder(find_links=[data.find_links])
-    versions = finder.find_all_candidates("simple")
+    versions, _ = finder.find_all_candidates("simple")
     # Check that the exact same list is reused for a second call.
-    assert versions is finder.find_all_candidates("simple")
+    assert versions is finder.find_all_candidates("simple")[0]
     # Check that the project name is canonicalized before caching.
-    assert versions is finder.find_all_candidates("Simple")
+    assert versions is finder.find_all_candidates("Simple")[0]
 
 
 def test_find_all_candidates_find_links(data: TestData) -> None:
     finder = make_test_finder(find_links=[data.find_links])
-    versions = finder.find_all_candidates("simple")
+    versions, _ = finder.find_all_candidates("simple")
     assert [str(v.version) for v in versions] == ["3.0", "2.0", "1.0"]
 
 
 def test_find_all_candidates_index(data: TestData) -> None:
     finder = make_test_finder(index_urls=[data.index_url("simple")])
-    versions = finder.find_all_candidates("simple")
+    versions, _ = finder.find_all_candidates("simple")
     assert [str(v.version) for v in versions] == ["1.0"]
 
 
@@ -587,6 +590,6 @@ def test_find_all_candidates_find_links_and_index(data: TestData) -> None:
         find_links=[data.find_links],
         index_urls=[data.index_url("simple")],
     )
-    versions = finder.find_all_candidates("simple")
+    versions, _ = finder.find_all_candidates("simple")
     # first the find-links versions then the page versions
     assert [str(v.version) for v in versions] == ["3.0", "2.0", "1.0", "1.0"]

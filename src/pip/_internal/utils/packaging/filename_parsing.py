@@ -17,7 +17,7 @@ from pip._vendor.packaging.version import InvalidVersion
 from .version import ParsedVersion
 
 
-class _WheelFilenameParser:
+class _DistFilenameParser:
     # PEP 427: The build number must start with a digit.
     _build_tag_regex: ClassVar[re.Pattern[str]] = re.compile(r"(\d+)(.*)")
 
@@ -26,9 +26,9 @@ class _WheelFilenameParser:
     def _parse_tag(tag: str) -> frozenset[Tag]:
         return parse_tag(tag)
 
-    @classmethod
+    @staticmethod
+    @functools.cache
     def parse_wheel_filename(
-        cls,
         filename: str,
     ) -> tuple[NormalizedName, ParsedVersion, BuildTag, frozenset[Tag]]:
         if not filename.endswith(".whl"):
@@ -59,7 +59,7 @@ class _WheelFilenameParser:
 
         if dashes == 5:
             build_part = parts[2]
-            build_match = cls._build_tag_regex.match(build_part)
+            build_match = _DistFilenameParser._build_tag_regex.match(build_part)
             if build_match is None:
                 raise InvalidWheelFilename(
                     f"Invalid build number: {build_part} in {filename!r}"
@@ -67,40 +67,45 @@ class _WheelFilenameParser:
             build = cast(BuildTag, (int(build_match.group(1)), build_match.group(2)))
         else:
             build = ()
-        tags = cls._parse_tag(parts[-1])
+        tags = _DistFilenameParser._parse_tag(parts[-1])
         return (name, version, build, tags)
+
+    @staticmethod
+    @functools.cache
+    def parse_sdist_filename(filename: str) -> tuple[NormalizedName, ParsedVersion]:
+        if filename.endswith(".tar.gz"):
+            file_stem = filename[: -len(".tar.gz")]
+        elif filename.endswith(".zip"):
+            file_stem = filename[: -len(".zip")]
+        else:
+            raise InvalidSdistFilename(
+                f"Invalid sdist filename (extension must be '.tar.gz' or '.zip'):"
+                f" {filename!r}"
+            )
+
+        # We are requiring a PEP 440 version, which cannot contain dashes,
+        # so we split on the last dash.
+        name_part, sep, version_part = file_stem.rpartition("-")
+        if not sep:
+            raise InvalidSdistFilename(f"Invalid sdist filename: {filename!r}")
+
+        name = canonicalize_name(name_part)
+
+        try:
+            version = ParsedVersion.parse(version_part)
+        except InvalidVersion as e:
+            raise InvalidSdistFilename(
+                f"Invalid sdist filename (invalid version): {filename!r}"
+            ) from e
+
+        return (name, version)
 
 
 def parse_wheel_filename(
     filename: str,
 ) -> tuple[NormalizedName, ParsedVersion, BuildTag, frozenset[Tag]]:
-    return _WheelFilenameParser.parse_wheel_filename(filename)
+    return _DistFilenameParser.parse_wheel_filename(filename)
 
 
 def parse_sdist_filename(filename: str) -> tuple[NormalizedName, ParsedVersion]:
-    if filename.endswith(".tar.gz"):
-        file_stem = filename[: -len(".tar.gz")]
-    elif filename.endswith(".zip"):
-        file_stem = filename[: -len(".zip")]
-    else:
-        raise InvalidSdistFilename(
-            f"Invalid sdist filename (extension must be '.tar.gz' or '.zip'):"
-            f" {filename!r}"
-        )
-
-    # We are requiring a PEP 440 version, which cannot contain dashes,
-    # so we split on the last dash.
-    name_part, sep, version_part = file_stem.rpartition("-")
-    if not sep:
-        raise InvalidSdistFilename(f"Invalid sdist filename: {filename!r}")
-
-    name = canonicalize_name(name_part)
-
-    try:
-        version = ParsedVersion.parse(version_part)
-    except InvalidVersion as e:
-        raise InvalidSdistFilename(
-            f"Invalid sdist filename (invalid version): {filename!r}"
-        ) from e
-
-    return (name, version)
+    return _DistFilenameParser.parse_sdist_filename(filename)

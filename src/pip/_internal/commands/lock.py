@@ -116,7 +116,7 @@ class LockCommand(RequirementCommand):
         reqs = self.get_requirements(args, options, finder, session)
         check_legacy_setup_py_options(options, reqs)
 
-        wheel_cache = WheelCache(options.cache_dir)
+        wheel_cache = WheelCache.create(options.cache_dir)
 
         # Only when installing is it permitted to use PEP 660.
         # In other circumstances (pip wheel, pip download) we generate

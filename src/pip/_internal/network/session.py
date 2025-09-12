@@ -30,7 +30,6 @@ from pip._vendor.requests.structures import CaseInsensitiveDict
 from pip._vendor.urllib3.connectionpool import ConnectionPool
 from pip._vendor.urllib3.exceptions import InsecureRequestWarning
 
-from pip._internal.models.link import Link
 from pip._internal.network.auth import MultiDomainBasicAuth
 from pip._internal.network.cache import SafeFileCache
 from pip._internal.utils.misc import build_url_from_netloc, parse_netloc
@@ -655,13 +654,14 @@ class PipSession(requests.Session):
         for host, port in self.pip_trusted_origins:
             yield ("*", host, "*" if port is None else port)
 
-    def is_secure_origin(self, location: Link) -> bool:
-        # Determine if this url used a secure transport mechanism
-        parsed = urllib.parse.urlparse(str(location))
+    def is_secure_origin(self, location: ParsedUrl) -> bool:
+        """Determine if this url used a secure transport mechanism."""
+        # TODO: determine how to compute these in ParsedUrl!
+        parsed_location = urllib.parse.urlparse(str(location))
         origin_protocol, origin_host, origin_port = (
-            parsed.scheme,
-            parsed.hostname,
-            parsed.port,
+            parsed_location.scheme,
+            parsed_location.hostname,
+            parsed_location.port,
         )
 
         # The protocol to use to see if the protocol matches.

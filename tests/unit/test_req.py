@@ -432,8 +432,8 @@ class TestRequirementSet:
         """Test download_info hash is not set for an archive with legacy cache entry."""
         url = shared_data.packages.joinpath("simple-1.0.tar.gz").as_uri()
         finder = make_test_finder()
-        wheel_cache = WheelCache(str(tmp_path / "cache"))
-        cache_entry_dir = wheel_cache.get_path_for_link(Link(url))
+        wheel_cache = WheelCache.create(str(tmp_path / "cache"))
+        cache_entry_dir = wheel_cache._get_wheel_path_for_link(Link(url))
         Path(cache_entry_dir).mkdir(parents=True)
         wheel.make_wheel(name="simple", version="1.0").save_to_dir(cache_entry_dir)
         with self._basic_resolver(finder, wheel_cache=wheel_cache) as resolver:
@@ -456,8 +456,8 @@ class TestRequirementSet:
         url = shared_data.packages.joinpath("simple-1.0.tar.gz").as_uri()
         hash = "sha256=ad977496000576e1b6c41f6449a9897087ce9da6db4f15b603fe8372af4bf3c6"
         finder = make_test_finder()
-        wheel_cache = WheelCache(str(tmp_path / "cache"))
-        cache_entry_dir = wheel_cache.get_path_for_link(Link(url))
+        wheel_cache = WheelCache.create(str(tmp_path / "cache"))
+        cache_entry_dir = wheel_cache._get_wheel_path_for_link(Link(url))
         Path(cache_entry_dir).mkdir(parents=True)
         Path(cache_entry_dir).joinpath("origin.json").write_text(
             DirectUrl.create(url, ArchiveInfo.parse(hash=hash)).to_json()
@@ -481,8 +481,8 @@ class TestRequirementSet:
         """Test an invalid origin.json is ignored."""
         url = shared_data.packages.joinpath("simple-1.0.tar.gz").as_uri()
         finder = make_test_finder()
-        wheel_cache = WheelCache(str(tmp_path / "cache"))
-        cache_entry_dir = wheel_cache.get_path_for_link(Link(url))
+        wheel_cache = WheelCache.create(str(tmp_path / "cache"))
+        cache_entry_dir = wheel_cache._get_wheel_path_for_link(Link(url))
         Path(cache_entry_dir).mkdir(parents=True)
         Path(cache_entry_dir).joinpath("origin.json").write_text("{")  # invalid json
         wheel.make_wheel(name="simple", version="1.0").save_to_dir(cache_entry_dir)

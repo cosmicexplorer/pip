@@ -8,17 +8,19 @@ from pip._vendor.packaging.tags import Tag
 from pip._vendor.packaging.utils import canonicalize_name
 
 from pip._internal.index.collector import LinkCollector
+from pip._internal.index.hash_filter import CandidateHashFilter
+from pip._internal.index.link_evaluator import (
+    EvaluationResult,
+    FoundCandidate,
+    LinkEvaluator,
+    LinkType,
+    _IncompatibleRequiresPython,
+    _YankedReason,
+)
 from pip._internal.index.package_finder import (
     CandidateEvaluator,
     CandidatePreferences,
-    EvaluationResult,
-    LinkEvaluator,
-    LinkType,
     PackageFinder,
-    _CandidateHashFilter,
-    _FoundCandidate,
-    _IncompatibleRequiresPython,
-    _YankedReason,
 )
 from pip._internal.models.format_control import AllowedFormats, FormatControlBuilder
 from pip._internal.models.link import Link
@@ -128,7 +130,7 @@ class TestLinkEvaluator:
             pytest.param(
                 (3, 6, 5),
                 False,
-                _FoundCandidate("1.12"),
+                FoundCandidate("1.12"),
                 id="compatible",
             ),
             pytest.param(
@@ -143,7 +145,7 @@ class TestLinkEvaluator:
             pytest.param(
                 (3, 6, 4),
                 True,
-                _FoundCandidate("1.12"),
+                FoundCandidate("1.12"),
                 id="requires-python-mismatch-ignored",
             ),
         ],
@@ -172,22 +174,22 @@ class TestLinkEvaluator:
     @pytest.mark.parametrize(
         "yanked_reason, allow_yanked, expected",
         [
-            (None, True, _FoundCandidate("1.12")),
-            (None, False, _FoundCandidate("1.12")),
-            ("", True, _FoundCandidate("1.12")),
+            (None, True, FoundCandidate("1.12")),
+            (None, False, FoundCandidate("1.12")),
+            ("", True, FoundCandidate("1.12")),
             (
                 "",
                 False,
                 _YankedReason(None),
             ),
-            ("bad metadata", True, _FoundCandidate("1.12")),
+            ("bad metadata", True, FoundCandidate("1.12")),
             (
                 "bad metadata",
                 False,
                 _YankedReason("bad metadata"),
             ),
             # Test a unicode string with a non-ascii character.
-            ("curly quote: \u2018", True, _FoundCandidate("1.12")),
+            ("curly quote: \u2018", True, FoundCandidate("1.12")),
             (
                 "curly quote: \u2018",
                 False,
@@ -256,7 +258,7 @@ def test_filter_unallowed_hashes(hex_digest: str, expected_versions: list[str]) 
         "sha256": [hex_digest],
     }
     hashes = Hashes(hashes_data)
-    filt = _CandidateHashFilter(
+    filt = CandidateHashFilter(
         project_name="my-project",
         hashes=hashes,
     )
@@ -273,7 +275,7 @@ def test_filter_unallowed_hashes__no_hashes(caplog: pytest.LogCaptureFixture) ->
         make_mock_candidate("1.0"),
         make_mock_candidate("1.1"),
     ]
-    filt = _CandidateHashFilter(
+    filt = CandidateHashFilter(
         project_name="my-project",
         hashes=Hashes(),
     )
@@ -311,7 +313,7 @@ def test_filter_unallowed_hashes__log_message_with_match(
         "sha256": [64 * "a", 64 * "d"],
     }
     hashes = Hashes(hashes_data)
-    filt = _CandidateHashFilter(
+    filt = CandidateHashFilter(
         project_name="my-project",
         hashes=hashes,
     )
@@ -343,7 +345,7 @@ def test_filter_unallowed_hashes__log_message_with_no_match(
         "sha256": [64 * "a", 64 * "d"],
     }
     hashes = Hashes(hashes_data)
-    filt = _CandidateHashFilter(
+    filt = CandidateHashFilter(
         project_name="my-project",
         hashes=hashes,
     )
@@ -589,7 +591,7 @@ class TestPackageFinder:
         """
         link_collector = LinkCollector(
             session=PipSession(),
-            search_scope=SearchScope([], [], False),
+            search_scope=SearchScope.empty(),
         )
         selection_prefs = SelectionPreferences(
             allow_yanked=True,
@@ -610,7 +612,7 @@ class TestPackageFinder:
         """
         link_collector = LinkCollector(
             session=PipSession(),
-            search_scope=SearchScope([], [], False),
+            search_scope=SearchScope.empty(),
         )
         finder = PackageFinder.create(
             link_collector=link_collector,
@@ -625,7 +627,7 @@ class TestPackageFinder:
         """
         link_collector = LinkCollector(
             session=PipSession(),
-            search_scope=SearchScope([], [], False),
+            search_scope=SearchScope.empty(),
         )
         target_python = TargetPython.create(py_version_info=(3, 7, 3))
         finder = PackageFinder.create(
@@ -645,7 +647,7 @@ class TestPackageFinder:
         """
         link_collector = LinkCollector(
             session=PipSession(),
-            search_scope=SearchScope([], [], False),
+            search_scope=SearchScope.empty(),
         )
         finder = PackageFinder.create(
             link_collector=link_collector,
@@ -664,7 +666,7 @@ class TestPackageFinder:
         """
         link_collector = LinkCollector(
             session=PipSession(),
-            search_scope=SearchScope([], [], False),
+            search_scope=SearchScope.empty(),
         )
         selection_prefs = SelectionPreferences(allow_yanked=allow_yanked)
         finder = PackageFinder.create(
@@ -680,7 +682,7 @@ class TestPackageFinder:
         """
         link_collector = LinkCollector(
             session=PipSession(),
-            search_scope=SearchScope([], [], False),
+            search_scope=SearchScope.empty(),
         )
         selection_prefs = SelectionPreferences(
             allow_yanked=True,
@@ -698,7 +700,7 @@ class TestPackageFinder:
         """
         link_collector = LinkCollector(
             session=PipSession(),
-            search_scope=SearchScope([], [], False),
+            search_scope=SearchScope.empty(),
         )
         format_control = FormatControlBuilder(set(), {":all:"})
         selection_prefs = SelectionPreferences(
@@ -739,7 +741,7 @@ class TestPackageFinder:
 
         link_collector = LinkCollector(
             session=PipSession(),
-            search_scope=SearchScope([], [], False),
+            search_scope=SearchScope.empty(),
         )
 
         finder = PackageFinder(
@@ -789,7 +791,7 @@ class TestPackageFinder:
         )
         link_collector = LinkCollector(
             session=PipSession(),
-            search_scope=SearchScope([], [], False),
+            search_scope=SearchScope.empty(),
         )
         finder = PackageFinder(
             link_collector=link_collector,

@@ -9,9 +9,15 @@ import json
 import logging
 import os
 import re
-from collections.abc import Iterator
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    ClassVar,
+    NewType,
+    cast,
+)
 
 from pip._vendor.packaging.tags import interpreter_name, interpreter_version
 from pip._vendor.packaging.utils import canonicalize_name
@@ -23,8 +29,13 @@ from pip._internal.models.target_python import TargetPython
 from pip._internal.models.wheel import WheelInfo
 from pip._internal.req.req_install import InstallRequirement
 from pip._internal.utils.temp_dir import TempDirectory, tempdir_kinds
-from pip._internal.utils.urls import path_to_url
+from pip._internal.utils.urls import ParsedUrl, path_to_url
 from pip._internal.vcs import vcs
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
+    from typing_extensions import Self
 
 logger = logging.getLogger(__name__)
 
@@ -94,19 +105,44 @@ class Cache(abc.ABC):
     :param cache_dir: The root of the cache.
     """
 
+    @classmethod
+    @abc.abstractmethod
+    def subdir_name(cls) -> str: ...
+
     def __init__(self, cache_dir: str) -> None:
         super().__init__()
         assert not cache_dir or os.path.isabs(cache_dir)
-        self.cache_dir = cache_dir or None
+        self._cache_dir = Path(cache_dir) or None
 
+    @functools.cached_property
+    def cache_subdir_path(self) -> Path:
+        assert self._cache_dir is not None, self
+        self._cache_dir.mkdir(parents=True, exist_ok=True)
+
+        subdir_name = self.subdir_name()
+        assert subdir_name, (self, subdir_name)
+        ret = self._cache_dir / subdir_name
+        assert ret != self._cache_dir, (self, ret)
+        ret.mkdir(exist_ok=True)
+        return ret
+
+
+_HashedData = NewType("_HashedData", str)
+
+
+class _HashUtil:
     @staticmethod
-    def _hash_dict(d: dict[str, str]) -> str:
-        """Return a stable sha224 of a dictionary."""
-        s = json.dumps(d, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
-        return hashlib.sha224(s.encode("ascii")).hexdigest()
+    def encode_data(s: str) -> _HashedData:
+        return cast(_HashedData, hashlib.sha224(s.encode("ascii")).hexdigest())
 
     @classmethod
-    def split_hash_into_nested_dirs(cls, hashed: str) -> tuple[str, str, str, str]:
+    def hash_dict(cls, d: dict[str, str]) -> _HashedData:
+        """Return a stable sha224 of a dictionary."""
+        s = json.dumps(d, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+        return cls.encode_data(s)
+
+    @staticmethod
+    def split_hash_into_nested_dirs(hashed: _HashedData) -> tuple[str, str, str, str]:
         """Split a single sha224 hashed output into fixed-width non-empty components.
 
         We use this output for deduplicated nested directory paths.
@@ -122,6 +158,46 @@ class Cache(abc.ABC):
         if len(hashed) != 56:
             raise TypeError(f"expected sha224 hexdigest string, but got: {hashed!r}")
         return hashed[:2], hashed[2:4], hashed[4:6], hashed[6:]
+
+
+class SerializableEntry(metaclass=abc.ABCMeta):
+    @classmethod
+    @abc.abstractmethod
+    def suffix(cls) -> str: ...
+
+    @abc.abstractmethod
+    def serialize(self) -> dict[str, Any]: ...
+
+
+class FetchResolveCache(Cache):
+    @classmethod
+    def subdir_name(cls) -> str:
+        return "fetch-resolve"
+
+    def fetch_cache_path(self, url: ParsedUrl) -> Path:
+        parts = _HashUtil.split_hash_into_nested_dirs(
+            _HashUtil.encode_data(str(url.without_fragment()))
+        )
+        return self.cache_subdir_path.joinpath(*parts)
+
+    @classmethod
+    def hashed_entry_name(cls, entry: SerializableEntry) -> str:
+        hashed = _HashUtil.hash_dict(entry.serialize())
+        return f"{hashed}{entry.suffix()}"
+
+    @staticmethod
+    def clear_hashed_entries(in_dir: Path, entry_type: type[SerializableEntry]) -> None:
+        for hashed_entry in in_dir.glob(f"*{entry_type.suffix()}"):
+            logger.debug(
+                "unlinking invalidated hashed link eval cache entry %s", hashed_entry
+            )
+            try:
+                hashed_entry.unlink()
+            except OSError:
+                pass
+
+
+class _LinkHashUtil(_HashUtil):
 
     @staticmethod
     @functools.cache
@@ -147,9 +223,9 @@ class Cache(abc.ABC):
         return key_parts
 
     @classmethod
-    def _get_cache_path_parts(
+    def get_cache_path_parts(
         cls, link: Link, *, interpreter_dependent: bool
-    ) -> tuple[str, ...]:
+    ) -> tuple[str, str, str, str]:
         """Get parts of part that must be os.path.joined with cache_dir"""
         key_parts = cls._link_key_dict(link)
 
@@ -165,63 +241,38 @@ class Cache(abc.ABC):
         # security properties to sha256, but with a shorter total output (and
         # thus less secure). However the differences don't make a lot of
         # difference for our use case here.
-        hashed = cls._hash_dict(key_parts)
+        hashed = cls.hash_dict(key_parts)
 
         # We want to nest the directories some to prevent having a ton of top
         # level directories where we might run out of sub directories on some
         # FS.
         return cls.split_hash_into_nested_dirs(hashed)
 
+
+class DistCache(Cache):
+
     @abc.abstractmethod
-    def get_path_for_link(self, link: Link) -> str:
+    def _get_path_for_link(self, link: Link) -> Path:
         """Return a directory to store cached items in for link."""
         ...
 
     def cache_path(self, link: Link) -> Path:
-        return Path(self.get_path_for_link(link))
+        return self._get_path_for_link(link)
 
 
-class LinkMetadataCache(Cache):
+class LinkMetadataCache(DistCache):
     """Persistently store the metadata of dists found at each link."""
 
-    def get_path_for_link(self, link: Link) -> str:
-        parts = self._get_cache_path_parts(link, interpreter_dependent=True)
-        assert self.cache_dir
-        return os.path.join(self.cache_dir, "link-metadata", *parts)
-
-
-class SerializableEntry(metaclass=abc.ABCMeta):
     @classmethod
-    @abc.abstractmethod
-    def suffix(cls) -> str: ...
+    def subdir_name(cls) -> str:
+        return "link-metadata"
 
-    @abc.abstractmethod
-    def serialize(self) -> dict[str, Any]: ...
-
-
-class FetchResolveCache(Cache):
-    def get_path_for_link(self, link: Link) -> str:
-        # We are reading index links to extract other links from, not executing any
-        # python code, so these caches are interpreter-independent.
-        parts = self._get_cache_path_parts(link, interpreter_dependent=False)
-        assert self.cache_dir
-        return os.path.join(self.cache_dir, "fetch-resolve", *parts)
-
-    def hashed_entry_path(self, link: Link, entry: SerializableEntry) -> Path:
-        hashed = self.__class__._hash_dict(entry.serialize())
-        return self.cache_path(link) / f"{hashed}{entry.suffix()}"
-
-    def clear_hashed_entries(
-        self, link: Link, entry_type: type[SerializableEntry]
-    ) -> None:
-        for hashed_entry in self.cache_path(link).glob(f"*{entry_type.suffix()}"):
-            logger.debug(
-                "unlinking invalidated hashed link eval cache entry %s", hashed_entry
-            )
-            hashed_entry.unlink()
+    def _get_path_for_link(self, link: Link) -> Path:
+        parts = _LinkHashUtil.get_cache_path_parts(link, interpreter_dependent=True)
+        return self.cache_subdir_path.joinpath(*parts)
 
 
-class WheelCacheBase(Cache):
+class WheelIndex(metaclass=abc.ABCMeta):
     """Specializations to the cache concept for wheels."""
 
     @abc.abstractmethod
@@ -236,31 +287,27 @@ class WheelCacheBase(Cache):
         """
         ...
 
-    def _can_cache(self, link: Link, canonical_package_name: str) -> bool:
-        return bool(self.cache_dir and canonical_package_name and link)
 
-    def _get_candidates(
-        self, link: Link, canonical_package_name: str
-    ) -> Iterator[tuple[str, str]]:
-        if not self._can_cache(link, canonical_package_name):
-            return
-
-        path = self.get_path_for_link(link)
-        if not os.path.isdir(path):
-            return
-
-        for candidate in os.scandir(path):
-            if candidate.is_file():
-                yield (candidate.name, path)
-
-
-class SimpleWheelCache(WheelCacheBase):
+class SimpleWheelCache(WheelIndex, DistCache):
     """A cache of wheels for future installs."""
 
-    def __init__(self, cache_dir: str) -> None:
-        super().__init__(cache_dir)
+    def __bool__(self) -> bool:
+        return self._cache_dir is not None
 
-    def get_path_for_link(self, link: Link) -> str:
+    @classmethod
+    def subdir_name(cls) -> str:
+        return "wheels"
+
+    @classmethod
+    def ephemeral(cls) -> Self:
+        """Use a temporary cache directory."""
+        temp_dir = TempDirectory(
+            kind=tempdir_kinds.EPHEM_WHEEL_CACHE,
+            globally_managed=True,
+        )
+        return cls(cache_dir=temp_dir.path)
+
+    def _get_path_for_link(self, link: Link) -> Path:
         """Return a directory to store cached wheels for link
 
         Because there are M wheels for any one sdist, we provide a directory
@@ -275,10 +322,25 @@ class SimpleWheelCache(WheelCacheBase):
 
         :param link: The link of the sdist for which this will cache wheels.
         """
-        parts = self._get_cache_path_parts(link, interpreter_dependent=True)
-        assert self.cache_dir
-        # Store wheels within the root cache_dir
-        return os.path.join(self.cache_dir, "wheels", *parts)
+        parts = _LinkHashUtil.get_cache_path_parts(link, interpreter_dependent=True)
+        return self.cache_subdir_path.joinpath(*parts)
+
+    def _get_candidates(
+        self, link: Link, canonical_package_name: str
+    ) -> Iterator[tuple[str, Path]]:
+        assert canonical_package_name, (self, link)
+        assert link.parsed_url.path, (self, link, canonical_package_name)
+
+        if not bool(self):
+            return
+
+        path = self._get_path_for_link(link)
+        if not os.path.isdir(path):
+            return
+
+        for candidate in os.scandir(path):
+            if candidate.is_file():
+                yield (candidate.name, path)
 
     def get(
         self,
@@ -286,7 +348,7 @@ class SimpleWheelCache(WheelCacheBase):
         package_name: str | None,
         py: TargetPython,
     ) -> Link:
-        candidates: list[tuple[int, str, str]] = []
+        candidates: list[tuple[int, str, Path]] = []
 
         if not package_name:
             return link
@@ -321,71 +383,37 @@ class SimpleWheelCache(WheelCacheBase):
             return link
 
         _, wheel_name, wheel_dir = min(candidates)
-        return Link(path_to_url(os.path.join(wheel_dir, wheel_name)))
+        return Link(path_to_url(str(wheel_dir / wheel_name)))
 
 
-class EphemWheelCache(SimpleWheelCache):
-    """A SimpleWheelCache that creates it's own temporary cache directory"""
-
-    def __init__(self) -> None:
-        self._temp_dir = TempDirectory(
-            kind=tempdir_kinds.EPHEM_WHEEL_CACHE,
-            globally_managed=True,
-        )
-
-        super().__init__(self._temp_dir.path)
-
-
+@dataclass(frozen=True)
 class CacheEntry:
-    def __init__(
-        self,
-        link: Link,
-        persistent: bool,
-    ):
-        self.link = link
-        self.persistent = persistent
-        self.origin: DirectUrl | None = None
+    link: Link
+    persistent: bool
+
+    __slots__ = ["link", "persistent", "__dict__"]
+
+    @functools.cached_property
+    def origin(self) -> DirectUrl | None:
+        origin: DirectUrl | None = None
         origin_direct_url_path = Path(self.link.file_path).parent / ORIGIN_JSON_NAME
         if origin_direct_url_path.exists():
             try:
-                self.origin = DirectUrl.from_json(
+                origin = DirectUrl.from_json(
                     origin_direct_url_path.read_text(encoding="utf-8")
                 )
             except Exception as e:
                 logger.warning(
                     "Ignoring invalid cache entry origin file %s for %s (%s)",
                     origin_direct_url_path,
-                    link.filename,
+                    self.link.filename,
                     e,
                 )
+        return origin
 
 
-class WheelCache(WheelCacheBase):
-    """Wraps EphemWheelCache and SimpleWheelCache into a single Cache
-
-    This Cache allows for gracefully degradation, using the ephem wheel cache
-    when a certain link is not found in the simple wheel cache first.
-    """
-
-    def __init__(self, cache_dir: str) -> None:
-        super().__init__(cache_dir)
-        self._wheel_cache = SimpleWheelCache(cache_dir)
-        self._ephem_cache = EphemWheelCache()
-
-    def get_path_for_link(self, link: Link) -> str:
-        return self._wheel_cache.get_path_for_link(link)
-
-    def get_ephem_path_for_link(self, link: Link) -> str:
-        return self._ephem_cache.get_path_for_link(link)
-
-    def resolve_cache_dir(self, req: InstallRequirement) -> str:
-        """Return the persistent or temporary cache directory where the built or
-        downloaded wheel should be stored."""
-        cache_available = bool(self.cache_dir)
-        assert req.link, req
-        if cache_available and _CacheabilityJudge.should_cache(req):
-            return self.get_path_for_link(req.link)
-        return self.get_ephem_path_for_link(req.link)
+class WheelDatabase(WheelIndex):
+    """A `WheelIndex` implementation which produces `CacheEntry` results."""
 
     def get(
         self,
@@ -397,6 +425,47 @@ class WheelCache(WheelCacheBase):
         if cache_entry is None:
             return link
         return cache_entry.link
+
+    @abc.abstractmethod
+    def get_cache_entry(
+        self,
+        link: Link,
+        package_name: str | None,
+        py: TargetPython,
+    ) -> CacheEntry | None: ...
+
+
+@dataclass(frozen=True)
+class WheelCache(WheelDatabase):
+    """Wraps EphemWheelCache and SimpleWheelCache into a single Cache
+
+    This Cache allows for gracefully degradation, using the ephem wheel cache
+    when a certain link is not found in the simple wheel cache first.
+    """
+
+    _wheel_cache: SimpleWheelCache
+
+    @classmethod
+    def create(cls, cache_dir: str) -> Self:
+        return cls(_wheel_cache=SimpleWheelCache(cache_dir=cache_dir))
+
+    @functools.cached_property
+    def _ephem_cache(self) -> SimpleWheelCache:
+        return SimpleWheelCache.ephemeral()
+
+    def _get_wheel_path_for_link(self, link: Link) -> Path:
+        return self._wheel_cache.cache_path(link)
+
+    def _get_ephem_path_for_link(self, link: Link) -> Path:
+        return self._ephem_cache.cache_path(link)
+
+    def resolve_cache_dir(self, req: InstallRequirement) -> Path:
+        """Return the persistent or temporary cache directory where the built or
+        downloaded wheel should be stored."""
+        assert req.link, req
+        if bool(self._wheel_cache) and _CacheabilityJudge.should_cache(req):
+            return self._get_wheel_path_for_link(req.link)
+        return self._get_ephem_path_for_link(req.link)
 
     def get_cache_entry(
         self,
@@ -426,9 +495,16 @@ class WheelCache(WheelCacheBase):
 
         return None
 
-    @staticmethod
-    def record_download_origin(cache_dir: str, download_info: DirectUrl) -> None:
-        origin_path = Path(cache_dir) / ORIGIN_JSON_NAME
+
+@dataclass(frozen=True, slots=True)
+class DownloadOrigin:
+    cache_dir: Path
+
+    def __post_init__(self) -> None:
+        assert self.cache_dir.is_dir(), self
+
+    def record_download_origin(self, download_info: DirectUrl) -> None:
+        origin_path = self.cache_dir / ORIGIN_JSON_NAME
         if origin_path.exists():
             try:
                 origin = DirectUrl.from_json(origin_path.read_text(encoding="utf-8"))
@@ -448,7 +524,7 @@ class WheelCache(WheelCacheBase):
                         "%s. This is likely a pip bug or a cache corruption issue. "
                         "Will overwrite it with the new value.",
                         origin.url,
-                        cache_dir,
+                        self.cache_dir,
                         download_info.url,
                     )
         origin_path.write_text(download_info.to_json(), encoding="utf-8")
