@@ -16,7 +16,7 @@ from pip._vendor.cachecontrol.controller import CacheController
 if TYPE_CHECKING:
     from datetime import datetime
 
-    from filelock import BaseFileLock
+    from pip._vendor.filelock import BaseFileLock
 
 
 class _FileCacheMixin:
@@ -32,7 +32,7 @@ class _FileCacheMixin:
     ) -> None:
         try:
             if lock_class is None:
-                from filelock import FileLock
+                from pip._vendor.filelock import FileLock
 
                 lock_class = FileLock
         except ImportError:
